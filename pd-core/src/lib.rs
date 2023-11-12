@@ -7,26 +7,39 @@ use postcard::experimental::schema::Schema;
 use serde::{Deserialize, Serialize};
 
 pub mod headered {
-    use crate::Key;
+    use crate::{Key, WireHeader};
     use postcard::{
         experimental::schema::Schema,
         ser_flavors::{Cobs, Flavor as SerFlavor, Slice},
+        Serializer,
     };
     use serde::Serialize;
 
-    struct Header<B: SerFlavor> {
+    struct Headered<B: SerFlavor> {
         flavor: B,
     }
 
-    impl<B: SerFlavor> Header<B> {
-        fn try_new<T: Schema + ?Sized>(mut b: B, path: &str) -> Result<Self, postcard::Error> {
-            let key_bytes = Key::for_path::<T>(path).0;
-            b.try_extend(&key_bytes)?;
-            Ok(Self { flavor: b })
+    impl<B: SerFlavor> Headered<B> {
+        fn try_new_keyed(b: B, seq_no: u32, key: Key) -> Result<Self, postcard::Error> {
+            let mut serializer = Serializer { output: b };
+            let hdr = WireHeader { key, seq_no };
+            hdr.serialize(&mut serializer)?;
+            Ok(Self {
+                flavor: serializer.output,
+            })
+        }
+
+        fn try_new<T: Schema + ?Sized>(
+            b: B,
+            seq_no: u32,
+            path: &str,
+        ) -> Result<Self, postcard::Error> {
+            let key = Key::for_path::<T>(path);
+            Self::try_new_keyed(b, seq_no, key)
         }
     }
 
-    impl<B: SerFlavor> SerFlavor for Header<B> {
+    impl<B: SerFlavor> SerFlavor for Headered<B> {
         type Output = B::Output;
 
         #[inline]
@@ -45,41 +58,57 @@ pub mod headered {
         }
     }
 
+    /// WARNING: This rehashes the schema! Prefer [to_slice_keyed]!
     pub fn to_slice<'a, T: Serialize + ?Sized + Schema>(
+        seq_no: u32,
         path: &str,
         value: &T,
         buf: &'a mut [u8],
     ) -> Result<&'a mut [u8], postcard::Error> {
-        let flavor = Header::try_new::<T>(Slice::new(buf), path)?;
+        let flavor = Headered::try_new::<T>(Slice::new(buf), seq_no, path)?;
         postcard::serialize_with_flavor(value, flavor)
     }
 
+    pub fn to_slice_keyed<'a, T: Serialize + ?Sized + Schema>(
+        seq_no: u32,
+        key: Key,
+        value: &T,
+        buf: &'a mut [u8],
+    ) -> Result<&'a mut [u8], postcard::Error> {
+        let flavor = Headered::try_new_keyed(Slice::new(buf), seq_no, key)?;
+        postcard::serialize_with_flavor(value, flavor)
+    }
+
+    /// WARNING: This rehashes the schema! Prefer [to_slice_cobs_keyed]!
     pub fn to_slice_cobs<'a, T: Serialize + ?Sized + Schema>(
+        seq_no: u32,
         path: &str,
         value: &T,
         buf: &'a mut [u8],
     ) -> Result<&'a mut [u8], postcard::Error> {
-        let flavor = Header::try_new::<T>(Cobs::try_new(Slice::new(buf))?, path)?;
+        let flavor = Headered::try_new::<T>(Cobs::try_new(Slice::new(buf))?, seq_no, path)?;
         postcard::serialize_with_flavor(value, flavor)
     }
 
-    pub fn extract_header_from_bytes(slice: &[u8]) -> Result<(Key, &[u8]), postcard::Error> {
-        if slice.len() < 8 {
-            return Err(postcard::Error::DeserializeUnexpectedEnd);
-        }
-        let (key, body) = slice.split_at(8);
-        let mut key_bytes = [0u8; 8];
-        key_bytes.copy_from_slice(key);
-        Ok((Key(key_bytes), body))
+    pub fn to_slice_cobs_keyed<'a, T: Serialize + ?Sized + Schema>(
+        seq_no: u32,
+        key: Key,
+        value: &T,
+        buf: &'a mut [u8],
+    ) -> Result<&'a mut [u8], postcard::Error> {
+        let flavor = Headered::try_new_keyed(Cobs::try_new(Slice::new(buf))?, seq_no, key)?;
+        postcard::serialize_with_flavor(value, flavor)
     }
 
-    pub fn extract_header_from_bytes_cobs(
-        slice: &mut [u8],
-    ) -> Result<(Key, &[u8]), postcard::Error> {
-        let used =
-            cobs::decode_in_place(slice).map_err(|_| postcard::Error::DeserializeBadEncoding)?;
-        extract_header_from_bytes(&slice[..used])
+    pub fn extract_header_from_bytes(slice: &[u8]) -> Result<(WireHeader, &[u8]), postcard::Error> {
+        postcard::take_from_bytes::<WireHeader>(slice)
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct WireHeader {
+    pub key: Key,
+    pub seq_no: u32,
 }
 
 struct HashWrap {
@@ -111,6 +140,16 @@ impl Hasher for HashWrap {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Serialize, Deserialize)]
 pub struct Key([u8; 8]);
 
+impl core::fmt::Debug for Key {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Key(")?;
+        for b in self.0.iter() {
+            f.write_fmt(format_args!("{:02X}", b))?;
+        }
+        f.write_str(")")
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Error<E> {
     NoMatchingHandler,
@@ -136,7 +175,7 @@ impl Key {
     }
 }
 
-type Handler<C, E> = fn(&mut C, &[u8]) -> Result<(), E>;
+type Handler<C, E> = fn(&WireHeader, &mut C, &[u8]) -> Result<(), E>;
 
 pub struct Dispatch<Context, Error, const N: usize> {
     items: heapless::Vec<(Key, Handler<Context, Error>), N>,
@@ -171,16 +210,16 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
     }
 
     pub fn dispatch(&mut self, bytes: &[u8]) -> Result<(), Error<E>> {
-        let (key, remain) = extract_header_from_bytes(bytes)?;
+        let (hdr, remain) = extract_header_from_bytes(bytes)?;
 
         // TODO: switch to binary search once we sort?
         let Some(disp) = self
             .items
             .iter()
-            .find_map(|(k, d)| if k == &key { Some(d) } else { None })
+            .find_map(|(k, d)| if k == &hdr.key { Some(d) } else { None })
         else {
             return Err(Error::<E>::NoMatchingHandler);
         };
-        (disp)(&mut self.context, remain).map_err(Error::DispatchFailure)
+        (disp)(&hdr, &mut self.context, remain).map_err(Error::DispatchFailure)
     }
 }

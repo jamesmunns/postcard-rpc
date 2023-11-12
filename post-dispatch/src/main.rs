@@ -1,5 +1,5 @@
 use core::fmt::Debug;
-use pd_core::{headered::to_slice, Dispatch};
+use pd_core::{headered::{to_slice, to_slice_keyed}, Dispatch, Key, WireHeader};
 use postcard::experimental::schema::Schema;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -16,27 +16,27 @@ struct Pixel {
     color: Rgb,
 }
 
-fn top<T: DeserializeOwned + Debug>(ctxt: &mut usize, body: &[u8]) -> Result<(), DemoError> {
+fn top<T: DeserializeOwned + Debug>(hdr: &WireHeader, ctxt: &mut usize, body: &[u8]) -> Result<(), DemoError> {
     *ctxt += 1;
     let msg = postcard::from_bytes::<T>(body).unwrap();
-    println!("rqst: {ctxt}; Mapped to Top! {msg:?}");
+    println!("hash: {:?}; rqst: {ctxt}; seq: {}; Mapped to Top! {msg:?}", hdr.key, hdr.seq_no);
     Ok(())
 }
 
-fn bottom<T: DeserializeOwned + Debug>(ctxt: &mut usize, body: &[u8]) -> Result<(), DemoError> {
+fn bottom<T: DeserializeOwned + Debug>(hdr: &WireHeader, ctxt: &mut usize, body: &[u8]) -> Result<(), DemoError> {
     *ctxt += 1;
     let msg = postcard::from_bytes::<T>(body).unwrap();
-    println!("rqst: {ctxt}; Mapped to Bottom! {msg:?}");
+    println!("hash: {:?}; rqst: {ctxt}; seq: {}; Mapped to Bottom! {msg:?}", hdr.key, hdr.seq_no);
     Ok(())
 }
 
-fn fav_color<T: DeserializeOwned + Debug>(ctxt: &mut usize, body: &[u8]) -> Result<(), DemoError> {
+fn fav_color<T: DeserializeOwned + Debug>(hdr: &WireHeader, ctxt: &mut usize, body: &[u8]) -> Result<(), DemoError> {
     if *ctxt == 3 {
         return Err(DemoError::Lol);
     }
     *ctxt += 1;
     let msg = postcard::from_bytes::<T>(body).unwrap();
-    println!("rqst: {ctxt}; Mapped to favorite color {msg:?}");
+    println!("hash: {:?}; rqst: {ctxt}; seq: {}; Mapped to favorite color {msg:?}", hdr.key, hdr.seq_no);
     Ok(())
 }
 
@@ -56,6 +56,7 @@ fn main() {
     let mut scratch = [0u8; 128];
 
     let msg = to_slice(
+        10,
         "leds/top",
         &Pixel {
             position: 3,
@@ -70,8 +71,11 @@ fn main() {
     .unwrap();
     map.dispatch(msg).unwrap();
 
-    let msg = to_slice(
-        "leds/bottom",
+    let key = Key::for_path::<Pixel>("leds/bottom");
+
+    let msg = to_slice_keyed(
+        20,
+        key,
         &Pixel {
             position: 3,
             color: Rgb {
@@ -86,6 +90,7 @@ fn main() {
     map.dispatch(msg).unwrap();
 
     let msg = to_slice(
+        30,
         "favorite/color",
         &Rgb {
             r: 10,
@@ -98,6 +103,7 @@ fn main() {
     map.dispatch(msg).unwrap();
 
     let msg = to_slice(
+        40,
         "favorite/color",
         &Rgb {
             r: 10,

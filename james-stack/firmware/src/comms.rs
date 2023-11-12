@@ -9,7 +9,7 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender};
 
 use crate::accumulator::{CobsAccumulator, FeedResult};
 use james_icd::{Sleep, SleepDone};
-use pd_core::Dispatch;
+use pd_core::{Dispatch, Key, WireHeader};
 use static_cell::StaticCell;
 
 use crate::usb::{Disconnected, OtgDriver};
@@ -23,6 +23,7 @@ struct SendContents {
 struct Context {
     send: &'static Mutex<ThreadModeRawMutex, SendContents>,
     spawner: Spawner,
+    sleep_done_key: Key,
 }
 
 enum CommsError {
@@ -42,9 +43,12 @@ pub async fn comms_task(class: CdcAcmClass<'static, OtgDriver>) {
         scratch: [0u8; 128],
     }));
 
+    let sleep_done_key = Key::for_path::<SleepDone>(SLEEP_PATH);
+
     let mut dispatch = Dispatch::<Context, CommsError, 8>::new(Context {
         send,
         spawner: Spawner::for_current_executor().await,
+        sleep_done_key,
     });
     dispatch
         .add_handler::<Sleep>(SLEEP_PATH, sleep_handler)
@@ -84,11 +88,11 @@ async fn incoming(
     }
 }
 
-fn sleep_handler(c: &mut Context, bytes: &[u8]) -> Result<(), CommsError> {
+fn sleep_handler(hdr: &WireHeader, c: &mut Context, bytes: &[u8]) -> Result<(), CommsError> {
     info!("dispatching sleep...");
     let new_c = c.clone();
     if let Ok(msg) = postcard::from_bytes::<Sleep>(bytes) {
-        if c.spawner.spawn(sleep_task(new_c, msg)).is_ok() {
+        if c.spawner.spawn(sleep_task(hdr.seq_no, new_c, msg)).is_ok() {
             Ok(())
         } else {
             Err(CommsError::Oops)
@@ -100,7 +104,7 @@ fn sleep_handler(c: &mut Context, bytes: &[u8]) -> Result<(), CommsError> {
 }
 
 #[embassy_executor::task(pool_size = 3)]
-async fn sleep_task(c: Context, s: Sleep) {
+async fn sleep_task(seq_no: u32, c: Context, s: Sleep) {
     info!("Sleep spawned");
     Timer::after(Duration::from_secs(s.seconds.into())).await;
     Timer::after(Duration::from_micros(s.micros.into())).await;
@@ -110,7 +114,7 @@ async fn sleep_task(c: Context, s: Sleep) {
         ref mut scratch,
     } = &mut *c.send.lock().await;
     let msg = SleepDone { slept_for: s };
-    if let Ok(used) = pd_core::headered::to_slice_cobs(SLEEP_PATH, &msg, scratch) {
+    if let Ok(used) = pd_core::headered::to_slice_cobs_keyed(seq_no, c.sleep_done_key, &msg, scratch) {
         let max: usize = tx.max_packet_size().into();
         for ch in used.chunks(max - 1) {
             if tx.write_packet(ch).await.is_err() {
