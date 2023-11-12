@@ -1,9 +1,7 @@
 #![no_std]
 
-use core::hash::{Hash, Hasher};
-
 use blake2::{self, Blake2s, Digest};
-
+use core::hash::{Hash, Hasher};
 use postcard::experimental::schema::Schema;
 use serde::{Deserialize, Serialize};
 
