@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 blake2 = { version = "0.10.6", default-features = false }
+cobs = { version = "0.2.3", default-features = false }
 heapless = "0.8.0"
 postcard = { version = "1.0.8", features = ["experimental-derive"] }
 serde = { version = "1.0.192", default-features = false, features = ["derive"] }

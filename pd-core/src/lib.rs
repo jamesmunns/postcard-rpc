@@ -2,8 +2,85 @@
 
 use blake2::{self, Blake2s, Digest};
 use core::hash::{Hash, Hasher};
+use headered::extract_header_from_bytes;
 use postcard::experimental::schema::Schema;
 use serde::{Deserialize, Serialize};
+
+pub mod headered {
+    use crate::Key;
+    use postcard::{
+        experimental::schema::Schema,
+        ser_flavors::{Cobs, Flavor as SerFlavor, Slice},
+    };
+    use serde::Serialize;
+
+    struct Header<B: SerFlavor> {
+        flavor: B,
+    }
+
+    impl<B: SerFlavor> Header<B> {
+        fn try_new<T: Schema + ?Sized>(mut b: B, path: &str) -> Result<Self, postcard::Error> {
+            let key_bytes = Key::for_path::<T>(path).0;
+            b.try_extend(&key_bytes)?;
+            Ok(Self { flavor: b })
+        }
+    }
+
+    impl<B: SerFlavor> SerFlavor for Header<B> {
+        type Output = B::Output;
+
+        #[inline]
+        fn try_push(&mut self, data: u8) -> postcard::Result<()> {
+            self.flavor.try_push(data)
+        }
+
+        #[inline]
+        fn finalize(self) -> postcard::Result<Self::Output> {
+            self.flavor.finalize()
+        }
+
+        #[inline]
+        fn try_extend(&mut self, data: &[u8]) -> postcard::Result<()> {
+            self.flavor.try_extend(data)
+        }
+    }
+
+    pub fn to_slice<'a, T: Serialize + ?Sized + Schema>(
+        path: &str,
+        value: &T,
+        buf: &'a mut [u8],
+    ) -> Result<&'a mut [u8], postcard::Error> {
+        let flavor = Header::try_new::<T>(Slice::new(buf), path)?;
+        postcard::serialize_with_flavor(value, flavor)
+    }
+
+    pub fn to_slice_cobs<'a, T: Serialize + ?Sized + Schema>(
+        path: &str,
+        value: &T,
+        buf: &'a mut [u8],
+    ) -> Result<&'a mut [u8], postcard::Error> {
+        let flavor = Header::try_new::<T>(Cobs::try_new(Slice::new(buf))?, path)?;
+        postcard::serialize_with_flavor(value, flavor)
+    }
+
+    pub fn extract_header_from_bytes(slice: &[u8]) -> Result<(Key, &[u8]), postcard::Error> {
+        if slice.len() < 8 {
+            return Err(postcard::Error::DeserializeUnexpectedEnd);
+        }
+        let (key, body) = slice.split_at(8);
+        let mut key_bytes = [0u8; 8];
+        key_bytes.copy_from_slice(key);
+        Ok((Key(key_bytes), body))
+    }
+
+    pub fn extract_header_from_bytes_cobs(
+        slice: &mut [u8],
+    ) -> Result<(Key, &[u8]), postcard::Error> {
+        let used =
+            cobs::decode_in_place(slice).map_err(|_| postcard::Error::DeserializeBadEncoding)?;
+        extract_header_from_bytes(&slice[..used])
+    }
+}
 
 struct HashWrap {
     blake: Blake2s<blake2::digest::consts::U8>,
@@ -48,7 +125,7 @@ impl<E> From<postcard::Error> for Error<E> {
 }
 
 impl Key {
-    pub fn for_path<T>(path: &str) -> Self
+    pub fn for_path<T: ?Sized>(path: &str) -> Self
     where
         T: Schema,
     {
@@ -94,7 +171,7 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
     }
 
     pub fn dispatch(&mut self, bytes: &[u8]) -> Result<(), Error<E>> {
-        let (key, remain) = postcard::take_from_bytes::<Key>(bytes)?;
+        let (key, remain) = extract_header_from_bytes(bytes)?;
 
         // TODO: switch to binary search once we sort?
         let Some(disp) = self
