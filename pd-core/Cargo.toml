@@ -1,0 +1,12 @@
+[package]
+name = "pd-core"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+blake2 = { version = "0.10.6", default-features = false }
+heapless = "0.8.0"
+postcard = { version = "1.0.8", features = ["experimental-derive"] }
+serde = { version = "1.0.192", default-features = false, features = ["derive"] }
