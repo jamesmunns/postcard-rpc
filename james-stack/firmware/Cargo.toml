@@ -42,6 +42,10 @@ path = "../james-icd"
 
 [profile.release]
 debug = 2
+lto = "fat"
+codegen-units = 1
+incremental = false
+opt-level = 'z'
 
 [patch.crates-io]
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "b3367be9c8f0eb54d500dc2e6f652ade05859088" }

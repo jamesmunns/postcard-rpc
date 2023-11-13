@@ -8,7 +8,7 @@ use embassy_time::Timer;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender};
 
 use pd_core::accumulator::{CobsAccumulator, FeedResult};
-use james_icd::{Sleep, SleepDone};
+use james_icd::{Sleep, SleepDone, FatalError};
 use pd_core::{Dispatch, Key, WireHeader};
 use static_cell::StaticCell;
 
@@ -27,10 +27,11 @@ struct Context {
 }
 
 enum CommsError {
-    Oops,
+    Oops(u32),
 }
 
 const SLEEP_PATH: &str = "sleep";
+const ERROR_PATH: &str = "error";
 static SENDER: StaticCell<Mutex<ThreadModeRawMutex, SendContents>> = StaticCell::new();
 
 #[embassy_executor::task]
@@ -45,8 +46,8 @@ pub async fn comms_task(class: CdcAcmClass<'static, OtgDriver>) {
 
     // Pre-hash keys for responses
     let sleep_key = Key::for_path::<Sleep>(SLEEP_PATH);
-    info!("sleep_key: {:?}", sleep_key);
     let sleep_done_key = Key::for_path::<SleepDone>(SLEEP_PATH);
+    let error_key = Key::for_path::<FatalError>(ERROR_PATH);
 
     let mut dispatch = Dispatch::<Context, CommsError, 8>::new(Context {
         send,
@@ -61,7 +62,7 @@ pub async fn comms_task(class: CdcAcmClass<'static, OtgDriver>) {
         rx.wait_connection().await;
 
         info!("Connected");
-        let _ = incoming(&mut rx, &mut in_buf, &mut acc, &mut dispatch).await;
+        let _ = incoming(&mut rx, &mut in_buf, &mut acc, &mut dispatch, send, error_key).await;
         info!("Disconnected");
     }
 }
@@ -71,6 +72,8 @@ async fn incoming(
     buf: &mut [u8],
     acc: &mut CobsAccumulator<128>,
     disp: &mut Dispatch<Context, CommsError, 8>,
+    send: &'static Mutex<ThreadModeRawMutex, SendContents>,
+    error_key: Key,
 ) -> Result<(), Disconnected> {
     loop {
         let ct = rx.read_packet(buf).await?;
@@ -84,13 +87,29 @@ async fn incoming(
                 FeedResult::OverFull(new_wind) => new_wind,
                 FeedResult::DeserError(new_wind) => new_wind,
                 FeedResult::Success { data, remaining } => {
-                    info!("decobsed! {:?}", data);
                     match disp.dispatch(data) {
                         Ok(_) => info!("good disp!"),
-                        Err(e) => match e {
-                            pd_core::Error::NoMatchingHandler => info!("NMH"),
-                            pd_core::Error::DispatchFailure(_) => info!("DF"),
-                            pd_core::Error::Postcard(_) => info!("PC"),
+                        Err(e) => {
+                            match e {
+                                pd_core::Error::NoMatchingHandler => info!("NMH"),
+                                pd_core::Error::DispatchFailure(CommsError::Oops(n)) => {
+                                    info!("DF");
+                                    let SendContents {
+                                        ref mut tx,
+                                        ref mut scratch,
+                                    } = &mut *send.lock().await;
+                                    let msg = FatalError::NotEnoughSenders;
+                                    if let Ok(used) = pd_core::headered::to_slice_cobs_keyed(n, error_key, &msg, scratch) {
+                                        let max: usize = tx.max_packet_size().into();
+                                        for ch in used.chunks(max - 1) {
+                                            if tx.write_packet(ch).await.is_err() {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                },
+                                pd_core::Error::Postcard(_) => info!("PC"),
+                            }
                         },
                     }
                     remaining
@@ -107,11 +126,11 @@ fn sleep_handler(hdr: &WireHeader, c: &mut Context, bytes: &[u8]) -> Result<(), 
         if c.spawner.spawn(sleep_task(hdr.seq_no, new_c, msg)).is_ok() {
             Ok(())
         } else {
-            Err(CommsError::Oops)
+            Err(CommsError::Oops(hdr.seq_no))
         }
     } else {
         warn!("Out of senders!");
-        Err(CommsError::Oops)
+        Err(CommsError::Oops(hdr.seq_no))
     }
 }
 

@@ -1,7 +1,7 @@
 use std::{time::Duration, sync::{Arc, atomic::AtomicBool}, hash::{Hash, Hasher}};
 
 use host_client::{serial, io_thread};
-use james_icd::{SleepDone, Sleep};
+use james_icd::{SleepDone, Sleep, FatalError};
 use pd_core::{Dispatch, WireHeader, headered::{to_slice_cobs, to_slice_cobs_keyed, to_slice}, Key};
 use postcard::experimental::schema::Schema;
 use tokio::time::sleep;
@@ -16,10 +16,19 @@ enum CommsError {
 }
 
 const SLEEP_PATH: &str = "sleep";
+const ERROR_PATH: &str = "error";
 
 fn sleep_resp_handler(hdr: &WireHeader, _c: &mut Context, buf: &[u8]) -> Result<(), CommsError> {
     match postcard::from_bytes::<SleepDone>(buf) {
-        Ok(m) => println!("Got({}:{:?}): {m:?}", hdr.seq_no, hdr.key),
+        Ok(m) => println!(" -> Got({}:{:?}): {m:?}", hdr.seq_no, hdr.key),
+        Err(_) => println!("sleep done fail"),
+    }
+    Ok(())
+}
+
+fn error_resp_handler(hdr: &WireHeader, _c: &mut Context, buf: &[u8]) -> Result<(), CommsError> {
+    match postcard::from_bytes::<FatalError>(buf) {
+        Ok(m) => println!(" -> Got({}:{:?}): {m:?}", hdr.seq_no, hdr.key),
         Err(_) => println!("sleep done fail"),
     }
     Ok(())
@@ -48,6 +57,9 @@ async fn main() {
         dispatch
             .add_handler::<SleepDone>(SLEEP_PATH, sleep_resp_handler)
             .unwrap();
+        dispatch
+            .add_handler::<FatalError>(ERROR_PATH, error_resp_handler)
+            .unwrap();
 
         loop {
             let msg = rx_fw.recv().await.unwrap();
@@ -59,6 +71,7 @@ async fn main() {
     loop {
         let mut buf = [0u8; 128];
         let msg = Sleep { seconds: 3, micros: 500_000 };
+        println!("Sending ({ctr}): {msg:?}");
         let used = to_slice_cobs(ctr, SLEEP_PATH, &msg, &mut buf).unwrap();
         ctr += 1;
         tx_pc.send(used.to_vec()).await.unwrap();

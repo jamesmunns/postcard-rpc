@@ -1,5 +1,5 @@
 use blake2::{self, Blake2s, Digest};
-use postcard::experimental::schema::{Schema, NamedType, SdmTy, NamedVariant, NamedValue};
+use postcard::experimental::schema::{Schema, NamedType, SdmTy, NamedVariant, NamedValue, Varint};
 
 pub type Hasher = Blake2s<blake2::digest::consts::U8>;
 
@@ -13,7 +13,21 @@ fn hash_sdm_type(h: &mut Hasher, sdmty: &SdmTy) {
         SdmTy::Bool => h.update([0]),
         SdmTy::I8 => h.update([1]),
         SdmTy::U8 => h.update([2]),
-        SdmTy::Varint(_) => h.update([3]),
+        SdmTy::Varint(v) => {
+            h.update([3]);
+            match v {
+                Varint::I16 => h.update([0]),
+                Varint::I32 => h.update([1]),
+                Varint::I64 => h.update([2]),
+                Varint::I128 => h.update([3]),
+                Varint::U16 => h.update([4]),
+                Varint::U32 => h.update([5]),
+                Varint::U64 => h.update([6]),
+                Varint::U128 => h.update([7]),
+                Varint::Usize => h.update([8]),
+                Varint::Isize => h.update([9]),
+            }
+        },
         SdmTy::F32 => h.update([4]),
         SdmTy::F64 => h.update([5]),
         SdmTy::Char => h.update([6]),
