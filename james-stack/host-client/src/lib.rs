@@ -1,10 +1,19 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
+use std::{sync::{
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
-};
+}, time::Duration};
 
+use cobs::encode_vec;
+use icd::FatalError;
 pub use james_icd as icd;
-use pd_core::accumulator::raw::{CobsAccumulator, FeedResult};
+use maitake_sync::{wait_map::WakeOutcome, WaitMap};
+use pd_core::{
+    accumulator::raw::{CobsAccumulator, FeedResult},
+    headered::{extract_header_from_bytes, Headered},
+    Key, WireHeader,
+};
+use postcard::{experimental::schema::Schema, ser_flavors::StdVec};
+use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 /// Unfortunately, the `serialport` crate seems to have some issues on M-series Macs.
@@ -19,6 +28,82 @@ pub mod serial {
 
     #[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
     pub use serialport_regular::*;
+}
+
+struct HostClientWorker {
+    map: Arc<WaitMap<u32, Vec<u8>>>,
+    inc: Receiver<Vec<u8>>,
+}
+
+impl HostClientWorker {
+    async fn work(mut self) {
+        while let Some(msg) = self.inc.recv().await {
+            if let Ok((hdr, _body)) = extract_header_from_bytes(&msg) {
+                if let WakeOutcome::Closed(_) = self.map.wake(&hdr.seq_no, msg) {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct HostClient {
+    map: Arc<WaitMap<u32, Vec<u8>>>,
+    out: Sender<Vec<u8>>,
+    seq: Arc<AtomicU32>,
+}
+
+impl HostClient {
+    pub fn new(path: &str) -> Self {
+        let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(8);
+        let (tx_fw, rx_fw) = tokio::sync::mpsc::channel(8);
+
+        let port = serial::new(path, 115_200)
+            .timeout(Duration::from_millis(10))
+            .open()
+            .unwrap();
+
+        let halt = Arc::new(AtomicBool::new(false));
+
+        let _jh = Some(std::thread::spawn({
+            let halt = halt.clone();
+            move || io_thread(port, tx_fw, rx_pc, halt)
+        }));
+
+        let map = Arc::new(WaitMap::new());
+        let seq_no = Arc::new(AtomicU32::new(0));
+        tokio::task::spawn({
+            let map = map.clone();
+            async move {
+                HostClientWorker { map, inc: rx_fw }.work().await;
+            }
+        });
+
+        HostClient { map, out: tx_pc, seq: seq_no }
+    }
+
+    pub async fn send_resp<TX, RX>(&self, path: &str, t: TX) -> Result<RX, FatalError>
+    where
+        TX: Serialize + Schema,
+        RX: DeserializeOwned + Schema,
+    {
+        let seq_no = self.seq.fetch_add(1, Ordering::Relaxed);
+        let msg = to_stdvec(seq_no, path, &t).unwrap();
+        self.out.send(msg).await.unwrap();
+        let resp = self.map.wait(seq_no).await.unwrap();
+        let (hdr, body) = extract_header_from_bytes(&resp).unwrap();
+
+        if hdr.key == Key::for_path::<RX>(path) {
+            let r = postcard::from_bytes::<RX>(body).unwrap();
+            Ok(r)
+        } else if hdr.key == Key::for_path::<FatalError>("error") {
+            let r = postcard::from_bytes::<FatalError>(body).unwrap();
+            Err(r)
+        } else {
+            panic!()
+        }
+    }
 }
 
 pub fn io_thread(
@@ -36,7 +121,9 @@ pub fn io_thread(
         }
 
         if let Ok(out) = to_fw.try_recv() {
-            port.write_all(&out).unwrap();
+            let mut val = encode_vec(&out);
+            val.push(0);
+            port.write_all(&val).unwrap();
         }
 
         match port.read(&mut scratch) {
@@ -74,4 +161,23 @@ pub fn io_thread(
             }
         }
     }
+}
+
+/// WARNING: This rehashes the schema! Prefer [to_slice_keyed]!
+pub fn to_stdvec<T: Serialize + ?Sized + Schema>(
+    seq_no: u32,
+    path: &str,
+    value: &T,
+) -> Result<Vec<u8>, postcard::Error> {
+    let flavor = Headered::try_new::<T>(StdVec::new(), seq_no, path)?;
+    postcard::serialize_with_flavor(value, flavor)
+}
+
+pub fn to_stdvec_keyed<T: Serialize + ?Sized + Schema>(
+    seq_no: u32,
+    key: Key,
+    value: &T,
+) -> Result<Vec<u8>, postcard::Error> {
+    let flavor = Headered::try_new_keyed(StdVec::new(), seq_no, key)?;
+    postcard::serialize_with_flavor(value, flavor)
 }

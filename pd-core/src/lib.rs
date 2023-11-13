@@ -17,12 +17,12 @@ pub mod headered {
     };
     use serde::Serialize;
 
-    struct Headered<B: SerFlavor> {
+    pub struct Headered<B: SerFlavor> {
         flavor: B,
     }
 
     impl<B: SerFlavor> Headered<B> {
-        fn try_new_keyed(b: B, seq_no: u32, key: Key) -> Result<Self, postcard::Error> {
+        pub fn try_new_keyed(b: B, seq_no: u32, key: Key) -> Result<Self, postcard::Error> {
             let mut serializer = Serializer { output: b };
             let hdr = WireHeader { key, seq_no };
             hdr.serialize(&mut serializer)?;
@@ -31,7 +31,7 @@ pub mod headered {
             })
         }
 
-        fn try_new<T: Schema + ?Sized>(
+        pub fn try_new<T: Schema + ?Sized>(
             b: B,
             seq_no: u32,
             path: &str,
@@ -107,7 +107,7 @@ pub mod headered {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq)]
 pub struct WireHeader {
     pub key: Key,
     pub seq_no: u32,

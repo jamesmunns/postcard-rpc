@@ -31,10 +31,13 @@ struct Context {
 
 impl Context {
     async fn respond_keyed<T: Serialize + Schema>(&mut self, key: Key, seq_no: u32, msg: &T) {
+        // Lock the sender mutex to get access to the outgoing serial port
+        // as well as the shared scratch buffer.
         let SendContents {
             ref mut tx,
             ref mut scratch,
         } = &mut *self.send.lock().await;
+
         if let Ok(used) = pd_core::headered::to_slice_cobs_keyed(seq_no, key, &msg, scratch) {
             let max: usize = tx.max_packet_size().into();
             for ch in used.chunks(max - 1) {
@@ -101,12 +104,15 @@ async fn incoming(
         while let Err(FeedError { err, remainder }) = cobs_dispatch.feed(window) {
             let (seq_no, resp) = match err {
                 pd_core::Error::NoMatchingHandler { key: _, seq_no } => {
+                    info!("NMH");
                     (seq_no, FatalError::UnknownEndpoint)
                 }
                 pd_core::Error::DispatchFailure(CommsError::PoolFull(seq)) => {
+                    info!("DFPF");
                     (seq, FatalError::NotEnoughSenders)
                 }
                 pd_core::Error::DispatchFailure(CommsError::Postcard) => {
+                    info!("PFPo");
                     (0, FatalError::WireFailure)
                 }
                 pd_core::Error::Postcard(_) => (0, FatalError::WireFailure),
@@ -116,6 +122,7 @@ async fn incoming(
             context.respond_keyed(error_key, seq_no, &resp).await;
             window = remainder;
         }
+        info!("done frame");
     }
 }
 
