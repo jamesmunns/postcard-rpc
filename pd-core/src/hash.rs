@@ -1,3 +1,13 @@
+//! URI and Schema Hashing
+//!
+//! We use `blake2s` with a digest size of 64 bits to represent dispatch keys.
+//!
+//! Unfortunately. using [core::hash::Hash] seems to not produce consistent results,
+//! which [was noted] in the docs. To overcome this, we implement a custom method for
+//! hashing the postcard [Schema].
+//!
+//! [was noted]: https://doc.rust-lang.org/stable/std/hash/trait.Hash.html#portability
+
 use blake2::{self, Blake2s, Digest};
 use postcard::experimental::schema::{Schema, NamedType, SdmTy, NamedVariant, NamedValue, Varint};
 
@@ -9,6 +19,14 @@ pub fn hash_schema<T: Schema + ?Sized>(h: &mut Hasher) {
 }
 
 fn hash_sdm_type(h: &mut Hasher, sdmty: &SdmTy) {
+    // The actual values we use here don't matter that much (as far as I know),
+    // as long as the values for each variant are unique. I am unsure of the
+    // implications of doing a TON of single byte calls to `update`, it may be
+    // worth doing some buffering, and only calling update every 4/8/16 bytes
+    // instead, if performance is a concern.
+    //
+    // As of initial implementation, I'm mostly concerned with "does it work",
+    // as hashing is typically only done on startup.
     match sdmty {
         SdmTy::Bool => h.update([0]),
         SdmTy::I8 => h.update([1]),

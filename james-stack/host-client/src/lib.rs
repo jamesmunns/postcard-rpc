@@ -1,16 +1,11 @@
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    thread::JoinHandle,
-    time::{Duration, Instant},
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 
-use pd_core::accumulator::{CobsAccumulator, FeedResult};
-use rand::{thread_rng, Rng};
-use tokio::{sync::mpsc::{Receiver, Sender, error::SendError}, time::timeout};
 pub use james_icd as icd;
+use pd_core::accumulator::raw::{CobsAccumulator, FeedResult};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 /// Unfortunately, the `serialport` crate seems to have some issues on M-series Macs.
 ///
@@ -54,7 +49,7 @@ pub fn io_thread(
             Err(_e) => {
                 halt.store(true, Ordering::Relaxed);
                 return;
-            },
+            }
             Ok(n) => {
                 let mut window = &scratch[..n];
 

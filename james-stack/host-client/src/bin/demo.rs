@@ -1,19 +1,17 @@
-use std::{time::Duration, sync::{Arc, atomic::AtomicBool}, hash::{Hash, Hasher}};
+use std::{
+    sync::{atomic::AtomicBool, Arc},
+    time::Duration,
+};
 
-use host_client::{serial, io_thread};
-use james_icd::{SleepDone, Sleep, FatalError};
-use pd_core::{Dispatch, WireHeader, headered::{to_slice_cobs, to_slice_cobs_keyed, to_slice}, Key};
-use postcard::experimental::schema::Schema;
+use host_client::{io_thread, serial};
+use james_icd::{FatalError, Sleep, SleepDone};
+use pd_core::{headered::to_slice_cobs, Dispatch, WireHeader};
 use tokio::time::sleep;
 
-struct Context {
-
-}
+struct Context {}
 
 #[derive(Debug)]
-enum CommsError {
-
-}
+enum CommsError {}
 
 const SLEEP_PATH: &str = "sleep";
 const ERROR_PATH: &str = "error";
@@ -53,7 +51,7 @@ async fn main() {
 
     tokio::task::spawn(async move {
         let mut rx_fw = rx_fw;
-        let mut dispatch = Dispatch::<Context, CommsError, 8>::new(Context { });
+        let mut dispatch = Dispatch::<Context, CommsError, 8>::new(Context {});
         dispatch
             .add_handler::<SleepDone>(SLEEP_PATH, sleep_resp_handler)
             .unwrap();
@@ -70,7 +68,10 @@ async fn main() {
     let mut ctr = 0;
     loop {
         let mut buf = [0u8; 128];
-        let msg = Sleep { seconds: 3, micros: 500_000 };
+        let msg = Sleep {
+            seconds: 3,
+            micros: 500_000,
+        };
         println!("Sending ({ctr}): {msg:?}");
         let used = to_slice_cobs(ctr, SLEEP_PATH, &msg, &mut buf).unwrap();
         ctr += 1;

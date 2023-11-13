@@ -16,5 +16,7 @@ pub struct SleepDone {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Schema)]
 pub enum FatalError {
+    UnknownEndpoint,
     NotEnoughSenders,
+    WireFailure,
 }

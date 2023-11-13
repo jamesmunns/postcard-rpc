@@ -1,7 +1,6 @@
 #![no_std]
 
 use blake2::{self, Blake2s, Digest};
-use core::hash::{Hash, Hasher};
 use headered::extract_header_from_bytes;
 use postcard::experimental::schema::Schema;
 use serde::{Deserialize, Serialize};
@@ -115,7 +114,7 @@ pub struct WireHeader {
 }
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 pub struct Key([u8; 8]);
 
 impl core::fmt::Debug for Key {
@@ -130,7 +129,10 @@ impl core::fmt::Debug for Key {
 
 #[derive(Debug, PartialEq)]
 pub enum Error<E> {
-    NoMatchingHandler,
+    NoMatchingHandler {
+        key: Key,
+        seq_no: u32,
+    },
     DispatchFailure(E),
     Postcard(postcard::Error),
 }
@@ -179,8 +181,6 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
             return Err("full");
         }
         let id = Key::for_path::<T>(path);
-        #[cfg(feature = "defmt")]
-        defmt::info!("adding {:?} '{}'", id, path);
         if self.items.iter().any(|(k, _)| k == &id) {
             return Err("dupe");
         }
@@ -189,6 +189,10 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
         // TODO: Why does this throw lifetime errors?
         // self.items.sort_unstable_by_key(|(k, _)| k);
         Ok(())
+    }
+
+    pub fn context(&mut self) -> &mut Context {
+        &mut self.context
     }
 
     pub fn dispatch(&mut self, bytes: &[u8]) -> Result<(), Error<E>> {
@@ -200,7 +204,7 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
             .iter()
             .find_map(|(k, d)| if k == &hdr.key { Some(d) } else { None })
         else {
-            return Err(Error::<E>::NoMatchingHandler);
+            return Err(Error::<E>::NoMatchingHandler { key: hdr.key, seq_no: hdr.seq_no });
         };
         (disp)(&hdr, &mut self.context, remain).map_err(Error::DispatchFailure)
     }
