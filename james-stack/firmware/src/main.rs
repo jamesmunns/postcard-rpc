@@ -2,6 +2,8 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+use core::hash::{Hash, Hasher};
+
 use crate::{
     comms::comms_task,
     usb::{configure_usb, usb_task, UsbResources},
@@ -16,16 +18,35 @@ use embassy_stm32::{
     time::Hertz,
     Config,
 };
+use james_icd::Sleep;
+// use pd_core::HashWrap;
+use postcard::experimental::schema::Schema;
 
 use {defmt_rtt as _, panic_probe as _};
 
-mod accumulator;
 mod comms;
 mod usb;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Hello World!");
+
+    // use core::fmt::Write;
+    // let mut buf = heapless::String::<1024>::new();
+    // write!(&mut buf, "{:?}", Sleep::SCHEMA).ok();
+    // info!("{=str}", &buf);
+
+    // let mut hw = HashWrap::new();
+    // "hello, world".hash(&mut hw);
+    // let hash = hw.finish();
+    // info!("{=u64}", hash);
+
+    // let mut hw = HashWrap::new();
+    // Sleep::SCHEMA.hash(&mut hw);
+    // let hash = hw.finish();
+    // info!("{=u64}", hash);
+
+    // defmt::panic!("BYE");
 
     let config = {
         let mut config = Config::default();

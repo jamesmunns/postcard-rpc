@@ -35,6 +35,7 @@ default-features = false
 
 [dependencies.pd-core]
 path = "../../pd-core"
+features = ["defmt"]
 
 [dependencies.james-icd]
 path = "../james-icd"

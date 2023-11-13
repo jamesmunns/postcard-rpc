@@ -864,6 +864,7 @@ version = "0.1.0"
 dependencies = [
  "blake2",
  "cobs",
+ "defmt",
  "heapless 0.8.0",
  "postcard",
  "serde",

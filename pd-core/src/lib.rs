@@ -6,6 +6,9 @@ use headered::extract_header_from_bytes;
 use postcard::experimental::schema::Schema;
 use serde::{Deserialize, Serialize};
 
+pub mod accumulator;
+pub mod hash;
+
 pub mod headered {
     use crate::{Key, WireHeader};
     use postcard::{
@@ -111,32 +114,7 @@ pub struct WireHeader {
     pub seq_no: u32,
 }
 
-struct HashWrap {
-    blake: Blake2s<blake2::digest::consts::U8>,
-}
-
-impl HashWrap {
-    fn new() -> Self {
-        Self {
-            blake: Blake2s::new(),
-        }
-    }
-}
-
-impl Hasher for HashWrap {
-    fn finish(&self) -> u64 {
-        let mut out = Default::default();
-        let blake = self.blake.clone();
-        <Blake2s<blake2::digest::consts::U8> as Digest>::finalize_into(blake, &mut out);
-        let out: [u8; 8] = out.into();
-        u64::from_le_bytes(out)
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        self.blake.update(bytes);
-    }
-}
-
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Serialize, Deserialize)]
 pub struct Key([u8; 8]);
 
@@ -144,7 +122,7 @@ impl core::fmt::Debug for Key {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("Key(")?;
         for b in self.0.iter() {
-            f.write_fmt(format_args!("{:02X}", b))?;
+            f.write_fmt(format_args!("{} ", b))?;
         }
         f.write_str(")")
     }
@@ -168,10 +146,12 @@ impl Key {
     where
         T: Schema,
     {
-        let mut hasher = HashWrap::new();
-        path.hash(&mut hasher);
-        T::SCHEMA.hash(&mut hasher);
-        Key(hasher.finish().to_le_bytes())
+        let mut hasher = hash::Hasher::new();
+        hasher.update(path.as_bytes());
+        hash::hash_schema::<T>(&mut hasher);
+        let mut out = Default::default();
+        <Blake2s<blake2::digest::consts::U8> as Digest>::finalize_into(hasher, &mut out);
+        Key(out.into())
     }
 }
 
@@ -199,6 +179,8 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
             return Err("full");
         }
         let id = Key::for_path::<T>(path);
+        #[cfg(feature = "defmt")]
+        defmt::info!("adding {:?} '{}'", id, path);
         if self.items.iter().any(|(k, _)| k == &id) {
             return Err("dupe");
         }

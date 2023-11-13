@@ -7,7 +7,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::Timer;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender};
 
-use crate::accumulator::{CobsAccumulator, FeedResult};
+use pd_core::accumulator::{CobsAccumulator, FeedResult};
 use james_icd::{Sleep, SleepDone};
 use pd_core::{Dispatch, Key, WireHeader};
 use static_cell::StaticCell;
@@ -43,6 +43,9 @@ pub async fn comms_task(class: CdcAcmClass<'static, OtgDriver>) {
         scratch: [0u8; 128],
     }));
 
+    // Pre-hash keys for responses
+    let sleep_key = Key::for_path::<Sleep>(SLEEP_PATH);
+    info!("sleep_key: {:?}", sleep_key);
     let sleep_done_key = Key::for_path::<SleepDone>(SLEEP_PATH);
 
     let mut dispatch = Dispatch::<Context, CommsError, 8>::new(Context {
@@ -71,6 +74,7 @@ async fn incoming(
 ) -> Result<(), Disconnected> {
     loop {
         let ct = rx.read_packet(buf).await?;
+        info!("got frame");
 
         let mut window = &buf[..ct];
 
@@ -80,7 +84,15 @@ async fn incoming(
                 FeedResult::OverFull(new_wind) => new_wind,
                 FeedResult::DeserError(new_wind) => new_wind,
                 FeedResult::Success { data, remaining } => {
-                    disp.dispatch(data).ok();
+                    info!("decobsed! {:?}", data);
+                    match disp.dispatch(data) {
+                        Ok(_) => info!("good disp!"),
+                        Err(e) => match e {
+                            pd_core::Error::NoMatchingHandler => info!("NMH"),
+                            pd_core::Error::DispatchFailure(_) => info!("DF"),
+                            pd_core::Error::Postcard(_) => info!("PC"),
+                        },
+                    }
                     remaining
                 }
             };
