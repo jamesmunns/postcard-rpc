@@ -34,10 +34,7 @@ impl core::fmt::Debug for Key {
 
 #[derive(Debug, PartialEq)]
 pub enum Error<E> {
-    NoMatchingHandler {
-        key: Key,
-        seq_no: u32,
-    },
+    NoMatchingHandler { key: Key, seq_no: u32 },
     DispatchFailure(E),
     Postcard(postcard::Error),
 }
@@ -109,7 +106,10 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
             .iter()
             .find_map(|(k, d)| if k == &hdr.key { Some(d) } else { None })
         else {
-            return Err(Error::<E>::NoMatchingHandler { key: hdr.key, seq_no: hdr.seq_no });
+            return Err(Error::<E>::NoMatchingHandler {
+                key: hdr.key,
+                seq_no: hdr.seq_no,
+            });
         };
         (disp)(&hdr, &mut self.context, remain).map_err(Error::DispatchFailure)
     }

@@ -22,8 +22,10 @@ async fn main() {
                         seconds: 3,
                         micros: 500_000,
                     };
+
                     println!("task {i} sending sleep");
                     let res = client.send_resp::<Sleep, SleepDone>(SLEEP_PATH, msg).await;
+
                     if res.is_ok() {
                         win += 1;
                     }

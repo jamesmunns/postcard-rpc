@@ -9,7 +9,7 @@
 //! [was noted]: https://doc.rust-lang.org/stable/std/hash/trait.Hash.html#portability
 
 use blake2::{self, Blake2s, Digest};
-use postcard::experimental::schema::{Schema, NamedType, SdmTy, NamedVariant, NamedValue, Varint};
+use postcard::experimental::schema::{NamedType, NamedValue, NamedVariant, Schema, SdmTy, Varint};
 
 pub type Hasher = Blake2s<blake2::digest::consts::U8>;
 
@@ -45,7 +45,7 @@ fn hash_sdm_type(h: &mut Hasher, sdmty: &SdmTy) {
                 Varint::Usize => h.update([8]),
                 Varint::Isize => h.update([9]),
             }
-        },
+        }
         SdmTy::F32 => h.update([4]),
         SdmTy::F64 => h.update([5]),
         SdmTy::Char => h.update([6]),
@@ -54,63 +54,63 @@ fn hash_sdm_type(h: &mut Hasher, sdmty: &SdmTy) {
         SdmTy::Option(nt) => {
             h.update([9]);
             hash_named_type(h, nt);
-        },
+        }
         SdmTy::Unit => h.update([10]),
         SdmTy::UnitStruct => h.update([11]),
         SdmTy::UnitVariant => h.update([12]),
         SdmTy::NewtypeStruct(nt) => {
             h.update([13]);
             hash_named_type(h, nt);
-        },
+        }
         SdmTy::NewtypeVariant(nt) => {
             h.update([14]);
             hash_named_type(h, nt);
-        },
+        }
         SdmTy::Seq(nt) => {
             h.update([15]);
             hash_named_type(h, nt);
-        },
+        }
         SdmTy::Tuple(nts) => {
             h.update([16]);
             for nt in nts.iter() {
                 hash_named_type(h, nt);
             }
-        },
+        }
         SdmTy::TupleStruct(nts) => {
             h.update([17]);
             for nt in nts.iter() {
                 hash_named_type(h, nt);
             }
-        },
+        }
         SdmTy::TupleVariant(nts) => {
             h.update([18]);
             for nt in nts.iter() {
                 hash_named_type(h, nt);
             }
-        },
+        }
         SdmTy::Map { key, val } => {
             h.update([19]);
             hash_named_type(h, key);
             hash_named_type(h, val);
-        },
+        }
         SdmTy::Struct(nvs) => {
             h.update([20]);
             for nv in nvs.iter() {
                 hash_named_value(h, nv)
             }
-        },
+        }
         SdmTy::StructVariant(nvs) => {
             h.update([21]);
             for nv in nvs.iter() {
                 hash_named_value(h, nv)
             }
-        },
+        }
         SdmTy::Enum(nvs) => {
             h.update([22]);
             for nv in nvs.iter() {
                 hash_named_variant(h, nv)
             }
-        },
+        }
     }
 }
 

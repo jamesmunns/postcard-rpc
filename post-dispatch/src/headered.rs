@@ -20,11 +20,7 @@ impl<B: SerFlavor> Headered<B> {
         })
     }
 
-    fn try_new<T: Schema + ?Sized>(
-        b: B,
-        seq_no: u32,
-        path: &str,
-    ) -> Result<Self, postcard::Error> {
+    fn try_new<T: Schema + ?Sized>(b: B, seq_no: u32, path: &str) -> Result<Self, postcard::Error> {
         let key = Key::for_path::<T>(path);
         Self::try_new_keyed(b, seq_no, key)
     }
@@ -90,7 +86,6 @@ pub fn to_slice_cobs_keyed<'a, T: Serialize + ?Sized + Schema>(
     let flavor = Headered::try_new_keyed(Cobs::try_new(Slice::new(buf))?, seq_no, key)?;
     postcard::serialize_with_flavor(value, flavor)
 }
-
 
 /// WARNING: This rehashes the schema! Prefer [to_slice_keyed]!
 #[cfg(feature = "use-std")]

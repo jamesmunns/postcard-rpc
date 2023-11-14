@@ -180,7 +180,7 @@ pub mod dispatch {
         /// [CobsDispatch::feed] instead.
         pub fn feed_with_err<F>(&mut self, buf: &[u8], mut f: F)
         where
-            F: FnMut(&mut Context, crate::Error<Error>)
+            F: FnMut(&mut Context, crate::Error<Error>),
         {
             let mut window = buf;
             while let Err(FeedError { err, remainder }) = self.feed(window) {

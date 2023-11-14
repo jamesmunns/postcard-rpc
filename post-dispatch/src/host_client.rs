@@ -6,41 +6,29 @@
 use std::{
     marker::PhantomData,
     sync::{
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicU32, Ordering},
         Arc,
     },
-    thread::JoinHandle,
-    time::Duration,
 };
 
-use cobs::encode_vec;
-
-use maitake_sync::{
-    wait_map::{WaitError, WakeOutcome},
-    WaitMap,
-};
 use crate::{
     accumulator::raw::{CobsAccumulator, FeedResult},
     headered::{extract_header_from_bytes, to_stdvec},
     Key,
 };
-use postcard::{experimental::schema::Schema};
+use cobs::encode_vec;
+use maitake_sync::{
+    wait_map::{WaitError, WakeOutcome},
+    WaitMap,
+};
+use postcard::experimental::schema::Schema;
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::sync::mpsc::{Receiver, Sender};
-
-/// Unfortunately, the `serialport` crate seems to have some issues on M-series Macs.
-///
-/// For these hosts, we use a patched version of the crate that has some hacky
-/// fixes applied that seem to resolve the issue.
-///
-/// Context: <https://github.com/serialport/serialport-rs/issues/49>
-pub mod serial {
-    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-    pub use serialport_macos_hack::*;
-
-    #[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
-    pub use serialport_regular::*;
-}
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    select,
+    sync::mpsc::{Receiver, Sender},
+};
+use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
 /// Host Error Kind
 #[derive(Debug, PartialEq)]
@@ -65,6 +53,67 @@ impl<T> From<postcard::Error> for HostErr<T> {
 impl<T> From<WaitError> for HostErr<T> {
     fn from(_: WaitError) -> Self {
         Self::Closed
+    }
+}
+
+async fn wire_worker(
+    mut port: SerialStream,
+    mut outgoing: Receiver<Vec<u8>>,
+    ctx: Arc<HostContext>,
+) {
+    let mut buf = [0u8; 1024];
+    let mut acc = CobsAccumulator::<1024>::new();
+
+    'serve: loop {
+        // Wait for EITHER a serialized request, OR some data from the embedded device
+        select! {
+            out = outgoing.recv() => {
+                // Receiver returns None when all Senders have hung up
+                let Some(msg) = out else {
+                    return;
+                };
+
+                // Turn the serialized message into a COBS encoded message
+                let mut msg = encode_vec(&msg);
+                msg.push(0);
+
+                // And send it!
+                if port.write_all(&msg).await.is_err() {
+                    // I guess the serial port hung up.
+                    return;
+                }
+            }
+            inc = port.read(&mut buf) => {
+                // if read errored, we're done
+                let Ok(used) = inc else {
+                    return;
+                };
+                let mut window = &buf[..used];
+
+                'cobs: while !window.is_empty() {
+                    window = match acc.feed(window) {
+                        // Consumed the whole USB frame
+                        FeedResult::Consumed => break 'cobs,
+                        // Silently ignore line errors
+                        // TODO: probably add tracing here
+                        FeedResult::OverFull(new_wind) => new_wind,
+                        FeedResult::DeserError(new_wind) => new_wind,
+                        // We got a message! Attempt to dispatch it
+                        FeedResult::Success { data, remaining } => {
+                            // Attempt to extract a header so we can get the sequence number
+                            if let Ok((hdr, _body)) = extract_header_from_bytes(data) {
+                                // Wake the given sequence number. If the WaitMap is closed, we're done here
+                                if let WakeOutcome::Closed(_) = ctx.map.wake(&hdr.seq_no, data.to_vec()) {
+                                    return;
+                                }
+                            }
+
+                            remaining
+                        }
+                    };
+                }
+            }
+        }
     }
 }
 
@@ -95,33 +144,20 @@ where
     pub fn new(serial_path: &str, err_uri_path: &str) -> Self {
         // TODO: queue depth as a config?
         let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(8);
-        let (tx_fw, rx_fw) = tokio::sync::mpsc::channel(8);
 
         // TODO: baud rate as a config?
         // TODO: poll interval as a config?
-        let port = serial::new(serial_path, 115_200)
-            .timeout(Duration::from_millis(10))
-            .open()
+        let port = tokio_serial::new(serial_path, 115_200)
+            .open_native_async()
             .unwrap();
-
-        let halt = Arc::new(AtomicBool::new(false));
-
-        let _jh = Some(std::thread::spawn({
-            let halt = halt.clone();
-            move || io_thread(port, tx_fw, rx_pc, halt)
-        }));
 
         let ctx = Arc::new(HostContext {
             map: WaitMap::new(),
             seq: AtomicU32::new(0),
-            _jh,
-            io_halt: halt,
         });
         tokio::task::spawn({
             let ctx = ctx.clone();
-            async move {
-                HostClientWorker { ctx, inc: rx_fw }.work().await;
-            }
+            async move { wire_worker(port, rx_pc, ctx).await }
         });
 
         let err_key = Key::for_path::<WireErr>(err_uri_path);
@@ -161,6 +197,7 @@ where
     }
 }
 
+// Manual Clone impl because WireErr may not impl Clone
 impl<WireErr> Clone for HostClient<WireErr> {
     fn clone(&self) -> Self {
         Self {
@@ -172,103 +209,8 @@ impl<WireErr> Clone for HostClient<WireErr> {
     }
 }
 
-/// Shared context between [HostClient] and [HostClientWorker]
+/// Shared context between [HostClient] and [wire_worker]
 struct HostContext {
     map: WaitMap<u32, Vec<u8>>,
     seq: AtomicU32,
-    io_halt: Arc<AtomicBool>,
-    _jh: Option<JoinHandle<()>>,
-}
-
-impl Drop for HostContext {
-    fn drop(&mut self) {
-        // On the drop of the last HostClient, halt the IO thread
-        self.io_halt.store(true, Ordering::Relaxed);
-
-        // And wait for the thread to join
-        if let Some(jh) = self._jh.take() {
-            let _ = jh.join();
-        }
-    }
-}
-
-/// A helper type for processing incoming messages into the WaitMap
-struct HostClientWorker {
-    ctx: Arc<HostContext>,
-    inc: Receiver<Vec<u8>>,
-}
-
-impl HostClientWorker {
-    /// Process incoming messages
-    async fn work(mut self) {
-        // While the channel from the IO worker is still open, for each message:
-        while let Some(msg) = self.inc.recv().await {
-            // Attempt to extract a header so we can get the sequence number
-            if let Ok((hdr, _body)) = extract_header_from_bytes(&msg) {
-                // Wake the given sequence number. If the WaitMap is closed, we're done here
-                if let WakeOutcome::Closed(_) = self.ctx.map.wake(&hdr.seq_no, msg) {
-                    break;
-                }
-            }
-        }
-        // tell everyone we're done here
-        self.ctx.io_halt.store(true, Ordering::Relaxed);
-        self.ctx.map.close();
-    }
-}
-
-// This is silly and I should switch to `nusb` or `tokio-serial`.
-fn io_thread(
-    mut port: Box<dyn serial::SerialPort>,
-    to_pc: Sender<Vec<u8>>,
-    mut to_fw: Receiver<Vec<u8>>,
-    halt: Arc<AtomicBool>,
-) {
-    let mut scratch = [0u8; 256];
-    let mut acc = CobsAccumulator::<256>::new();
-
-    'serve: loop {
-        if halt.load(Ordering::Relaxed) {
-            return;
-        }
-
-        if let Ok(out) = to_fw.try_recv() {
-            let mut val = encode_vec(&out);
-            val.push(0);
-            if port.write_all(&val).is_err() {
-                break 'serve;
-            }
-        }
-
-        match port.read(&mut scratch) {
-            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {}
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-            Ok(0) => break 'serve,
-            Err(_e) => break 'serve,
-            Ok(n) => {
-                let mut window = &scratch[..n];
-
-                'cobs: while !window.is_empty() {
-                    window = match acc.feed(window) {
-                        FeedResult::Consumed => break 'cobs,
-                        FeedResult::OverFull(new_wind) => new_wind,
-                        FeedResult::DeserError(new_wind) => {
-                            println!("Deser Error!");
-                            new_wind
-                        }
-                        FeedResult::Success { data, remaining } => {
-                            if to_pc.try_send(data.to_vec()).is_err() {
-                                break 'serve;
-                            }
-
-                            remaining
-                        }
-                    };
-                }
-            }
-        }
-    }
-    halt.store(true, Ordering::Relaxed);
-    // We also drop the channels here, which will notify the
-    // HostClientWorker
 }
