@@ -21,10 +21,10 @@ use maitake_sync::{
 };
 use crate::{
     accumulator::raw::{CobsAccumulator, FeedResult},
-    headered::{extract_header_from_bytes, Headered},
+    headered::{extract_header_from_bytes, to_stdvec},
     Key,
 };
-use postcard::{experimental::schema::Schema, ser_flavors::StdVec};
+use postcard::{experimental::schema::Schema};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -271,26 +271,4 @@ fn io_thread(
     halt.store(true, Ordering::Relaxed);
     // We also drop the channels here, which will notify the
     // HostClientWorker
-}
-
-// NOTE: These shouldn't live here, and should be in pd-core and behind a
-// feature flag or something.
-
-/// WARNING: This rehashes the schema! Prefer [to_slice_keyed]!
-pub fn to_stdvec<T: Serialize + ?Sized + Schema>(
-    seq_no: u32,
-    path: &str,
-    value: &T,
-) -> Result<Vec<u8>, postcard::Error> {
-    let flavor = Headered::try_new::<T>(StdVec::new(), seq_no, path)?;
-    postcard::serialize_with_flavor(value, flavor)
-}
-
-pub fn to_stdvec_keyed<T: Serialize + ?Sized + Schema>(
-    seq_no: u32,
-    key: Key,
-    value: &T,
-) -> Result<Vec<u8>, postcard::Error> {
-    let flavor = Headered::try_new_keyed(StdVec::new(), seq_no, key)?;
-    postcard::serialize_with_flavor(value, flavor)
 }

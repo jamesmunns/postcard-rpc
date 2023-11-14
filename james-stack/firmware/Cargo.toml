@@ -33,8 +33,8 @@ version = "1.0.8"
 version = "1.0.192"
 default-features = false
 
-[dependencies.pd-core]
-path = "../../pd-core"
+[dependencies.post-dispatch]
+path = "../../post-dispatch"
 features = ["defmt"]
 
 [dependencies.james-icd]
