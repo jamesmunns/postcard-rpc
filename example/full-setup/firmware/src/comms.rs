@@ -7,10 +7,15 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::Timer;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender};
 
-use james_icd::{wire_error::{FatalError, ERROR_PATH}, sleep::{Sleep, SleepDone, SLEEP_PATH}};
-use post_dispatch::accumulator::dispatch::{CobsDispatch, FeedError};
-use post_dispatch::{Key, WireHeader};
+use james_icd::{
+    sleep::{Sleep, SleepDone, SLEEP_PATH},
+    wire_error::{FatalError, ERROR_PATH},
+};
 use postcard::experimental::schema::Schema;
+use postcard_rpc::{
+    accumulator::dispatch::{CobsDispatch, FeedError},
+    Key, WireHeader,
+};
 use serde::Serialize;
 use static_cell::StaticCell;
 
@@ -38,7 +43,7 @@ impl Context {
             ref mut scratch,
         } = &mut *self.send.lock().await;
 
-        if let Ok(used) = post_dispatch::headered::to_slice_cobs_keyed(seq_no, key, &msg, scratch) {
+        if let Ok(used) = postcard_rpc::headered::to_slice_cobs_keyed(seq_no, key, &msg, scratch) {
             let max: usize = tx.max_packet_size().into();
             for ch in used.chunks(max - 1) {
                 if tx.write_packet(ch).await.is_err() {
@@ -101,19 +106,19 @@ async fn incoming(
         let mut window = &buf[..ct];
         while let Err(FeedError { err, remainder }) = cobs_dispatch.feed(window) {
             let (seq_no, resp) = match err {
-                post_dispatch::Error::NoMatchingHandler { key: _, seq_no } => {
+                postcard_rpc::Error::NoMatchingHandler { key: _, seq_no } => {
                     info!("NMH");
                     (seq_no, FatalError::UnknownEndpoint)
                 }
-                post_dispatch::Error::DispatchFailure(CommsError::PoolFull(seq)) => {
+                postcard_rpc::Error::DispatchFailure(CommsError::PoolFull(seq)) => {
                     info!("DFPF");
                     (seq, FatalError::NotEnoughSenders)
                 }
-                post_dispatch::Error::DispatchFailure(CommsError::Postcard) => {
+                postcard_rpc::Error::DispatchFailure(CommsError::Postcard) => {
                     info!("PFPo");
                     (0, FatalError::WireFailure)
                 }
-                post_dispatch::Error::Postcard(_) => (0, FatalError::WireFailure),
+                postcard_rpc::Error::Postcard(_) => (0, FatalError::WireFailure),
             };
             let context = cobs_dispatch.dispatcher().context();
             let error_key = context.error_key;
@@ -151,7 +156,7 @@ async fn sleep_task(seq_no: u32, c: Context, s: Sleep) {
     } = &mut *c.send.lock().await;
     let msg = SleepDone { slept_for: s };
     if let Ok(used) =
-        post_dispatch::headered::to_slice_cobs_keyed(seq_no, c.sleep_done_key, &msg, scratch)
+        postcard_rpc::headered::to_slice_cobs_keyed(seq_no, c.sleep_done_key, &msg, scratch)
     {
         let max: usize = tx.max_packet_size().into();
         for ch in used.chunks(max - 1) {

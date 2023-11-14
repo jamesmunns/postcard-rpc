@@ -1,7 +1,26 @@
 [package]
-name = "post-dispatch"
+name = "postcard-rpc"
 version = "0.1.0"
+authors = ["James Munns <james@onevariable.com>"]
 edition = "2021"
+repository = "https://github.com/jamesmunns/postcard-rpc"
+description = "A no_std + serde compatible RPC library for Rust"
+license = "MIT OR Apache-2.0"
+categories = [
+    "embedded",
+    "no-std",
+]
+keywords = [
+    "serde",
+    "cobs",
+    "framing",
+]
+documentation = "https://docs.rs/postcard-rpc/"
+readme = "../../README.md"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "doc_cfg"]
 
 [dependencies]
 blake2 = { version = "0.10.6", default-features = false, features = ["size_opt"] }

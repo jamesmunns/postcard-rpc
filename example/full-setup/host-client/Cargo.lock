@@ -387,8 +387,8 @@ dependencies = [
  "cobs",
  "james-icd",
  "maitake-sync",
- "post-dispatch",
  "postcard",
+ "postcard-rpc",
  "rand",
  "serde",
  "serialport 4.0.1",
@@ -713,20 +713,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bccab0e7fd7cc19f820a1c8c91720af652d0c88dc9664dd72aef2614f04af3b"
 
 [[package]]
-name = "post-dispatch"
-version = "0.1.0"
-dependencies = [
- "blake2",
- "cobs",
- "heapless 0.8.0",
- "maitake-sync",
- "postcard",
- "serde",
- "tokio",
- "tokio-serial",
-]
-
-[[package]]
 name = "postcard"
 version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -749,6 +735,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "postcard-rpc"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "cobs",
+ "heapless 0.8.0",
+ "maitake-sync",
+ "postcard",
+ "serde",
+ "tokio",
+ "tokio-serial",
 ]
 
 [[package]]

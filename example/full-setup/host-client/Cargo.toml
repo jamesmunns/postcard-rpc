@@ -38,6 +38,6 @@ default-features = false
 [dependencies.james-icd]
 path = "../james-icd"
 
-[dependencies.post-dispatch]
-path = "../../post-dispatch"
+[dependencies.postcard-rpc]
+path = "../../../source/postcard-rpc"
 features = ["use-std"]

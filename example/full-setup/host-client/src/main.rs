@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use post_dispatch::host_client::HostClient;
+use postcard_rpc::host_client::HostClient;
 use james_icd::{sleep::{Sleep, SleepDone, SLEEP_PATH}, wire_error::{FatalError, ERROR_PATH}};
 
 #[tokio::main]

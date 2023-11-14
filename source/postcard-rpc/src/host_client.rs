@@ -64,7 +64,7 @@ async fn wire_worker(
     let mut buf = [0u8; 1024];
     let mut acc = CobsAccumulator::<1024>::new();
 
-    'serve: loop {
+    loop {
         // Wait for EITHER a serialized request, OR some data from the embedded device
         select! {
             out = outgoing.recv() => {
