@@ -38,5 +38,6 @@ default-features = false
 [dependencies.james-icd]
 path = "../james-icd"
 
-[dependencies.pd-core]
-path = "../../pd-core"
+[dependencies.post-dispatch]
+path = "../../post-dispatch"
+features = ["use-std"]
