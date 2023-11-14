@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
 use blake2::{self, Blake2s, Digest};
 use headered::extract_header_from_bytes;
@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 
 pub mod accumulator;
 pub mod hash;
+
+#[cfg(feature = "use-std")]
+pub mod host_client;
 
 pub mod headered {
     use crate::{Key, WireHeader};
