@@ -1,11 +1,14 @@
 use std::time::Duration;
 
 use host_client::HostClient;
-use james_icd::{Sleep, SleepDone};
+use james_icd::{sleep::{Sleep, SleepDone, SLEEP_PATH}, wire_error::{FatalError, ERROR_PATH}};
 
 #[tokio::main]
 async fn main() {
-    let client = HostClient::new("/dev/tty.usbmodem123456781");
+    let client = HostClient::<FatalError>::new(
+        "/dev/tty.usbmodem123456781",
+        ERROR_PATH,
+    );
 
     for i in 0..5 {
         tokio::spawn({
@@ -20,7 +23,7 @@ async fn main() {
                         micros: 500_000,
                     };
                     println!("task {i} sending sleep");
-                    let res = client.send_resp::<Sleep, SleepDone>("sleep", msg).await;
+                    let res = client.send_resp::<Sleep, SleepDone>(SLEEP_PATH, msg).await;
                     if res.is_ok() {
                         win += 1;
                     }

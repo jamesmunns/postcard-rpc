@@ -1,16 +1,28 @@
-use std::{sync::{
-    atomic::{AtomicBool, AtomicU32, Ordering},
-    Arc,
-}, time::Duration};
+//! A post-dispatch host client
+//!
+//! This library is meant to be used with the `Dispatch` type and the
+//! post-dispatch wire protocol.
+
+use std::{
+    marker::PhantomData,
+    sync::{
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        Arc,
+    },
+    thread::JoinHandle,
+    time::Duration,
+};
 
 use cobs::encode_vec;
-use icd::FatalError;
-pub use james_icd as icd;
-use maitake_sync::{wait_map::WakeOutcome, WaitMap};
+
+use maitake_sync::{
+    wait_map::{WaitError, WakeOutcome},
+    WaitMap,
+};
 use pd_core::{
     accumulator::raw::{CobsAccumulator, FeedResult},
     headered::{extract_header_from_bytes, Headered},
-    Key, WireHeader,
+    Key,
 };
 use postcard::{experimental::schema::Schema, ser_flavors::StdVec};
 use serde::{de::DeserializeOwned, Serialize};
@@ -30,36 +42,64 @@ pub mod serial {
     pub use serialport_regular::*;
 }
 
-struct HostClientWorker {
-    map: Arc<WaitMap<u32, Vec<u8>>>,
-    inc: Receiver<Vec<u8>>,
+/// Host Error Kind
+#[derive(Debug, PartialEq)]
+pub enum HostErr<WireErr> {
+    /// An error of the user-specified wire error type
+    Wire(WireErr),
+    /// We got a response that didn't match the expected value or the
+    /// user specified wire error type
+    BadResponse,
+    /// Deserialization of the message failed
+    Postcard(postcard::Error),
+    /// The interface has been closed, and no further messages are possible
+    Closed,
 }
 
-impl HostClientWorker {
-    async fn work(mut self) {
-        while let Some(msg) = self.inc.recv().await {
-            if let Ok((hdr, _body)) = extract_header_from_bytes(&msg) {
-                if let WakeOutcome::Closed(_) = self.map.wake(&hdr.seq_no, msg) {
-                    return;
-                }
-            }
-        }
+impl<T> From<postcard::Error> for HostErr<T> {
+    fn from(value: postcard::Error) -> Self {
+        Self::Postcard(value)
     }
 }
 
-#[derive(Clone)]
-pub struct HostClient {
-    map: Arc<WaitMap<u32, Vec<u8>>>,
-    out: Sender<Vec<u8>>,
-    seq: Arc<AtomicU32>,
+impl<T> From<WaitError> for HostErr<T> {
+    fn from(_: WaitError) -> Self {
+        Self::Closed
+    }
 }
 
-impl HostClient {
-    pub fn new(path: &str) -> Self {
+/// The [HostClient] is the primary PC-side interface.
+///
+/// It is generic over a single type, `WireErr`, which can be used by the
+/// embedded system when a request was not understood, or some other error
+/// has occurred.
+///
+/// [HostClient]s can be cloned, and used across multiple tasks/threads.
+pub struct HostClient<WireErr> {
+    ctx: Arc<HostContext>,
+    out: Sender<Vec<u8>>,
+    err_key: Key,
+    _pd: PhantomData<fn() -> WireErr>,
+}
+
+impl<WireErr> HostClient<WireErr>
+where
+    WireErr: DeserializeOwned + Schema,
+{
+    /// Create a new [HostClient]
+    ///
+    /// `serial_path` is the path to the serial port used. `err_uri_path` is
+    /// the path associated with the `WireErr` message type.
+    ///
+    /// Panics if we couldn't open the serial port
+    pub fn new(serial_path: &str, err_uri_path: &str) -> Self {
+        // TODO: queue depth as a config?
         let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(8);
         let (tx_fw, rx_fw) = tokio::sync::mpsc::channel(8);
 
-        let port = serial::new(path, 115_200)
+        // TODO: baud rate as a config?
+        // TODO: poll interval as a config?
+        let port = serial::new(serial_path, 115_200)
             .timeout(Duration::from_millis(10))
             .open()
             .unwrap();
@@ -71,42 +111,114 @@ impl HostClient {
             move || io_thread(port, tx_fw, rx_pc, halt)
         }));
 
-        let map = Arc::new(WaitMap::new());
-        let seq_no = Arc::new(AtomicU32::new(0));
+        let ctx = Arc::new(HostContext {
+            map: WaitMap::new(),
+            seq: AtomicU32::new(0),
+            _jh,
+            io_halt: halt,
+        });
         tokio::task::spawn({
-            let map = map.clone();
+            let ctx = ctx.clone();
             async move {
-                HostClientWorker { map, inc: rx_fw }.work().await;
+                HostClientWorker { ctx, inc: rx_fw }.work().await;
             }
         });
 
-        HostClient { map, out: tx_pc, seq: seq_no }
+        let err_key = Key::for_path::<WireErr>(err_uri_path);
+
+        HostClient {
+            ctx,
+            out: tx_pc,
+            err_key,
+            _pd: PhantomData,
+        }
     }
 
-    pub async fn send_resp<TX, RX>(&self, path: &str, t: TX) -> Result<RX, FatalError>
+    /// Send a message of type TX to `path`, and await a response of type
+    /// RX (or WireErr) to `path`.
+    ///
+    /// This function will wait potentially forever. Consider using with a timeout.
+    pub async fn send_resp<TX, RX>(&self, path: &str, t: TX) -> Result<RX, HostErr<WireErr>>
     where
         TX: Serialize + Schema,
         RX: DeserializeOwned + Schema,
     {
-        let seq_no = self.seq.fetch_add(1, Ordering::Relaxed);
-        let msg = to_stdvec(seq_no, path, &t).unwrap();
-        self.out.send(msg).await.unwrap();
-        let resp = self.map.wait(seq_no).await.unwrap();
-        let (hdr, body) = extract_header_from_bytes(&resp).unwrap();
+        let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
+        let msg = to_stdvec(seq_no, path, &t).expect("Allocations should not ever fail");
+        self.out.send(msg).await.map_err(|_| HostErr::Closed)?;
+        let resp = self.ctx.map.wait(seq_no).await?;
+        let (hdr, body) = extract_header_from_bytes(&resp)?;
 
         if hdr.key == Key::for_path::<RX>(path) {
-            let r = postcard::from_bytes::<RX>(body).unwrap();
+            let r = postcard::from_bytes::<RX>(body)?;
             Ok(r)
-        } else if hdr.key == Key::for_path::<FatalError>("error") {
-            let r = postcard::from_bytes::<FatalError>(body).unwrap();
-            Err(r)
+        } else if hdr.key == self.err_key {
+            let r = postcard::from_bytes::<WireErr>(body)?;
+            Err(HostErr::Wire(r))
         } else {
-            panic!()
+            Err(HostErr::BadResponse)
         }
     }
 }
 
-pub fn io_thread(
+impl<WireErr> Clone for HostClient<WireErr> {
+    fn clone(&self) -> Self {
+        Self {
+            ctx: self.ctx.clone(),
+            out: self.out.clone(),
+            err_key: self.err_key,
+            _pd: PhantomData,
+        }
+    }
+}
+
+/// Shared context between [HostClient] and [HostClientWorker]
+struct HostContext {
+    map: WaitMap<u32, Vec<u8>>,
+    seq: AtomicU32,
+    io_halt: Arc<AtomicBool>,
+    _jh: Option<JoinHandle<()>>,
+}
+
+impl Drop for HostContext {
+    fn drop(&mut self) {
+        // On the drop of the last HostClient, halt the IO thread
+        self.io_halt.store(true, Ordering::Relaxed);
+
+        // And wait for the thread to join
+        if let Some(jh) = self._jh.take() {
+            let _ = jh.join();
+        }
+    }
+}
+
+/// A helper type for processing incoming messages into the WaitMap
+struct HostClientWorker {
+    ctx: Arc<HostContext>,
+    inc: Receiver<Vec<u8>>,
+}
+
+impl HostClientWorker {
+    /// Process incoming messages
+    async fn work(mut self) {
+        // While the channel from the IO worker is still open, for each message:
+        while let Some(msg) = self.inc.recv().await {
+            // Attempt to extract a header so we can get the sequence number
+            if let Ok((hdr, _body)) = extract_header_from_bytes(&msg) {
+                // Wake the given sequence number. If the WaitMap is closed, we're done here
+                if let WakeOutcome::Closed(_) = self.ctx.map.wake(&hdr.seq_no, msg) {
+                    break;
+                }
+            }
+        }
+        // tell everyone we're done here
+        self.ctx.io_halt.store(true, Ordering::Relaxed);
+        self.ctx.map.close();
+    }
+}
+
+// This is silly and I should switch to `nusb` or `tokio-serial`.
+fn io_thread(
     mut port: Box<dyn serial::SerialPort>,
     to_pc: Sender<Vec<u8>>,
     mut to_fw: Receiver<Vec<u8>>,
@@ -115,7 +227,7 @@ pub fn io_thread(
     let mut scratch = [0u8; 256];
     let mut acc = CobsAccumulator::<256>::new();
 
-    loop {
+    'serve: loop {
         if halt.load(Ordering::Relaxed) {
             return;
         }
@@ -123,20 +235,16 @@ pub fn io_thread(
         if let Ok(out) = to_fw.try_recv() {
             let mut val = encode_vec(&out);
             val.push(0);
-            port.write_all(&val).unwrap();
+            if port.write_all(&val).is_err() {
+                break 'serve;
+            }
         }
 
         match port.read(&mut scratch) {
             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {}
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-            Ok(0) => {
-                halt.store(true, Ordering::Relaxed);
-                return;
-            }
-            Err(_e) => {
-                halt.store(true, Ordering::Relaxed);
-                return;
-            }
+            Ok(0) => break 'serve,
+            Err(_e) => break 'serve,
             Ok(n) => {
                 let mut window = &scratch[..n];
 
@@ -150,8 +258,7 @@ pub fn io_thread(
                         }
                         FeedResult::Success { data, remaining } => {
                             if to_pc.try_send(data.to_vec()).is_err() {
-                                halt.store(true, Ordering::Relaxed);
-                                return;
+                                break 'serve;
                             }
 
                             remaining
@@ -161,7 +268,13 @@ pub fn io_thread(
             }
         }
     }
+    halt.store(true, Ordering::Relaxed);
+    // We also drop the channels here, which will notify the
+    // HostClientWorker
 }
+
+// NOTE: These shouldn't live here, and should be in pd-core and behind a
+// feature flag or something.
 
 /// WARNING: This rehashes the schema! Prefer [to_slice_keyed]!
 pub fn to_stdvec<T: Serialize + ?Sized + Schema>(
