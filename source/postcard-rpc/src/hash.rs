@@ -11,8 +11,10 @@
 use blake2::{self, Blake2s, Digest};
 use postcard::experimental::schema::{NamedType, NamedValue, NamedVariant, Schema, SdmTy, Varint};
 
+/// The Blake2s Hasher
 pub type Hasher = Blake2s<blake2::digest::consts::U8>;
 
+/// Hash the schema of a given type
 pub fn hash_schema<T: Schema + ?Sized>(h: &mut Hasher) {
     let schema = T::SCHEMA;
     hash_named_type(h, schema);

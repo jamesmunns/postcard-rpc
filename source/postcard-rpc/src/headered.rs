@@ -1,3 +1,5 @@
+//! Helper functions for encoding/decoding messages with postcard-rpc headers
+
 use crate::{Key, WireHeader};
 use postcard::{
     experimental::schema::Schema,
@@ -45,6 +47,8 @@ impl<B: SerFlavor> SerFlavor for Headered<B> {
     }
 }
 
+/// Serialize to a slice with a prepended header
+///
 /// WARNING: This rehashes the schema! Prefer [to_slice_keyed]!
 pub fn to_slice<'a, T: Serialize + ?Sized + Schema>(
     seq_no: u32,
@@ -56,6 +60,7 @@ pub fn to_slice<'a, T: Serialize + ?Sized + Schema>(
     postcard::serialize_with_flavor(value, flavor)
 }
 
+/// Serialize to a slice with a prepended header
 pub fn to_slice_keyed<'a, T: Serialize + ?Sized + Schema>(
     seq_no: u32,
     key: Key,
@@ -66,6 +71,8 @@ pub fn to_slice_keyed<'a, T: Serialize + ?Sized + Schema>(
     postcard::serialize_with_flavor(value, flavor)
 }
 
+/// Serialize to a COBS-encoded slice with a prepended header
+///
 /// WARNING: This rehashes the schema! Prefer [to_slice_cobs_keyed]!
 pub fn to_slice_cobs<'a, T: Serialize + ?Sized + Schema>(
     seq_no: u32,
@@ -77,6 +84,7 @@ pub fn to_slice_cobs<'a, T: Serialize + ?Sized + Schema>(
     postcard::serialize_with_flavor(value, flavor)
 }
 
+/// Serialize to a COBS-encoded slice with a prepended header
 pub fn to_slice_cobs_keyed<'a, T: Serialize + ?Sized + Schema>(
     seq_no: u32,
     key: Key,
@@ -87,6 +95,8 @@ pub fn to_slice_cobs_keyed<'a, T: Serialize + ?Sized + Schema>(
     postcard::serialize_with_flavor(value, flavor)
 }
 
+/// Serialize to a Vec with a prepended header
+///
 /// WARNING: This rehashes the schema! Prefer [to_slice_keyed]!
 #[cfg(feature = "use-std")]
 pub fn to_stdvec<T: Serialize + ?Sized + Schema>(
@@ -98,6 +108,7 @@ pub fn to_stdvec<T: Serialize + ?Sized + Schema>(
     postcard::serialize_with_flavor(value, flavor)
 }
 
+/// Serialize to a Vec with a prepended header
 #[cfg(feature = "use-std")]
 pub fn to_stdvec_keyed<T: Serialize + ?Sized + Schema>(
     seq_no: u32,
@@ -108,6 +119,7 @@ pub fn to_stdvec_keyed<T: Serialize + ?Sized + Schema>(
     postcard::serialize_with_flavor(value, flavor)
 }
 
+/// Extract the header from a slice of bytes
 pub fn extract_header_from_bytes(slice: &[u8]) -> Result<(WireHeader, &[u8]), postcard::Error> {
     postcard::take_from_bytes::<WireHeader>(slice)
 }

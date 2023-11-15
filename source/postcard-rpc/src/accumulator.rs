@@ -1,3 +1,11 @@
+//! Accumulator tools
+//!
+//! These tools are useful for accumulating and decoding COBS encoded messages.
+//!
+//! Unlike the `CobsAccumulator` from `postcard`, these versions do not deserialize
+//! directly.
+
+/// Decode-only accumulator
 pub mod raw {
     use cobs::decode_in_place;
 
@@ -110,22 +118,40 @@ pub mod raw {
     }
 }
 
+/// Accumulate and Dispatch
 pub mod dispatch {
     use super::raw::{CobsAccumulator, FeedResult};
     use crate::Dispatch;
 
+    /// An error containing the handler-specific error, as well as the unprocessed
+    /// feed bytes
     #[derive(Debug, PartialEq)]
     pub struct FeedError<'a, E> {
         pub err: E,
         pub remainder: &'a [u8],
     }
 
+    /// A COBS-flavored version of [Dispatch]
+    ///
+    /// [Dispatch]: crate::Dispatch
+    ///
+    /// CobsDispatch is generic over four types:
+    ///
+    /// 1. The `Context`, which will be passed as a mutable reference
+    ///    to each of the handlers. It typically should contain
+    ///    whatever resource is necessary to send replies back to
+    ///    the host.
+    /// 2. The `Error` type, which can be returned by handlers
+    /// 3. `N`, for the maximum number of handlers
+    /// 4. `BUF`, for the maximum number of bytes to buffer for a single
+    ///    COBS-encoded message
     pub struct CobsDispatch<Context, Error, const N: usize, const BUF: usize> {
         dispatch: Dispatch<Context, Error, N>,
         acc: CobsAccumulator<BUF>,
     }
 
     impl<Context, Error, const N: usize, const BUF: usize> CobsDispatch<Context, Error, N, BUF> {
+        /// Create a new `CobsDispatch`
         pub fn new(c: Context) -> Self {
             Self {
                 dispatch: Dispatch::new(c),
@@ -133,6 +159,7 @@ pub mod dispatch {
             }
         }
 
+        /// Access the contained [Dispatch]`
         pub fn dispatcher(&mut self) -> &mut Dispatch<Context, Error, N> {
             &mut self.dispatch
         }
