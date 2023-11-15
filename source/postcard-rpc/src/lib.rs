@@ -189,5 +189,10 @@ impl Key {
     pub const unsafe fn from_bytes(bytes: [u8; 8]) -> Self {
         Self(bytes)
     }
+
+    /// Extract the bytes making up this key
+    pub fn to_bytes(&self) -> [u8; 8] {
+        self.0
+    }
 }
 
