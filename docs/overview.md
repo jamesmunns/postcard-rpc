@@ -115,6 +115,8 @@ By adding a sequence number, we can uniquely match each response to the specific
 
 ## How you use this:
 
+> NOTE: Check out the [examples/full-setup](https://github.com/jamesmunns/postcard-rpc/tree/main/example/full-setup) folder for a project that follows these recommendations.
+
 I'd suggest breaking up your project into three main crates:
 
 * The `protocol` crate
