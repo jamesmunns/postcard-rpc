@@ -2,7 +2,7 @@
 
 A host (PC) and client (MCU) library for handling RPC-style request-response types.
 
-More docs soon!
+See [overview.md](./docs/overview.md) for documentation.
 
 ## License
 
