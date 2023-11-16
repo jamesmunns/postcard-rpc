@@ -11,7 +11,6 @@
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
-use blake2::{self, Blake2s, Digest};
 use headered::extract_header_from_bytes;
 use postcard::experimental::schema::Schema;
 use serde::{Deserialize, Serialize};
@@ -22,6 +21,8 @@ pub mod headered;
 
 #[cfg(feature = "use-std")]
 pub mod host_client;
+
+pub mod macros;
 
 /// Error type for [Dispatch]
 #[derive(Debug, PartialEq)]
@@ -167,16 +168,11 @@ impl core::fmt::Debug for Key {
 
 impl Key {
     /// Create a Key for the given type and path
-    pub fn for_path<T>(path: &str) -> Self
+    pub const fn for_path<T>(path: &str) -> Self
     where
         T: Schema + ?Sized,
     {
-        let mut hasher = hash::Hasher::new();
-        hasher.update(path.as_bytes());
-        hash::hash_schema::<T>(&mut hasher);
-        let mut out = Default::default();
-        <Blake2s<blake2::digest::consts::U8> as Digest>::finalize_into(hasher, &mut out);
-        Key(out.into())
+        Key(crate::hash::fnv1a64::hash_ty_path::<T>(path))
     }
 
     /// Unsafely create a key from a given 8-byte value
@@ -191,8 +187,17 @@ impl Key {
     }
 
     /// Extract the bytes making up this key
-    pub fn to_bytes(&self) -> [u8; 8] {
+    pub const fn to_bytes(&self) -> [u8; 8] {
         self.0
     }
+}
+
+/// A marker trait
+pub trait Endpoint {
+    type Request: Schema;
+    type Response: Schema;
+    const PATH: &'static str;
+    const REQ_KEY: Key;
+    const RESP_KEY: Key;
 }
 

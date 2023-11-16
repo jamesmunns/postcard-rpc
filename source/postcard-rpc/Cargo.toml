@@ -23,7 +23,6 @@ all-features = true
 rustdoc-args = ["--cfg", "doc_cfg"]
 
 [dependencies]
-blake2 = { version = "0.10.6", default-features = false, features = ["size_opt"] }
 cobs = { version = "0.2.3", default-features = false }
 defmt = { version = "0.3.5", optional = true }
 heapless = "0.8.0"
