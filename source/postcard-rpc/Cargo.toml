@@ -1,6 +1,6 @@
 [package]
 name = "postcard-rpc"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["James Munns <james@onevariable.com>"]
 edition = "2021"
 repository = "https://github.com/jamesmunns/postcard-rpc"
@@ -23,7 +23,6 @@ all-features = true
 rustdoc-args = ["--cfg", "doc_cfg"]
 
 [dependencies]
-blake2 = { version = "0.10.6", default-features = false, features = ["size_opt"] }
 cobs = { version = "0.2.3", default-features = false }
 defmt = { version = "0.3.5", optional = true }
 heapless = "0.8.0"

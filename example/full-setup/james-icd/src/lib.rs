@@ -4,9 +4,11 @@ use postcard::experimental::schema::Schema;
 use serde::{Serialize, Deserialize};
 
 pub mod sleep {
+    use postcard_rpc::endpoint;
+
     use super::*;
 
-    pub const SLEEP_PATH: &str = "sleep";
+    endpoint!(SleepEndpoint, Sleep, SleepDone, "done");
 
     #[derive(Debug, PartialEq, Serialize, Deserialize, Schema)]
     pub struct Sleep {
@@ -21,9 +23,12 @@ pub mod sleep {
 }
 
 pub mod wire_error {
+    use postcard_rpc::Key;
+
     use super::*;
 
     pub const ERROR_PATH: &str = "error";
+    pub const ERROR_KEY: Key = Key::for_path::<FatalError>(ERROR_PATH);
 
     #[derive(Debug, PartialEq, Serialize, Deserialize, Schema)]
     pub enum FatalError {

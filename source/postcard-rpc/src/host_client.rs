@@ -13,8 +13,9 @@ use std::{
 
 use crate::{
     accumulator::raw::{CobsAccumulator, FeedResult},
-    headered::{extract_header_from_bytes, to_stdvec},
+    headered::{extract_header_from_bytes, to_stdvec_keyed},
     Key,
+    Endpoint,
 };
 use cobs::encode_vec;
 use maitake_sync::{
@@ -170,23 +171,23 @@ where
         }
     }
 
-    /// Send a message of type TX to `path`, and await a response of type
-    /// RX (or WireErr) to `path`.
+    /// Send a message of type [Endpoint::Request][Endpoint] to `path`, and await
+    /// a response of type [Endpoint::Response][Endpoint] (or WireErr) to `path`.
     ///
     /// This function will wait potentially forever. Consider using with a timeout.
-    pub async fn send_resp<TX, RX>(&self, path: &str, t: TX) -> Result<RX, HostErr<WireErr>>
+    pub async fn send_resp<E: Endpoint>(&self, t: &E::Request) -> Result<E::Response, HostErr<WireErr>>
     where
-        TX: Serialize + Schema,
-        RX: DeserializeOwned + Schema,
+        E::Request: Serialize + Schema,
+        E::Response: DeserializeOwned + Schema,
     {
         let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
-        let msg = to_stdvec(seq_no, path, &t).expect("Allocations should not ever fail");
+        let msg = to_stdvec_keyed(seq_no, E::REQ_KEY, &t).expect("Allocations should not ever fail");
         self.out.send(msg).await.map_err(|_| HostErr::Closed)?;
         let resp = self.ctx.map.wait(seq_no).await?;
         let (hdr, body) = extract_header_from_bytes(&resp)?;
 
-        if hdr.key == Key::for_path::<RX>(path) {
-            let r = postcard::from_bytes::<RX>(body)?;
+        if hdr.key == E::RESP_KEY {
+            let r = postcard::from_bytes::<E::Response>(body)?;
             Ok(r)
         } else if hdr.key == self.err_key {
             let r = postcard::from_bytes::<WireErr>(body)?;

@@ -1,14 +1,14 @@
 use std::time::Duration;
 
+use james_icd::{
+    sleep::{Sleep, SleepEndpoint},
+    wire_error::{FatalError, ERROR_PATH},
+};
 use postcard_rpc::host_client::HostClient;
-use james_icd::{sleep::{Sleep, SleepDone, SLEEP_PATH}, wire_error::{FatalError, ERROR_PATH}};
 
 #[tokio::main]
 async fn main() {
-    let client = HostClient::<FatalError>::new(
-        "/dev/tty.usbmodem123456781",
-        ERROR_PATH,
-    );
+    let client = HostClient::<FatalError>::new("/dev/tty.usbmodem123456781", ERROR_PATH);
 
     for i in 0..5 {
         tokio::spawn({
@@ -24,7 +24,7 @@ async fn main() {
                     };
 
                     println!("task {i} sending sleep");
-                    let res = client.send_resp::<Sleep, SleepDone>(SLEEP_PATH, msg).await;
+                    let res = client.send_resp::<SleepEndpoint>(&msg).await;
 
                     if res.is_ok() {
                         win += 1;

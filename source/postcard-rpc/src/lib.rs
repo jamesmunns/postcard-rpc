@@ -11,7 +11,6 @@
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
-use blake2::{self, Blake2s, Digest};
 use headered::extract_header_from_bytes;
 use postcard::experimental::schema::Schema;
 use serde::{Deserialize, Serialize};
@@ -22,6 +21,8 @@ pub mod headered;
 
 #[cfg(feature = "use-std")]
 pub mod host_client;
+
+mod macros;
 
 /// Error type for [Dispatch]
 #[derive(Debug, PartialEq)]
@@ -61,7 +62,7 @@ pub struct Dispatch<Context, Error, const N: usize> {
     context: Context,
 }
 
-impl<Context, E, const N: usize> Dispatch<Context, E, N> {
+impl<Context, Err, const N: usize> Dispatch<Context, Err, N> {
     /// Create a new [Dispatch]
     pub fn new(c: Context) -> Self {
         Self {
@@ -74,15 +75,14 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
     ///
     /// Returns an error if the given type+path have already been added,
     /// or if Dispatch is full.
-    pub fn add_handler<T: Schema>(
+    pub fn add_handler<E: Endpoint>(
         &mut self,
-        path: &str,
-        handler: Handler<Context, E>,
+        handler: Handler<Context, Err>,
     ) -> Result<(), &'static str> {
         if self.items.is_full() {
             return Err("full");
         }
-        let id = Key::for_path::<T>(path);
+        let id = E::REQ_KEY;
         if self.items.iter().any(|(k, _)| k == &id) {
             return Err("dupe");
         }
@@ -107,7 +107,7 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
     /// * We failed to decode a header
     /// * No handler was found for the decoded key
     /// * The handler ran, but returned an error
-    pub fn dispatch(&mut self, bytes: &[u8]) -> Result<(), Error<E>> {
+    pub fn dispatch(&mut self, bytes: &[u8]) -> Result<(), Error<Err>> {
         let (hdr, remain) = extract_header_from_bytes(bytes)?;
 
         // TODO: switch to binary search once we sort?
@@ -116,7 +116,7 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
             .iter()
             .find_map(|(k, d)| if k == &hdr.key { Some(d) } else { None })
         else {
-            return Err(Error::<E>::NoMatchingHandler {
+            return Err(Error::<Err>::NoMatchingHandler {
                 key: hdr.key,
                 seq_no: hdr.seq_no,
             });
@@ -143,9 +143,9 @@ pub struct WireHeader {
 ///
 /// [schema]: https://docs.rs/postcard/latest/postcard/experimental/index.html#message-schema-generation
 ///
-/// Specifically, we use [`Blake2s`](https://docs.rs/blake2/latest/blake2/),
+/// Specifically, we use [`Fnv1a`](https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function),
 /// and produce a 64-bit digest, by first hashing the path, then hashing the
-/// schema. Blake2s is a cryptographic hash function, designed to be reasonably
+/// schema. Fnv1a is a non-cryptographic hash function, designed to be reasonably
 /// efficient to compute even on small platforms like microcontrollers.
 ///
 /// Changing **anything** about *either* of the path or the schema will produce
@@ -167,16 +167,11 @@ impl core::fmt::Debug for Key {
 
 impl Key {
     /// Create a Key for the given type and path
-    pub fn for_path<T>(path: &str) -> Self
+    pub const fn for_path<T>(path: &str) -> Self
     where
         T: Schema + ?Sized,
     {
-        let mut hasher = hash::Hasher::new();
-        hasher.update(path.as_bytes());
-        hash::hash_schema::<T>(&mut hasher);
-        let mut out = Default::default();
-        <Blake2s<blake2::digest::consts::U8> as Digest>::finalize_into(hasher, &mut out);
-        Key(out.into())
+        Key(crate::hash::fnv1a64::hash_ty_path::<T>(path))
     }
 
     /// Unsafely create a key from a given 8-byte value
@@ -191,8 +186,24 @@ impl Key {
     }
 
     /// Extract the bytes making up this key
-    pub fn to_bytes(&self) -> [u8; 8] {
+    pub const fn to_bytes(&self) -> [u8; 8] {
         self.0
     }
+}
+
+/// A marker trait denoting a single endpoint
+///
+/// Typically used with the [endpoint] macro.
+pub trait Endpoint {
+    /// The type of the Request (client to server)
+    type Request: Schema;
+    /// The type of the Response (server to client)
+    type Response: Schema;
+    /// The path associated with this Endpoint
+    const PATH: &'static str;
+    /// The unique [Key] identifying the Request
+    const REQ_KEY: Key;
+    /// The unique [Key] identifying the Response
+    const RESP_KEY: Key;
 }
 

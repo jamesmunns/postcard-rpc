@@ -8,13 +8,13 @@ use embassy_time::Timer;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender};
 
 use james_icd::{
-    sleep::{Sleep, SleepDone, SLEEP_PATH},
-    wire_error::{FatalError, ERROR_PATH},
+    sleep::{Sleep, SleepDone, SleepEndpoint},
+    wire_error::{FatalError, ERROR_KEY},
 };
 use postcard::experimental::schema::Schema;
 use postcard_rpc::{
     accumulator::dispatch::{CobsDispatch, FeedError},
-    Key, WireHeader,
+    Key, WireHeader, Endpoint,
 };
 use serde::Serialize;
 use static_cell::StaticCell;
@@ -30,8 +30,6 @@ struct SendContents {
 struct Context {
     send: &'static Mutex<ThreadModeRawMutex, SendContents>,
     spawner: Spawner,
-    sleep_done_key: Key,
-    error_key: Key,
 }
 
 impl Context {
@@ -70,19 +68,13 @@ pub async fn comms_task(class: CdcAcmClass<'static, OtgDriver>) {
         scratch: [0u8; 128],
     }));
 
-    // Pre-hash keys for responses
-    let sleep_done_key = Key::for_path::<SleepDone>(SLEEP_PATH);
-    let error_key = Key::for_path::<FatalError>(ERROR_PATH);
-
     let mut cobs_dispatch = CobsDispatch::<Context, CommsError, 8, 128>::new(Context {
         send,
         spawner: Spawner::for_current_executor().await,
-        sleep_done_key,
-        error_key,
     });
     cobs_dispatch
         .dispatcher()
-        .add_handler::<Sleep>(SLEEP_PATH, sleep_handler)
+        .add_handler::<SleepEndpoint>(sleep_handler)
         .unwrap();
 
     loop {
@@ -121,8 +113,7 @@ async fn incoming(
                 postcard_rpc::Error::Postcard(_) => (0, FatalError::WireFailure),
             };
             let context = cobs_dispatch.dispatcher().context();
-            let error_key = context.error_key;
-            context.respond_keyed(error_key, seq_no, &resp).await;
+            context.respond_keyed(ERROR_KEY, seq_no, &resp).await;
             window = remainder;
         }
         info!("done frame");
@@ -156,7 +147,7 @@ async fn sleep_task(seq_no: u32, c: Context, s: Sleep) {
     } = &mut *c.send.lock().await;
     let msg = SleepDone { slept_for: s };
     if let Ok(used) =
-        postcard_rpc::headered::to_slice_cobs_keyed(seq_no, c.sleep_done_key, &msg, scratch)
+        postcard_rpc::headered::to_slice_cobs_keyed(seq_no, SleepEndpoint::RESP_KEY, &msg, scratch)
     {
         let max: usize = tx.max_packet_size().into();
         for ch in used.chunks(max - 1) {
