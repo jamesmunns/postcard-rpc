@@ -171,8 +171,8 @@ where
         }
     }
 
-    /// Send a message of type TX to `path`, and await a response of type
-    /// RX (or WireErr) to `path`.
+    /// Send a message of type [Endpoint::Request][Endpoint] to `path`, and await
+    /// a response of type [Endpoint::Response][Endpoint] (or WireErr) to `path`.
     ///
     /// This function will wait potentially forever. Consider using with a timeout.
     pub async fn send_resp<E: Endpoint>(&self, t: &E::Request) -> Result<E::Response, HostErr<WireErr>>

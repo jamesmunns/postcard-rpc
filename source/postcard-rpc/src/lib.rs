@@ -22,7 +22,7 @@ pub mod headered;
 #[cfg(feature = "use-std")]
 pub mod host_client;
 
-pub mod macros;
+mod macros;
 
 /// Error type for [Dispatch]
 #[derive(Debug, PartialEq)]
@@ -144,9 +144,9 @@ pub struct WireHeader {
 ///
 /// [schema]: https://docs.rs/postcard/latest/postcard/experimental/index.html#message-schema-generation
 ///
-/// Specifically, we use [`Blake2s`](https://docs.rs/blake2/latest/blake2/),
+/// Specifically, we use [`Fnv1a`](https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function),
 /// and produce a 64-bit digest, by first hashing the path, then hashing the
-/// schema. Blake2s is a cryptographic hash function, designed to be reasonably
+/// schema. Fnv1a is a non-cryptographic hash function, designed to be reasonably
 /// efficient to compute even on small platforms like microcontrollers.
 ///
 /// Changing **anything** about *either* of the path or the schema will produce
@@ -192,12 +192,19 @@ impl Key {
     }
 }
 
-/// A marker trait
+/// A marker trait denoting a single endpoint
+///
+/// Typically used with the [endpoint] macro.
 pub trait Endpoint {
+    /// The type of the Request (client to server)
     type Request: Schema;
+    /// The type of the Response (server to client)
     type Response: Schema;
+    /// The path associated with this Endpoint
     const PATH: &'static str;
+    /// The unique [Key] identifying the Request
     const REQ_KEY: Key;
+    /// The unique [Key] identifying the Response
     const RESP_KEY: Key;
 }
 
