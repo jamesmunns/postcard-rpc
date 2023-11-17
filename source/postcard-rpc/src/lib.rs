@@ -62,7 +62,7 @@ pub struct Dispatch<Context, Error, const N: usize> {
     context: Context,
 }
 
-impl<Context, E, const N: usize> Dispatch<Context, E, N> {
+impl<Context, Err, const N: usize> Dispatch<Context, Err, N> {
     /// Create a new [Dispatch]
     pub fn new(c: Context) -> Self {
         Self {
@@ -75,15 +75,14 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
     ///
     /// Returns an error if the given type+path have already been added,
     /// or if Dispatch is full.
-    pub fn add_handler<T: Schema>(
+    pub fn add_handler<E: Endpoint>(
         &mut self,
-        path: &str,
-        handler: Handler<Context, E>,
+        handler: Handler<Context, Err>,
     ) -> Result<(), &'static str> {
         if self.items.is_full() {
             return Err("full");
         }
-        let id = Key::for_path::<T>(path);
+        let id = E::REQ_KEY;
         if self.items.iter().any(|(k, _)| k == &id) {
             return Err("dupe");
         }
@@ -108,7 +107,7 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
     /// * We failed to decode a header
     /// * No handler was found for the decoded key
     /// * The handler ran, but returned an error
-    pub fn dispatch(&mut self, bytes: &[u8]) -> Result<(), Error<E>> {
+    pub fn dispatch(&mut self, bytes: &[u8]) -> Result<(), Error<Err>> {
         let (hdr, remain) = extract_header_from_bytes(bytes)?;
 
         // TODO: switch to binary search once we sort?
@@ -117,7 +116,7 @@ impl<Context, E, const N: usize> Dispatch<Context, E, N> {
             .iter()
             .find_map(|(k, d)| if k == &hdr.key { Some(d) } else { None })
         else {
-            return Err(Error::<E>::NoMatchingHandler {
+            return Err(Error::<Err>::NoMatchingHandler {
                 key: hdr.key,
                 seq_no: hdr.seq_no,
             });
