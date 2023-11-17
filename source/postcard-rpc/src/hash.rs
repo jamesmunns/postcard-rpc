@@ -20,9 +20,7 @@ impl Fnv1a64Hasher {
     const PRIME: u64 = 0x0000_0100_0000_01b3;
 
     pub fn new() -> Self {
-        Self {
-            state: Self::BASIS
-        }
+        Self { state: Self::BASIS }
     }
 
     pub fn update(&mut self, data: &[u8]) {

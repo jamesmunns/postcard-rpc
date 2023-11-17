@@ -34,5 +34,5 @@ macro_rules! endpoint {
             const REQ_KEY: $crate::Key = $crate::Key::for_path::<$req>($path);
             const RESP_KEY: $crate::Key = $crate::Key::for_path::<$resp>($path);
         }
-    }
+    };
 }

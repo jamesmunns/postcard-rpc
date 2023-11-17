@@ -14,7 +14,7 @@ use james_icd::{
 use postcard::experimental::schema::Schema;
 use postcard_rpc::{
     accumulator::dispatch::{CobsDispatch, FeedError},
-    Key, WireHeader, Endpoint,
+    Endpoint, Key, WireHeader,
 };
 use serde::Serialize;
 use static_cell::StaticCell;

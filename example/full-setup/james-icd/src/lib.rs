@@ -1,7 +1,7 @@
 #![no_std]
 
 use postcard::experimental::schema::Schema;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 pub mod sleep {
     use postcard_rpc::endpoint;

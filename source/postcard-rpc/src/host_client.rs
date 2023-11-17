@@ -14,8 +14,7 @@ use std::{
 use crate::{
     accumulator::raw::{CobsAccumulator, FeedResult},
     headered::{extract_header_from_bytes, to_stdvec_keyed},
-    Key,
-    Endpoint,
+    Endpoint, Key,
 };
 use cobs::encode_vec;
 use maitake_sync::{
@@ -175,13 +174,17 @@ where
     /// a response of type [Endpoint::Response][Endpoint] (or WireErr) to `path`.
     ///
     /// This function will wait potentially forever. Consider using with a timeout.
-    pub async fn send_resp<E: Endpoint>(&self, t: &E::Request) -> Result<E::Response, HostErr<WireErr>>
+    pub async fn send_resp<E: Endpoint>(
+        &self,
+        t: &E::Request,
+    ) -> Result<E::Response, HostErr<WireErr>>
     where
         E::Request: Serialize + Schema,
         E::Response: DeserializeOwned + Schema,
     {
         let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
-        let msg = to_stdvec_keyed(seq_no, E::REQ_KEY, &t).expect("Allocations should not ever fail");
+        let msg =
+            to_stdvec_keyed(seq_no, E::REQ_KEY, &t).expect("Allocations should not ever fail");
         self.out.send(msg).await.map_err(|_| HostErr::Closed)?;
         let resp = self.ctx.map.wait(seq_no).await?;
         let (hdr, body) = extract_header_from_bytes(&resp)?;

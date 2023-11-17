@@ -164,7 +164,6 @@ impl core::fmt::Debug for Key {
     }
 }
 
-
 impl Key {
     /// Create a Key for the given type and path
     pub const fn for_path<T>(path: &str) -> Self
@@ -206,4 +205,3 @@ pub trait Endpoint {
     /// The unique [Key] identifying the Response
     const RESP_KEY: Key;
 }
-
