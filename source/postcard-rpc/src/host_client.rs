@@ -14,7 +14,7 @@ use std::{
 use crate::{
     accumulator::raw::{CobsAccumulator, FeedResult},
     headered::{extract_header_from_bytes, to_stdvec_keyed},
-    Endpoint, Key,
+    Endpoint, Key, WireHeader,
 };
 use cobs::encode_vec;
 use maitake_sync::{
@@ -101,9 +101,9 @@ async fn wire_worker(
                         // We got a message! Attempt to dispatch it
                         FeedResult::Success { data, remaining } => {
                             // Attempt to extract a header so we can get the sequence number
-                            if let Ok((hdr, _body)) = extract_header_from_bytes(data) {
+                            if let Ok((hdr, body)) = extract_header_from_bytes(data) {
                                 // Wake the given sequence number. If the WaitMap is closed, we're done here
-                                if let WakeOutcome::Closed(_) = ctx.map.wake(&hdr.seq_no, data.to_vec()) {
+                                if let WakeOutcome::Closed(_) = ctx.map.wake(&hdr, body.to_vec()) {
                                     return;
                                 }
                             }
@@ -186,17 +186,26 @@ where
         let msg =
             to_stdvec_keyed(seq_no, E::REQ_KEY, &t).expect("Allocations should not ever fail");
         self.out.send(msg).await.map_err(|_| HostErr::Closed)?;
-        let resp = self.ctx.map.wait(seq_no).await?;
-        let (hdr, body) = extract_header_from_bytes(&resp)?;
+        let ok_resp = self.ctx.map.wait(WireHeader {
+            seq_no,
+            key: E::RESP_KEY,
+        });
+        let err_resp = self.ctx.map.wait(WireHeader {
+            seq_no,
+            key: self.err_key,
+        });
 
-        if hdr.key == E::RESP_KEY {
-            let r = postcard::from_bytes::<E::Response>(body)?;
-            Ok(r)
-        } else if hdr.key == self.err_key {
-            let r = postcard::from_bytes::<WireErr>(body)?;
-            Err(HostErr::Wire(r))
-        } else {
-            Err(HostErr::BadResponse)
+        select! {
+            o = ok_resp => {
+                let resp = o?;
+                let r = postcard::from_bytes::<E::Response>(&resp)?;
+                Ok(r)
+            },
+            e = err_resp => {
+                let resp = e?;
+                let r = postcard::from_bytes::<WireErr>(&resp)?;
+                Err(HostErr::Wire(r))
+            },
         }
     }
 }
@@ -215,6 +224,6 @@ impl<WireErr> Clone for HostClient<WireErr> {
 
 /// Shared context between [HostClient] and [wire_worker]
 struct HostContext {
-    map: WaitMap<u32, Vec<u8>>,
+    map: WaitMap<WireHeader, Vec<u8>>,
     seq: AtomicU32,
 }
