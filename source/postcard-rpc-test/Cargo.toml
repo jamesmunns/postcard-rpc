@@ -1,0 +1,21 @@
+[package]
+name = "postcard-rpc-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+[dependencies.postcard]
+version = "1.0.8"
+features = ["use-std", "experimental-derive"]
+
+[dependencies.serde]
+version = "1.0.192"
+features = ["derive"]
+
+[dependencies.postcard-rpc]
+path = "../postcard-rpc"
+features = ["use-std"]
+
+[dependencies.tokio]
+version = "1.34.0"
+features = ["rt", "macros", "sync"]

@@ -128,7 +128,7 @@ impl<Context, Err, const N: usize> Dispatch<Context, Err, N> {
 type Handler<C, E> = fn(&WireHeader, &mut C, &[u8]) -> Result<(), E>;
 
 /// The WireHeader is appended to all messages
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct WireHeader {
     pub key: Key,
     pub seq_no: u32,
@@ -151,7 +151,7 @@ pub struct WireHeader {
 /// Changing **anything** about *either* of the path or the schema will produce
 /// a drastically different `Key` value.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash)]
 pub struct Key([u8; 8]);
 
 impl core::fmt::Debug for Key {
