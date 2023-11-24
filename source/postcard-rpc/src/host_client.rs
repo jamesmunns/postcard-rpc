@@ -13,8 +13,8 @@ use std::{
 
 use crate::{
     accumulator::raw::{CobsAccumulator, FeedResult},
-    headered::{extract_header_from_bytes, to_stdvec_keyed},
-    Endpoint, Key,
+    headered::extract_header_from_bytes,
+    Endpoint, Key, WireHeader,
 };
 use cobs::encode_vec;
 use maitake_sync::{
@@ -56,13 +56,14 @@ impl<T> From<WaitError> for HostErr<T> {
     }
 }
 
-async fn wire_worker(
-    mut port: SerialStream,
-    mut outgoing: Receiver<Vec<u8>>,
-    ctx: Arc<HostContext>,
-) {
+async fn wire_worker(mut port: SerialStream, ctx: WireContext) {
     let mut buf = [0u8; 1024];
     let mut acc = CobsAccumulator::<1024>::new();
+
+    let WireContext {
+        mut outgoing,
+        incoming,
+    } = ctx;
 
     loop {
         // Wait for EITHER a serialized request, OR some data from the embedded device
@@ -74,6 +75,11 @@ async fn wire_worker(
                 };
 
                 // Turn the serialized message into a COBS encoded message
+                //
+                // TODO: this is a little wasteful, payload is already a vec,
+                // then we serialize it to a second vec, then encode that to
+                // a third cobs-encoded vec. Oh well.
+                let msg = msg.to_bytes();
                 let mut msg = encode_vec(&msg);
                 msg.push(0);
 
@@ -101,9 +107,10 @@ async fn wire_worker(
                         // We got a message! Attempt to dispatch it
                         FeedResult::Success { data, remaining } => {
                             // Attempt to extract a header so we can get the sequence number
-                            if let Ok((hdr, _body)) = extract_header_from_bytes(data) {
+                            if let Ok((hdr, body)) = extract_header_from_bytes(data) {
                                 // Wake the given sequence number. If the WaitMap is closed, we're done here
-                                if let WakeOutcome::Closed(_) = ctx.map.wake(&hdr.seq_no, data.to_vec()) {
+                                let frame = RpcFrame { header: hdr, body: body.to_vec() };
+                                if let Err(ProcessError::Closed) = incoming.process(frame) {
                                     return;
                                 }
                             }
@@ -126,7 +133,7 @@ async fn wire_worker(
 /// [HostClient]s can be cloned, and used across multiple tasks/threads.
 pub struct HostClient<WireErr> {
     ctx: Arc<HostContext>,
-    out: Sender<Vec<u8>>,
+    out: Sender<RpcFrame>,
     err_key: Key,
     _pd: PhantomData<fn() -> WireErr>,
 }
@@ -135,39 +142,65 @@ impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
 {
+    /// Create a new manually implemented [HostClient].
+    ///
+    /// This allows you to implement your own "Wire" abstraction, if you
+    /// aren't using a COBS-encoded serial port.
+    ///
+    /// This is temporary solution until Rust 1.76 when async traits are
+    /// stable, and we can have users provide a `Wire` trait that acts as
+    /// a bidirectional [RpcFrame] sink/source.
+    pub fn new_manual(err_uri_path: &str, outgoing_depth: usize) -> (Self, WireContext) {
+        let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(outgoing_depth);
+
+        let ctx = Arc::new(HostContext {
+            map: WaitMap::new(),
+            seq: AtomicU32::new(0),
+        });
+
+        let err_key = Key::for_path::<WireErr>(err_uri_path);
+
+        let me = HostClient {
+            ctx: ctx.clone(),
+            out: tx_pc,
+            err_key,
+            _pd: PhantomData,
+        };
+
+        let wire = WireContext {
+            outgoing: rx_pc,
+            incoming: ctx,
+        };
+
+        (me, wire)
+    }
+
+    #[deprecated = "use `Self::new_serial_cobs`"]
+    pub fn new(serial_path: &str, err_uri_path: &str) -> Self {
+        Self::new_serial_cobs(serial_path, err_uri_path, 8, 115_200)
+    }
+
     /// Create a new [HostClient]
     ///
     /// `serial_path` is the path to the serial port used. `err_uri_path` is
     /// the path associated with the `WireErr` message type.
     ///
     /// Panics if we couldn't open the serial port
-    pub fn new(serial_path: &str, err_uri_path: &str) -> Self {
-        // TODO: queue depth as a config?
-        let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(8);
+    pub fn new_serial_cobs(
+        serial_path: &str,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+        baud: u32,
+    ) -> Self {
+        let (me, wire) = Self::new_manual(err_uri_path, outgoing_depth);
 
-        // TODO: baud rate as a config?
-        // TODO: poll interval as a config?
-        let port = tokio_serial::new(serial_path, 115_200)
+        let port = tokio_serial::new(serial_path, baud)
             .open_native_async()
             .unwrap();
 
-        let ctx = Arc::new(HostContext {
-            map: WaitMap::new(),
-            seq: AtomicU32::new(0),
-        });
-        tokio::task::spawn({
-            let ctx = ctx.clone();
-            async move { wire_worker(port, rx_pc, ctx).await }
-        });
+        tokio::task::spawn(async move { wire_worker(port, wire).await });
 
-        let err_key = Key::for_path::<WireErr>(err_uri_path);
-
-        HostClient {
-            ctx,
-            out: tx_pc,
-            err_key,
-            _pd: PhantomData,
-        }
+        me
     }
 
     /// Send a message of type [Endpoint::Request][Endpoint] to `path`, and await
@@ -183,20 +216,35 @@ where
         E::Response: DeserializeOwned + Schema,
     {
         let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
-        let msg =
-            to_stdvec_keyed(seq_no, E::REQ_KEY, &t).expect("Allocations should not ever fail");
-        self.out.send(msg).await.map_err(|_| HostErr::Closed)?;
-        let resp = self.ctx.map.wait(seq_no).await?;
-        let (hdr, body) = extract_header_from_bytes(&resp)?;
+        let msg = postcard::to_stdvec(&t).expect("Allocations should not ever fail");
+        let frame = RpcFrame {
+            header: WireHeader {
+                key: E::REQ_KEY,
+                seq_no,
+            },
+            body: msg,
+        };
+        self.out.send(frame).await.map_err(|_| HostErr::Closed)?;
+        let ok_resp = self.ctx.map.wait(WireHeader {
+            seq_no,
+            key: E::RESP_KEY,
+        });
+        let err_resp = self.ctx.map.wait(WireHeader {
+            seq_no,
+            key: self.err_key,
+        });
 
-        if hdr.key == E::RESP_KEY {
-            let r = postcard::from_bytes::<E::Response>(body)?;
-            Ok(r)
-        } else if hdr.key == self.err_key {
-            let r = postcard::from_bytes::<WireErr>(body)?;
-            Err(HostErr::Wire(r))
-        } else {
-            Err(HostErr::BadResponse)
+        select! {
+            o = ok_resp => {
+                let resp = o?;
+                let r = postcard::from_bytes::<E::Response>(&resp)?;
+                Ok(r)
+            },
+            e = err_resp => {
+                let resp = e?;
+                let r = postcard::from_bytes::<WireErr>(&resp)?;
+                Err(HostErr::Wire(r))
+            },
         }
     }
 }
@@ -213,8 +261,48 @@ impl<WireErr> Clone for HostClient<WireErr> {
     }
 }
 
+pub struct WireContext {
+    pub outgoing: Receiver<RpcFrame>,
+    pub incoming: Arc<HostContext>,
+}
+
+/// A single postcard-rpc frame
+pub struct RpcFrame {
+    /// The wire header
+    pub header: WireHeader,
+    /// The serialized message payload
+    pub body: Vec<u8>,
+}
+
+impl RpcFrame {
+    /// Serialize the `RpcFrame` into a Vec of bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = postcard::to_stdvec(&self.header).expect("Alloc should never fail");
+        out.extend_from_slice(&self.body);
+        out
+    }
+}
+
 /// Shared context between [HostClient] and [wire_worker]
-struct HostContext {
-    map: WaitMap<u32, Vec<u8>>,
+pub struct HostContext {
+    map: WaitMap<WireHeader, Vec<u8>>,
     seq: AtomicU32,
+}
+
+/// Error for [Hostcontext::process].
+#[derive(Debug, PartialEq)]
+pub enum ProcessError {
+    /// All [HostClient]s have been dropped, no further requests
+    /// will be made and no responses will be processed.
+    Closed,
+}
+
+impl HostContext {
+    pub fn process(&self, frame: RpcFrame) -> Result<(), ProcessError> {
+        if let WakeOutcome::Closed(_) = self.map.wake(&frame.header, frame.body) {
+            Err(ProcessError::Closed)
+        } else {
+            Ok(())
+        }
+    }
 }
