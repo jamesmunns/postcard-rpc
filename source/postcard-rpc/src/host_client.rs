@@ -1,7 +1,7 @@
-//! A post-dispatch host client
+//! A postcard-rpc host client
 //!
 //! This library is meant to be used with the `Dispatch` type and the
-//! post-dispatch wire protocol.
+//! postcard-rpc wire protocol.
 
 use std::{
     collections::HashMap,
@@ -57,7 +57,7 @@ impl<T> From<WaitError> for HostErr<T> {
     }
 }
 
-async fn wire_worker(mut port: SerialStream, ctx: WireContext) {
+async fn cobs_wire_worker(mut port: SerialStream, ctx: WireContext) {
     let mut buf = [0u8; 1024];
     let mut acc = CobsAccumulator::<1024>::new();
     let mut subs: HashMap<Key, Sender<RpcFrame>> = HashMap::new();
@@ -202,17 +202,40 @@ where
         (me, wire)
     }
 
-    #[deprecated = "use `Self::new_serial_cobs`"]
-    pub fn new(serial_path: &str, err_uri_path: &str) -> Self {
-        Self::new_serial_cobs(serial_path, err_uri_path, 8, 115_200)
-    }
-
     /// Create a new [HostClient]
     ///
     /// `serial_path` is the path to the serial port used. `err_uri_path` is
     /// the path associated with the `WireErr` message type.
     ///
     /// Panics if we couldn't open the serial port
+    ///
+    /// ## Example
+    ///
+    /// ```rust,no_run
+    /// use postcard_rpc::host_client::HostClient;
+    /// use serde::{Serialize, Deserialize};
+    /// use postcard::experimental::schema::Schema;
+    ///
+    /// /// A "wire error" type your server can use to respond to any
+    /// /// kind of request, for example if deserializing a request fails
+    /// #[derive(Debug, PartialEq, Schema, Serialize, Deserialize)]
+    /// pub enum Error {
+    ///    SomethingBad
+    /// }
+    ///
+    /// let client = HostClient::<Error>::new_serial_cobs(
+    ///     // the serial port path
+    ///     "/dev/ttyACM0",
+    ///     // the URI/path for `Error` messages
+    ///     "error",
+    ///     // Outgoing queue depth in messages
+    ///     8,
+    ///     // Baud rate of serial (does not generally matter for
+    ///     //  USB UART/CDC-ACM serial connections)
+    ///     115_200,
+    /// );
+    /// ```
+    ///
     pub fn new_serial_cobs(
         serial_path: &str,
         err_uri_path: &str,
@@ -225,9 +248,18 @@ where
             .open_native_async()
             .unwrap();
 
-        tokio::task::spawn(async move { wire_worker(port, wire).await });
+        tokio::task::spawn(async move { cobs_wire_worker(port, wire).await });
 
         me
+    }
+
+    /// Create a new instance
+    ///
+    /// Same as [HostClient::new_serial_cobs] with baudrate of 115_200 and
+    /// outgoing depth of 8.
+    #[deprecated = "use `Self::new_serial_cobs`"]
+    pub fn new(serial_path: &str, err_uri_path: &str) -> Self {
+        Self::new_serial_cobs(serial_path, err_uri_path, 8, 115_200)
     }
 }
 

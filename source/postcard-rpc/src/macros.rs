@@ -24,6 +24,9 @@
 /// ```
 #[macro_export]
 macro_rules! endpoint {
+    ($tyname:ident, $req:ty, $resp:ty, $path:literal,) => {
+        endpoint!($tyname, $req, $resp, $path)
+    };
     ($tyname:ident, $req:ty, $resp:ty, $path:literal) => {
         pub struct $tyname;
 
@@ -57,6 +60,9 @@ macro_rules! endpoint {
 /// ```
 #[macro_export]
 macro_rules! topic {
+    ($tyname:ident, $msg:ty, $path:literal,) => {
+        topic!($tyname, $msg, $path)
+    };
     ($tyname:ident, $msg:ty, $path:literal) => {
         pub struct $tyname;
 

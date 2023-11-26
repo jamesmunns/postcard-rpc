@@ -1,5 +1,3 @@
-//! Postcard RPC
-//!
 //! The goal of `postcard-rpc` is to make it easier for a
 //! host PC to talk to a constrained device, like a microcontroller.
 //!
@@ -8,6 +6,154 @@
 //!
 //! [the repo]: https://github.com/jamesmunns/postcard-rpc
 //! [the overview]: https://github.com/jamesmunns/postcard-rpc/blob/main/docs/overview.md
+//!
+//! ## Defining a schema
+//!
+//! Typically, you will define your "wire types" in a shared schema crate. This
+//! crate essentially defines the protocol used between two or more devices.
+//!
+//! A schema consists of a couple of necessary items:
+//!
+//! ### Wire types
+//!
+//! We will need to define all of the types that we will use within our protocol.
+//! We specify normal Rust types, which will need to implement or derive three
+//! important traits:
+//!
+//! * [`serde`]'s [`Serialize`] trait - which defines how we can
+//!   convert a type into bytes on the wire
+//! * [`serde`]'s [`Deserialize`] trait - which defines how we
+//!   can convert bytes on the wire into a type
+//! * [`postcard`]'s [`Schema`] trait - which generates a reflection-style
+//!   schema value for a given type.
+//!
+//! Here's an example of three types we'll use in future examples:
+//!
+//! ```rust
+//! // Consider making your shared "wire types" crate conditionally no-std,
+//! // if you want to use it with no-std embedded targets! This makes it no_std
+//! // except for testing and when the "use-std" feature is active.
+//! //
+//! // You may need to also ensure that `std`/`use-std` features are not active
+//! // in any dependencies as well.
+//! #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
+//! # fn main() {}
+//!
+//! use serde::{Serialize, Deserialize};
+//! use postcard::experimental::schema::Schema;
+//!
+//! #[derive(Serialize, Deserialize, Schema)]
+//! pub struct Alpha {
+//!     pub one: u8,
+//!     pub two: i64,
+//! }
+//!
+//! #[derive(Serialize, Deserialize, Schema)]
+//! pub enum Beta {
+//!     Bib,
+//!     Bim(i16),
+//!     Bap,
+//! }
+//!
+//! #[derive(Serialize, Deserialize, Schema)]
+//! pub struct Delta(pub [u8; 32]);
+//!
+//! #[derive(Serialize, Deserialize, Schema)]
+//! pub enum WireError {
+//!     ALittleBad,
+//!     VeryBad,
+//! }
+//! ```
+//!
+//! ### Endpoints
+//!
+//! Now that we have some basic types that will be used on the wire, we need
+//! to start building our protocol. The first thing we can build are [Endpoint]s,
+//! which represent a bidirectional "Request"/"Response" relationship. One of our
+//! devices will act as a Client (who makes a request, and receives a response),
+//! and the other device will act as a Server (who receives a request, and sends
+//! a response). Every request should be followed (eventually) by exactly one response.
+//!
+//! An endpoint consists of:
+//!
+//! * The type of the Request
+//! * The type of the Response
+//! * A string "path", like an HTTP URI that uniquely identifies the endpoint.
+//!
+//! The easiest way to define an Endpoint is to use the [`endpoint!`][endpoint]
+//! macro.
+//!
+//! ```rust
+//! # use serde::{Serialize, Deserialize};
+//! # use postcard::experimental::schema::Schema;
+//! #
+//! # #[derive(Serialize, Deserialize, Schema)]
+//! # pub struct Alpha {
+//! #     pub one: u8,
+//! #     pub two: i64,
+//! # }
+//! #
+//! # #[derive(Serialize, Deserialize, Schema)]
+//! # pub enum Beta {
+//! #     Bib,
+//! #     Bim(i16),
+//! #     Bap,
+//! # }
+//! #
+//! use postcard_rpc::endpoint;
+//!
+//! // Define an endpoint
+//! endpoint!(
+//!     // This is the name of a marker type that represents our Endpoint,
+//!     // and implements the `Endpoint` trait.
+//!     FirstEndpoint,
+//!     // This is the request type for this endpoint
+//!     Alpha,
+//!     // This is the response type for this endpoint
+//!     Beta,
+//!     // This is the path/URI of the endpoint
+//!     "endpoints/first",
+//! );
+//! ```
+//!
+//! ### Topics
+//!
+//! Sometimes, you would just like to send data in a single direction, with no
+//! response. This could be for reasons like asynchronous logging, blindly sending
+//! sensor data periodically, or any other reason you can think of.
+//!
+//! Topics have no "client" or "server" role, either device may decide to send a
+//! message on a given topic.
+//!
+//! A topic consists of:
+//!
+//! * The type of the Message
+//! * A string "path", like an HTTP URI that uniquely identifies the topic.
+//!
+//! The easiest way to define a Topic is to use the [`topic!`][topic]
+//! macro.
+//!
+//! ```rust
+//! # use serde::{Serialize, Deserialize};
+//! # use postcard::experimental::schema::Schema;
+//! #
+//! # #[derive(Serialize, Deserialize, Schema)]
+//! # pub struct Delta(pub [u8; 32]);
+//! #
+//! use postcard_rpc::topic;
+//!
+//! // Define a topic
+//! topic!(
+//!     // This is the name of a marker type that represents our Topic,
+//!     // and implements `Topic` trait.
+//!     FirstTopic,
+//!     // This is the message type for the endpoint (note there is no
+//!     // response type!)
+//!     Delta,
+//!     // This is the path/URI of the topic
+//!     "topics/first",
+//! );
+//! ```
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
@@ -21,6 +167,9 @@ pub mod headered;
 
 #[cfg(feature = "use-std")]
 pub mod host_client;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 
 mod macros;
 
