@@ -154,6 +154,20 @@
 //!     "topics/first",
 //! );
 //! ```
+//!
+//! ## Using a schema
+//!
+//! At the moment, this library is primarily oriented around:
+//!
+//! * A single Client, usually a PC, with access to `std`
+//! * A single Server, usually an MCU, without access to `std`
+//!
+//! For Client facilities, check out the [`host_client`] module,
+//! particularly the [`HostClient`][host_client::HostClient] struct.
+//! This is only available with the `use-std` feature active.
+//!
+//! For Server facilities, check out the [`Dispatch`] struct. This is
+//! available with or without the standard library.
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
