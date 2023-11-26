@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 pub mod accumulator;
 pub mod hash;
 pub mod headered;
+pub mod wire;
 
 #[cfg(feature = "use-std")]
 pub mod host_client;
@@ -204,4 +205,10 @@ pub trait Endpoint {
     const REQ_KEY: Key;
     /// The unique [Key] identifying the Response
     const RESP_KEY: Key;
+}
+
+pub trait Topic {
+    type Message: Schema;
+    const PATH: &'static str;
+    const TOPIC_KEY: Key;
 }

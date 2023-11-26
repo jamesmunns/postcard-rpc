@@ -36,3 +36,16 @@ macro_rules! endpoint {
         }
     };
 }
+
+#[macro_export]
+macro_rules! topic {
+    ($tyname:ident, $msg:ty, $path:literal) => {
+        pub struct $tyname;
+
+        impl $crate::Topic for $tyname {
+            type Message = $msg;
+            const PATH: &'static str = $path;
+            const TOPIC_KEY: $crate::Key = $crate::Key::for_path::<$msg>($path);
+        }
+    };
+}

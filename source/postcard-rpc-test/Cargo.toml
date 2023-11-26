@@ -3,7 +3,6 @@ name = "postcard-rpc-test"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
 [dependencies.postcard]
 version = "1.0.8"
 features = ["use-std", "experimental-derive"]

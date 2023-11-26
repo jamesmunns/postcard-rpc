@@ -2,14 +2,13 @@ use std::collections::HashMap;
 
 use postcard::experimental::schema::Schema;
 use postcard_rpc::{
-    endpoint,
-    headered::to_stdvec_keyed,
-    host_client::{HostClient, RpcFrame},
-    Dispatch, Endpoint, Key, WireHeader,
+    endpoint, headered::to_stdvec_keyed, topic, Dispatch, Endpoint, Key, WireHeader,
 };
+use postcard_rpc_test::local_setup;
 use serde::{Deserialize, Serialize};
 
 endpoint!(EndpointOne, Req1, Resp1, "endpoint/one");
+topic!(TopicOne, Req1, "unsolicited/topic1");
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Schema)]
 pub struct Req1 {
@@ -61,8 +60,7 @@ struct SmokeDispatch {
 
 #[tokio::test]
 async fn smoke() {
-    // Create the Host Client
-    let (client, mut wire) = HostClient::<WireError>::new_manual("error", 8);
+    let (mut srv, client) = local_setup::<WireError>(8, "error");
 
     // Create the Dispatch Server
     let mut disp = SmokeDispatch::new();
@@ -79,7 +77,7 @@ async fn smoke() {
     });
 
     // As the wire, get the outgoing request
-    let out1 = wire.outgoing.recv().await.unwrap();
+    let out1 = srv.from_client.recv().await.unwrap();
 
     // Does the outgoing value match what we expect?
     let exp_out = to_stdvec_keyed(0, EndpointOne::REQ_KEY, &Req1 { a: 10, b: 100 }).unwrap();
@@ -102,29 +100,17 @@ async fn smoke() {
 
     // Feed a simulated response "from the wire" back to the
     // awaiting request
-    wire.incoming
-        .process(RpcFrame {
-            header: WireHeader {
-                key: EndpointOne::RESP_KEY,
-                seq_no: 0,
-            },
-            body: postcard::to_stdvec(&Resp1 {
-                c: [1, 2, 3, 4, 5, 6, 7, 8],
-                d: -10,
-            })
-            .unwrap(),
-        })
+    const RESP_001: Resp1 = Resp1 {
+        c: [1, 2, 3, 4, 5, 6, 7, 8],
+        d: -10,
+    };
+    srv.reply::<EndpointOne>(out1.header.seq_no, &RESP_001)
+        .await
         .unwrap();
 
     // Now wait for the request to complete
     let end = send1.await.unwrap().unwrap();
 
     // We got the simulated value back
-    assert_eq!(
-        end,
-        Resp1 {
-            c: [1, 2, 3, 4, 5, 6, 7, 8],
-            d: -10
-        }
-    );
+    assert_eq!(end, RESP_001);
 }
