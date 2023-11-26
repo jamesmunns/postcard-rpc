@@ -3,9 +3,15 @@
 use std::collections::HashMap;
 
 use postcard::experimental::schema::Schema;
-use postcard_rpc::{WireHeader, host_client::{RpcFrame, HostClient, WireContext, ProcessError}, Endpoint, Key, Topic};
+use postcard_rpc::{
+    host_client::{HostClient, ProcessError, RpcFrame, WireContext},
+    Endpoint, Key, Topic, WireHeader,
+};
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::{sync::mpsc::{Receiver, Sender, channel}, select};
+use tokio::{
+    select,
+    sync::mpsc::{channel, Receiver, Sender},
+};
 
 pub struct LocalServer {
     pub from_client: Receiver<RpcFrame>,
@@ -17,32 +23,32 @@ impl LocalServer {
     where
         E::Response: Serialize,
     {
-        self.to_client.send(RpcFrame {
-            header: WireHeader {
-                key: E::RESP_KEY,
-                seq_no,
-            },
-            body: postcard::to_stdvec(msg)
-            .unwrap(),
-        })
-        .await
-        .map_err(drop)
+        self.to_client
+            .send(RpcFrame {
+                header: WireHeader {
+                    key: E::RESP_KEY,
+                    seq_no,
+                },
+                body: postcard::to_stdvec(msg).unwrap(),
+            })
+            .await
+            .map_err(drop)
     }
 
     pub async fn publish<T: Topic>(&mut self, seq_no: u32, msg: &T::Message) -> Result<(), ()>
     where
         T::Message: Serialize,
     {
-        self.to_client.send(RpcFrame {
-            header: WireHeader {
-                key: T::TOPIC_KEY,
-                seq_no,
-            },
-            body: postcard::to_stdvec(msg)
-            .unwrap(),
-        })
-        .await
-        .map_err(drop)
+        self.to_client
+            .send(RpcFrame {
+                header: WireHeader {
+                    key: T::TOPIC_KEY,
+                    seq_no,
+                },
+                body: postcard::to_stdvec(msg).unwrap(),
+            })
+            .await
+            .map_err(drop)
     }
 }
 
@@ -69,11 +75,7 @@ where
     (srv, cli)
 }
 
-pub fn make_client<E>(
-    cli: LocalClient,
-    depth: usize,
-    err_uri_path: &str,
-) -> HostClient<E>
+pub fn make_client<E>(cli: LocalClient, depth: usize, err_uri_path: &str) -> HostClient<E>
 where
     E: Schema + DeserializeOwned,
 {

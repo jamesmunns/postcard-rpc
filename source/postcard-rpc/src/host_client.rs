@@ -4,11 +4,12 @@
 //! post-dispatch wire protocol.
 
 use std::{
+    collections::HashMap,
     marker::PhantomData,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
-    }, collections::HashMap,
+    },
 };
 
 use crate::{
@@ -160,6 +161,7 @@ pub struct HostClient<WireErr> {
     _pd: PhantomData<fn() -> WireErr>,
 }
 
+/// # Constructor Methods
 impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
@@ -227,7 +229,13 @@ where
 
         me
     }
+}
 
+/// # Interface Methods
+impl<WireErr> HostClient<WireErr>
+where
+    WireErr: DeserializeOwned + Schema,
+{
     /// Send a message of type [Endpoint::Request][Endpoint] to `path`, and await
     /// a response of type [Endpoint::Response][Endpoint] (or WireErr) to `path`.
     ///
@@ -301,7 +309,10 @@ where
     /// will be closed (there can be only one).
     ///
     /// Returns an Error if the I/O worker is closed.
-    pub async fn subscribe<T: Topic>(&self, depth: usize) -> Result<Subscription<T::Message>, IoClosed>
+    pub async fn subscribe<T: Topic>(
+        &self,
+        depth: usize,
+    ) -> Result<Subscription<T::Message>, IoClosed>
     where
         T::Message: DeserializeOwned,
     {
@@ -362,9 +373,15 @@ pub struct SubInfo {
     pub tx: Sender<RpcFrame>,
 }
 
+/// Items necessary for implementing a custom I/O Task
 pub struct WireContext {
+    /// This is a stream of frames that should be placed on the
+    /// wire towards the server.
     pub outgoing: Receiver<RpcFrame>,
+    /// This shared information contains the WaitMap used for replying to
+    /// open requests.
     pub incoming: Arc<HostContext>,
+    /// This is a stream of new subscriptions that should be tracked
     pub new_subs: Receiver<SubInfo>,
 }
 
@@ -385,7 +402,7 @@ impl RpcFrame {
     }
 }
 
-/// Shared context between [HostClient] and [wire_worker]
+/// Shared context between [HostClient] and the I/O worker task
 pub struct HostContext {
     map: WaitMap<WireHeader, Vec<u8>>,
     seq: AtomicU32,
@@ -395,7 +412,7 @@ pub struct HostContext {
 #[derive(Debug)]
 pub struct IoClosed;
 
-/// Error for [Hostcontext::process].
+/// Error for [HostContext::process].
 #[derive(Debug, PartialEq)]
 pub enum ProcessError {
     /// All [HostClient]s have been dropped, no further requests

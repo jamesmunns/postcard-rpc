@@ -208,6 +208,10 @@ pub trait Endpoint {
 
 /// A marker trait denoting a single topic
 ///
+/// Unlike [Endpoint]s, [Topic]s are unidirectional, and can be sent
+/// at any time asynchronously. Messages may be sent client to server,
+/// or server to client.
+///
 /// Typically used with the [topic] macro.
 pub trait Topic {
     /// The type of the Message (unidirectional)

@@ -37,6 +37,24 @@ macro_rules! endpoint {
     };
 }
 
+/// ## Topic macro
+///
+/// Used to define a single Topic marker type that implements the
+/// [Topic][crate::Topic] trait.
+///
+/// ```rust
+/// # use postcard::experimental::schema::Schema;
+/// # use serde::{Serialize, Deserialize};
+/// use postcard_rpc::topic;
+///
+/// #[derive(Debug, Serialize, Deserialize, Schema)]
+/// pub struct Message1 {
+///     a: u8,
+///     b: u64,
+/// }
+///
+/// topic!(Topic1, Message1, "topic/1");
+/// ```
 #[macro_export]
 macro_rules! topic {
     ($tyname:ident, $msg:ty, $path:literal) => {

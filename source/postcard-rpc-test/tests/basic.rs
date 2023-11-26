@@ -2,7 +2,7 @@ use std::{collections::HashMap, time::Duration};
 
 use postcard::experimental::schema::Schema;
 use postcard_rpc::{
-    endpoint, headered::to_stdvec_keyed, topic, Dispatch, Endpoint, Key, WireHeader, Topic,
+    endpoint, headered::to_stdvec_keyed, topic, Dispatch, Endpoint, Key, Topic, WireHeader,
 };
 use postcard_rpc_test::local_setup;
 use serde::{Deserialize, Serialize};
@@ -116,7 +116,6 @@ async fn smoke_reqresp() {
     assert_eq!(end, RESP_001);
 }
 
-
 #[tokio::test]
 async fn smoke_publish() {
     let (mut srv, client) = local_setup::<WireError>(8, "error");
@@ -152,7 +151,10 @@ async fn smoke_subscribe() {
     srv.publish::<TopicOne>(123, &VAL).await.unwrap();
 
     // Now the request resolves
-    let publ = timeout(Duration::from_millis(100), sub.recv()).await.unwrap().unwrap();
+    let publ = timeout(Duration::from_millis(100), sub.recv())
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(publ, VAL);
 }
