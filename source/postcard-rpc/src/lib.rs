@@ -18,7 +18,6 @@ use serde::{Deserialize, Serialize};
 pub mod accumulator;
 pub mod hash;
 pub mod headered;
-pub mod wire;
 
 #[cfg(feature = "use-std")]
 pub mod host_client;
@@ -207,8 +206,14 @@ pub trait Endpoint {
     const RESP_KEY: Key;
 }
 
+/// A marker trait denoting a single topic
+///
+/// Typically used with the [topic] macro.
 pub trait Topic {
+    /// The type of the Message (unidirectional)
     type Message: Schema;
+    /// The path associated with this Topic
     const PATH: &'static str;
+    /// The unique [Key] identifying the Message
     const TOPIC_KEY: Key;
 }

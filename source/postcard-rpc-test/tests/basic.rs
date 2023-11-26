@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use postcard::experimental::schema::Schema;
 use postcard_rpc::{
-    endpoint, headered::to_stdvec_keyed, topic, Dispatch, Endpoint, Key, WireHeader,
+    endpoint, headered::to_stdvec_keyed, topic, Dispatch, Endpoint, Key, WireHeader, Topic,
 };
 use postcard_rpc_test::local_setup;
 use serde::{Deserialize, Serialize};
+use tokio::time::timeout;
 
 endpoint!(EndpointOne, Req1, Resp1, "endpoint/one");
 topic!(TopicOne, Req1, "unsolicited/topic1");
@@ -59,7 +60,7 @@ struct SmokeDispatch {
 }
 
 #[tokio::test]
-async fn smoke() {
+async fn smoke_reqresp() {
     let (mut srv, client) = local_setup::<WireError>(8, "error");
 
     // Create the Dispatch Server
@@ -113,4 +114,45 @@ async fn smoke() {
 
     // We got the simulated value back
     assert_eq!(end, RESP_001);
+}
+
+
+#[tokio::test]
+async fn smoke_publish() {
+    let (mut srv, client) = local_setup::<WireError>(8, "error");
+
+    // Start the request
+    client
+        .publish::<TopicOne>(123, &Req1 { a: 10, b: 100 })
+        .await
+        .unwrap();
+
+    // As the wire, get the outgoing request
+    let out1 = srv.from_client.recv().await.unwrap();
+
+    // Does the outgoing value match what we expect?
+    let exp_out = to_stdvec_keyed(123, TopicOne::TOPIC_KEY, &Req1 { a: 10, b: 100 }).unwrap();
+    let act_out = out1.to_bytes();
+    assert_eq!(act_out, exp_out);
+}
+
+#[tokio::test]
+async fn smoke_subscribe() {
+    let (mut srv, client) = local_setup::<WireError>(8, "error");
+
+    // Do a subscription
+    let mut sub = client.subscribe::<TopicOne>(8).await.unwrap();
+
+    // Start the listen
+    let recv1 = timeout(Duration::from_millis(100), sub.recv());
+    let _ = recv1.await.unwrap_err();
+
+    // Send a message on the topic
+    const VAL: Req1 = Req1 { a: 10, b: 100 };
+    srv.publish::<TopicOne>(123, &VAL).await.unwrap();
+
+    // Now the request resolves
+    let publ = timeout(Duration::from_millis(100), sub.recv()).await.unwrap().unwrap();
+
+    assert_eq!(publ, VAL);
 }

@@ -8,13 +8,13 @@ use std::{
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
-    },
+    }, collections::HashMap,
 };
 
 use crate::{
     accumulator::raw::{CobsAccumulator, FeedResult},
     headered::extract_header_from_bytes,
-    Endpoint, Key, WireHeader,
+    Endpoint, Key, Topic, WireHeader,
 };
 use cobs::encode_vec;
 use maitake_sync::{
@@ -59,15 +59,24 @@ impl<T> From<WaitError> for HostErr<T> {
 async fn wire_worker(mut port: SerialStream, ctx: WireContext) {
     let mut buf = [0u8; 1024];
     let mut acc = CobsAccumulator::<1024>::new();
+    let mut subs: HashMap<Key, Sender<RpcFrame>> = HashMap::new();
 
     let WireContext {
         mut outgoing,
         incoming,
+        mut new_subs,
     } = ctx;
 
     loop {
         // Wait for EITHER a serialized request, OR some data from the embedded device
         select! {
+            sub = new_subs.recv() => {
+                let Some(si) = sub else {
+                    return;
+                };
+
+                subs.insert(si.key, si.tx);
+            }
             out = outgoing.recv() => {
                 // Receiver returns None when all Senders have hung up
                 let Some(msg) = out else {
@@ -108,10 +117,22 @@ async fn wire_worker(mut port: SerialStream, ctx: WireContext) {
                         FeedResult::Success { data, remaining } => {
                             // Attempt to extract a header so we can get the sequence number
                             if let Ok((hdr, body)) = extract_header_from_bytes(data) {
-                                // Wake the given sequence number. If the WaitMap is closed, we're done here
-                                let frame = RpcFrame { header: hdr, body: body.to_vec() };
-                                if let Err(ProcessError::Closed) = incoming.process(frame) {
-                                    return;
+                                // Got a header, turn it into a frame
+                                let frame = RpcFrame { header: hdr.clone(), body: body.to_vec() };
+
+                                // Give priority to subscriptions. TBH I only do this because I know a hashmap
+                                // lookup is cheaper than a waitmap search.
+                                if let Some(tx) = subs.get_mut(&hdr.key) {
+                                    // Yup, we have a subscription
+                                    if tx.send(frame).await.is_err() {
+                                        // But if sending failed, the listener is gone, so drop it
+                                        subs.remove(&hdr.key);
+                                    }
+                                } else {
+                                    // Wake the given sequence number. If the WaitMap is closed, we're done here
+                                    if let Err(ProcessError::Closed) = incoming.process(frame) {
+                                        return;
+                                    }
                                 }
                             }
 
@@ -134,6 +155,7 @@ async fn wire_worker(mut port: SerialStream, ctx: WireContext) {
 pub struct HostClient<WireErr> {
     ctx: Arc<HostContext>,
     out: Sender<RpcFrame>,
+    subber: Sender<SubInfo>,
     err_key: Key,
     _pd: PhantomData<fn() -> WireErr>,
 }
@@ -152,6 +174,7 @@ where
     /// a bidirectional [RpcFrame] sink/source.
     pub fn new_manual(err_uri_path: &str, outgoing_depth: usize) -> (Self, WireContext) {
         let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(outgoing_depth);
+        let (tx_si, rx_si) = tokio::sync::mpsc::channel(outgoing_depth);
 
         let ctx = Arc::new(HostContext {
             map: WaitMap::new(),
@@ -165,11 +188,13 @@ where
             out: tx_pc,
             err_key,
             _pd: PhantomData,
+            subber: tx_si.clone(),
         };
 
         let wire = WireContext {
             outgoing: rx_pc,
             incoming: ctx,
+            new_subs: rx_si,
         };
 
         (me, wire)
@@ -247,6 +272,75 @@ where
             },
         }
     }
+
+    /// Publish a [Topic] [Message][Topic::Message].
+    ///
+    /// There is no feedback if the server received our message. If the I/O worker is
+    /// closed, an error is returned.
+    pub async fn publish<T: Topic>(&self, seq_no: u32, msg: &T::Message) -> Result<(), IoClosed>
+    where
+        T::Message: Serialize,
+    {
+        let smsg = postcard::to_stdvec(msg).expect("alloc should never fail");
+        self.out
+            .send(RpcFrame {
+                header: WireHeader {
+                    key: T::TOPIC_KEY,
+                    seq_no,
+                },
+                body: smsg,
+            })
+            .await
+            .map_err(|_| IoClosed)
+    }
+
+    /// Begin listening to a [Topic], receiving a [Subscription] that will give a
+    /// stream of [Message][Topic::Message]s.
+    ///
+    /// If you subscribe to the same topic multiple times, the previous subscription
+    /// will be closed (there can be only one).
+    ///
+    /// Returns an Error if the I/O worker is closed.
+    pub async fn subscribe<T: Topic>(&self, depth: usize) -> Result<Subscription<T::Message>, IoClosed>
+    where
+        T::Message: DeserializeOwned,
+    {
+        let (tx, rx) = tokio::sync::mpsc::channel(depth);
+        self.subber
+            .send(SubInfo {
+                key: T::TOPIC_KEY,
+                tx,
+            })
+            .await
+            .map_err(|_| IoClosed)?;
+        Ok(Subscription {
+            rx,
+            _pd: PhantomData,
+        })
+    }
+}
+
+/// A structure that represents a subscription to the given topic
+pub struct Subscription<M> {
+    rx: Receiver<RpcFrame>,
+    _pd: PhantomData<M>,
+}
+
+impl<M> Subscription<M>
+where
+    M: DeserializeOwned,
+{
+    /// Await a message for the given subscription.
+    ///
+    /// Returns [None]` if the subscription was closed
+    pub async fn recv(&mut self) -> Option<M> {
+        loop {
+            let frame = self.rx.recv().await?;
+            if let Ok(m) = postcard::from_bytes(&frame.body) {
+                return Some(m);
+            }
+        }
+    }
 }
 
 // Manual Clone impl because WireErr may not impl Clone
@@ -257,13 +351,21 @@ impl<WireErr> Clone for HostClient<WireErr> {
             out: self.out.clone(),
             err_key: self.err_key,
             _pd: PhantomData,
+            subber: self.subber.clone(),
         }
     }
+}
+
+/// A new subscription that should be accounted for
+pub struct SubInfo {
+    pub key: Key,
+    pub tx: Sender<RpcFrame>,
 }
 
 pub struct WireContext {
     pub outgoing: Receiver<RpcFrame>,
     pub incoming: Arc<HostContext>,
+    pub new_subs: Receiver<SubInfo>,
 }
 
 /// A single postcard-rpc frame
@@ -288,6 +390,10 @@ pub struct HostContext {
     map: WaitMap<WireHeader, Vec<u8>>,
     seq: AtomicU32,
 }
+
+/// The I/O worker has closed.
+#[derive(Debug)]
+pub struct IoClosed;
 
 /// Error for [Hostcontext::process].
 #[derive(Debug, PartialEq)]
