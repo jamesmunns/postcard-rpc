@@ -22,9 +22,14 @@
 ///
 /// endpoint!(Endpoint1, Req1, Resp1, "endpoint/1");
 /// ```
+///
+/// If the path is omitted, the type name is used instead.
 #[macro_export]
 macro_rules! endpoint {
-    ($tyname:ident, $req:ty, $resp:ty, $path:literal) => {
+    ($tyname:ident, $req:ty, $resp:ty) => {
+        endpoint!($tyname, $req, $resp, stringify!($tyname));
+    };
+    ($tyname:ident, $req:ty, $resp:ty, $path:expr) => {
         pub struct $tyname;
 
         impl $crate::Endpoint for $tyname {
@@ -55,9 +60,14 @@ macro_rules! endpoint {
 ///
 /// topic!(Topic1, Message1, "topic/1");
 /// ```
+///
+/// If the path is omitted, the type name is used instead.
 #[macro_export]
 macro_rules! topic {
-    ($tyname:ident, $msg:ty, $path:literal) => {
+    ($tyname:ident, $msg:ty) => {
+        topic!($tyname, $msg, stringify!($tyname));
+    };
+    ($tyname:ident, $msg:ty, $path:expr) => {
         pub struct $tyname;
 
         impl $crate::Topic for $tyname {
