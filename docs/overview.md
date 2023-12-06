@@ -65,7 +65,7 @@ and we wanted to map it to the path `lights/set_rgb`.
 
 Both the schema and the path will take many more than eight bytes to describe, so instead we *hash* the two pieces of data in a deterministic way, to produce a value like `0x482c55743ba118e1`.
 
-Specifically, we use [`Blake2s`](https://docs.rs/blake2/latest/blake2/), and produce a 64-bit digest, by first hashing the path, then hashing the schema. Blake2s is a cryptographic hash function, designed to be reasonably efficient to compute even on small platforms like microcontrollers.
+Specifically, we use [`FNV1a`](https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function), and produce a 64-bit digest, by first hashing the path, then hashing the schema. FNV1a is a non-cryptographic hash function, designed to be reasonably efficient to compute even on small platforms like microcontrollers.
 
 Changing **anything** about *either* of the path or the schema will produce a drastically different `Key` value.
 
