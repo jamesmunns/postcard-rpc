@@ -35,7 +35,7 @@ default-features = false
 
 [dependencies.postcard-rpc]
 path = "../../../source/postcard-rpc"
-features = ["defmt"]
+features = ["defmt", "cobs"]
 
 [dependencies.james-icd]
 path = "../james-icd"

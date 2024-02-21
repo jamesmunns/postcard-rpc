@@ -175,7 +175,9 @@ use headered::extract_header_from_bytes;
 use postcard::experimental::schema::Schema;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "cobs")]
 pub mod accumulator;
+
 pub mod hash;
 pub mod headered;
 
