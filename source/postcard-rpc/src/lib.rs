@@ -166,6 +166,9 @@
 //! particularly the [`HostClient`][host_client::HostClient] struct.
 //! This is only available with the `use-std` feature active.
 //!
+//! A serial-port transport using cobs encoding is available with the `cobs-serial` feature.
+//! This feature will add the [`new_serial_cobs`][host_client::HostClient::new_serial_cobs] constructor to [`HostClient`][host_client::HostClient].
+//!
 //! For Server facilities, check out the [`Dispatch`] struct. This is
 //! available with or without the standard library.
 
@@ -222,6 +225,7 @@ impl<E> From<postcard::Error> for Error<E> {
 /// which will automatically handle accumulating bytes from the wire.
 ///
 /// [CobsDispatch]: crate::accumulator::dispatch::CobsDispatch
+/// Note: This will be available when the `cobs` or `cobs-serial` feature is enabled.
 pub struct Dispatch<Context, Error, const N: usize> {
     items: heapless::Vec<(Key, Handler<Context, Error>), N>,
     context: Context,

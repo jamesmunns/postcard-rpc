@@ -111,6 +111,8 @@ where
     ///
     /// Panics if we couldn't open the serial port
     ///
+    /// This constructor is available when the `cobs-serial` feature is enabled.
+    ///
     /// ## Example
     ///
     /// ```rust,no_run
