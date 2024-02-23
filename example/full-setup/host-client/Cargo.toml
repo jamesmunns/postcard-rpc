@@ -27,4 +27,4 @@ path = "../james-icd"
 
 [dependencies.postcard-rpc]
 path = "../../../source/postcard-rpc"
-features = ["use-std"]
+features = ["use-std", "cobs-serial"]

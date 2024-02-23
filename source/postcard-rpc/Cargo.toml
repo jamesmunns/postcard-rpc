@@ -23,7 +23,7 @@ all-features = true
 rustdoc-args = ["--cfg", "doc_cfg"]
 
 [dependencies]
-cobs = { version = "0.2.3", default-features = false }
+cobs = { version = "0.2.3", optional = true, default-features = false }
 defmt = { version = "0.3.5", optional = true }
 heapless = "0.8.0"
 postcard = { version = "1.0.8", features = ["experimental-derive"] }
@@ -54,7 +54,9 @@ test-utils = [
 use-std = [
     "maitake-sync",
     "tokio",
-    "cobs/use_std",
     "postcard/use-std",
-    "tokio-serial",
+]
+cobs-serial = [
+    "cobs/use_std",
+    "dep:tokio-serial",
 ]
