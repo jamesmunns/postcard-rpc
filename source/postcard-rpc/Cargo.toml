@@ -149,6 +149,7 @@ use-std = [
     "dep:tracing",
     "dep:trait-variant",
 ]
+defmt-03 = ["dep:defmt", "postcard/use-defmt"]
 
 # Cobs Serial support.
 #
