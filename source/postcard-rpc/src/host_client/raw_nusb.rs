@@ -22,12 +22,12 @@ fn raw_nusb_worker<F: FnMut(&DeviceInfo) -> bool>(func: F, ctx: WireContext) -> 
         .map_err(|e| format!("Error listing devices: {e:?}"))?
         .find(func)
         .ok_or_else(|| String::from("Failed to find matching nusb device!"))?;
-    let dev = x.open().map_err(|e| {
-        format!("Failed opening device: {e:?}")
-    })?;
-    let interface = dev.claim_interface(0).map_err(|e| {
-        format!("Failed claiming interface: {e:?}")
-    })?;
+    let dev = x
+        .open()
+        .map_err(|e| format!("Failed opening device: {e:?}"))?;
+    let interface = dev
+        .claim_interface(0)
+        .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
 
     let boq = interface.bulk_out_queue(BULK_OUT_EP);
     let biq = interface.bulk_in_queue(BULK_IN_EP);
