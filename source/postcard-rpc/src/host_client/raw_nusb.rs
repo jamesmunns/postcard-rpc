@@ -17,10 +17,17 @@ use std::sync::Arc;
 pub(crate) const BULK_OUT_EP: u8 = 0x01;
 pub(crate) const BULK_IN_EP: u8 = 0x81;
 
-fn raw_nusb_worker<F: FnMut(&DeviceInfo) -> bool>(func: F, ctx: WireContext) -> Result<(), ()> {
-    let x = nusb::list_devices().unwrap().find(func).unwrap();
-    let dev = x.open().unwrap();
-    let interface = dev.claim_interface(0).unwrap();
+fn raw_nusb_worker<F: FnMut(&DeviceInfo) -> bool>(func: F, ctx: WireContext) -> Result<(), String> {
+    let x = nusb::list_devices()
+        .map_err(|e| format!("Error listing devices: {e:?}"))?
+        .find(func)
+        .ok_or_else(|| String::from("Failed to find matching nusb device!"))?;
+    let dev = x.open().map_err(|e| {
+        format!("Failed opening device: {e:?}")
+    })?;
+    let interface = dev.claim_interface(0).map_err(|e| {
+        format!("Failed claiming interface: {e:?}")
+    })?;
 
     let boq = interface.bulk_out_queue(BULK_OUT_EP);
     let biq = interface.bulk_in_queue(BULK_IN_EP);
@@ -43,14 +50,17 @@ fn raw_nusb_worker<F: FnMut(&DeviceInfo) -> bool>(func: F, ctx: WireContext) -> 
 async fn out_worker(mut boq: Queue<Vec<u8>>, mut rec: Receiver<RpcFrame>) {
     loop {
         let Some(msg) = rec.recv().await else {
-            panic!("TODO handle closing");
+            tracing::info!("Receiver Closed, existing out_worker");
+            return;
         };
 
         boq.submit(msg.to_bytes());
 
         let send_res = boq.next_complete().await;
-        if send_res.status.is_err() {
-            panic!("lol");
+        if let Err(e) = send_res.status {
+            tracing::error!("Output Queue Error: {e:?}, exiting");
+            rec.close();
+            return;
         }
     }
 }
@@ -67,15 +77,18 @@ async fn in_worker(
     loop {
         let res = biq.next_complete().await;
 
-        if let Err(_e) = res.status {
-            panic!("oh no");
+        if let Err(e) = res.status {
+            tracing::error!("In Worker error: {e:?}, exiting");
+            // TODO we should notify sub worker!
+            ctxt.map.close();
+            return;
         }
 
         // replace the submission
         biq.submit(RequestBuffer::new(1024));
 
         let Ok((hdr, body)) = extract_header_from_bytes(&res.data) else {
-            println!("Decode error?");
+            tracing::warn!("Header decode error!");
             continue;
         };
 
@@ -95,9 +108,12 @@ async fn in_worker(
                 let res = m.try_send(frame);
 
                 match res {
-                    Ok(()) => false,
+                    Ok(()) => {
+                        tracing::debug!("Handled message via subscription");
+                        false
+                    }
                     Err(TrySendError::Full(_)) => {
-                        println!("uh oh sub overflow");
+                        tracing::error!("Subscription channel full! Message dropped.");
                         false
                     }
                     Err(TrySendError::Closed(_)) => true,
@@ -107,6 +123,7 @@ async fn in_worker(
             };
 
             if rem {
+                tracing::debug!("Dropping subscription");
                 sg.remove(&key);
             }
         }
@@ -120,7 +137,10 @@ async fn in_worker(
             body: body.to_vec(),
         };
         if let Err(ProcessError::Closed) = ctxt.process(frame) {
-            panic!();
+            tracing::info!("Got process error, quitting");
+            return;
+        } else {
+            tracing::debug!("Handled message via map");
         }
     }
 }

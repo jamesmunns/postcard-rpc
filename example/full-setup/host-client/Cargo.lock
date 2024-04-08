@@ -517,6 +517,7 @@ dependencies = [
  "postcard",
  "serde",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

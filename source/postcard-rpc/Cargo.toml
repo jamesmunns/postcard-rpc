@@ -50,15 +50,20 @@ version = "1.33.0"
 features = ["sync", "rt", "macros", "io-util"]
 optional = true
 
+[dependencies.tracing]
+version = "0.1"
+optional = true
+
 [features]
 default = []
 test-utils = [
     "use-std",
 ]
 use-std = [
-    "maitake-sync",
-    "tokio",
+    "dep:maitake-sync",
+    "dep:tokio",
     "postcard/use-std",
+    "dep:tracing"
 ]
 cobs-serial = [
     "cobs/use_std",
