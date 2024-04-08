@@ -14,6 +14,9 @@ use std::{
 #[cfg(feature = "cobs-serial")]
 mod serial;
 
+#[cfg(feature = "raw-nusb")]
+mod raw_nusb;
+
 use crate::{
     Endpoint, Key, Topic, WireHeader,
 };

@@ -2,6 +2,8 @@ use embassy_stm32::peripherals::{PA11, PA12, USB_OTG_FS};
 use embassy_stm32::usb_otg::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb_otg};
 use embassy_usb::class::cdc_acm::CdcAcmClass;
+use embassy_usb::driver::Endpoint;
+use embassy_usb::msos::{self, windows_version};
 use embassy_usb::Builder;
 use embassy_usb::{class::cdc_acm::State, driver::EndpointError, UsbDevice};
 use static_cell::StaticCell;
@@ -14,6 +16,9 @@ pub static USB_STATE: StaticCell<State> = StaticCell::new();
 bind_interrupts!(pub struct Irqs {
     OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
 });
+
+const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
+
 
 #[derive(defmt::Format, Debug)]
 pub(crate) struct Disconnected {}
@@ -32,6 +37,7 @@ pub(crate) struct UsbBuffers {
     pub config_descriptor: [u8; 256],
     pub bos_descriptor: [u8; 256],
     pub control_buf: [u8; 64],
+    pub msos_descriptor: [u8; 256],
     pub ep_out_buffer: [u8; 256],
 }
 
@@ -41,6 +47,7 @@ impl UsbBuffers {
             device_descriptor: [0u8; 256],
             config_descriptor: [0u8; 256],
             bos_descriptor: [0u8; 256],
+            msos_descriptor: [0u8; 256],
             control_buf: [0u8; 64],
             ep_out_buffer: [0u8; 256],
         }
@@ -57,7 +64,9 @@ pub fn configure_usb(
     p: UsbResources,
 ) -> (
     UsbDevice<'static, OtgDriver>,
-    CdcAcmClass<'static, OtgDriver>,
+    <OtgDriver as embassy_usb::driver::Driver<'static>>::EndpointIn,
+    <OtgDriver as embassy_usb::driver::Driver<'static>>::EndpointOut,
+
 ) {
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
@@ -88,17 +97,37 @@ pub fn configure_usb(
         &mut bufs.device_descriptor,
         &mut bufs.config_descriptor,
         &mut bufs.bos_descriptor,
-        &mut [], // no msos descriptors
+        &mut bufs.msos_descriptor, // no msos descriptors
         &mut bufs.control_buf,
     );
 
-    // Create classes on the builder.
-    let class = CdcAcmClass::new(&mut builder, state, 64);
+    // Add the Microsoft OS Descriptor (MSOS/MOD) descriptor.
+    // We tell Windows that this entire device is compatible with the "WINUSB" feature,
+    // which causes it to use the built-in WinUSB driver automatically, which in turn
+    // can be used by libusb/rusb software without needing a custom driver or INF file.
+    // In principle you might want to call msos_feature() just on a specific function,
+    // if your device also has other functions that still use standard class drivers.
+    builder.msos_descriptor(windows_version::WIN8_1, 0);
+    builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+    builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+        "DeviceInterfaceGUIDs",
+        msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+    ));
+
+
+    // Add a vendor-specific function (class 0xFF), and corresponding interface,
+    // that uses our custom handler.
+    let mut function = builder.function(0xFF, 0, 0);
+    let mut interface = function.interface();
+    let mut alt = interface.alt_setting(0xFF, 0, 0, None);
+    let ep_out = alt.endpoint_bulk_out(64);
+    let ep_in = alt.endpoint_bulk_in(64);
+    drop(function);
 
     // Build the builder.
     let usb = builder.build();
 
-    (usb, class)
+    (usb, ep_in, ep_out)
 }
 
 #[embassy_executor::task]

@@ -3,8 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use crate::{
-    comms::comms_task,
-    usb::{configure_usb, usb_task, UsbResources},
+    comms::comms_task, comms2::init_sender, usb::{configure_usb, usb_task, UsbResources}
 };
 use defmt::info;
 use embassy_executor::Spawner;
@@ -20,6 +19,7 @@ use embassy_stm32::{
 use {defmt_rtt as _, panic_probe as _};
 
 mod comms;
+mod comms2;
 mod usb;
 
 #[embassy_executor::main]
@@ -54,8 +54,9 @@ async fn main(spawner: Spawner) {
         dp: p.PA12,
         dm: p.PA11,
     };
-    let (d, c) = configure_usb(usb_r);
+    let (d, ep_in, ep_out) = configure_usb(usb_r);
 
+    let sender = init_sender(ep_in);
     spawner.must_spawn(usb_task(d));
-    spawner.must_spawn(comms_task(c));
+    spawner.must_spawn(comms2::rpc_dispatch(ep_out, sender));
 }

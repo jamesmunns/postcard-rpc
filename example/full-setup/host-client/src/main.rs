@@ -8,7 +8,9 @@ use postcard_rpc::host_client::HostClient;
 
 #[tokio::main]
 async fn main() {
-    let client = HostClient::<FatalError>::new_serial_cobs("/dev/tty.usbmodem123456781", ERROR_PATH, 8, 115_200);
+    let client = HostClient::<FatalError>::new_raw_nusb(|d| {
+        d.serial_number() == Some("12345678")
+    }, ERROR_PATH, 8);
 
     for i in 0..5 {
         tokio::spawn({

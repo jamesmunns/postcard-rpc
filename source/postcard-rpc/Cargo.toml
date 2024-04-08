@@ -33,6 +33,10 @@ serde = { version = "1.0.192", default-features = false, features = ["derive"] }
 # std-only features
 #
 
+[dependencies.nusb]
+version = "0.1"
+optional = true
+
 [dependencies.tokio-serial]
 version = "5.4.4"
 optional = true
@@ -59,4 +63,8 @@ use-std = [
 cobs-serial = [
     "cobs/use_std",
     "dep:tokio-serial",
+]
+raw-nusb = [
+    "dep:nusb",
+    "use-std",
 ]
