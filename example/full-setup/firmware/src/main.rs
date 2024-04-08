@@ -3,7 +3,9 @@
 #![feature(type_alias_impl_trait)]
 
 use crate::{
-    comms::comms_task, comms2::init_sender, usb::{configure_usb, usb_task, UsbResources}
+    comms::comms_task,
+    comms2::init_sender,
+    usb::{configure_usb, usb_task, UsbResources},
 };
 use defmt::info;
 use embassy_executor::Spawner;

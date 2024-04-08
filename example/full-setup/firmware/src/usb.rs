@@ -19,7 +19,6 @@ bind_interrupts!(pub struct Irqs {
 
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
-
 #[derive(defmt::Format, Debug)]
 pub(crate) struct Disconnected {}
 
@@ -66,7 +65,6 @@ pub fn configure_usb(
     UsbDevice<'static, OtgDriver>,
     <OtgDriver as embassy_usb::driver::Driver<'static>>::EndpointIn,
     <OtgDriver as embassy_usb::driver::Driver<'static>>::EndpointOut,
-
 ) {
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
@@ -113,7 +111,6 @@ pub fn configure_usb(
         "DeviceInterfaceGUIDs",
         msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
     ));
-
 
     // Add a vendor-specific function (class 0xFF), and corresponding interface,
     // that uses our custom handler.

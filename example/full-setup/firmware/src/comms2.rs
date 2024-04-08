@@ -1,15 +1,18 @@
 use defmt::{info, warn};
 use embassy_executor::Spawner;
-// use erdnuss_comms::frame_pool::{RawFrameSlice, SendFrameBox};
 use embassy_stm32::{peripherals::USB_OTG_FS, usb_otg::Driver};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Timer};
 use embassy_usb::driver::{Endpoint, EndpointError, EndpointIn, EndpointOut};
-use james_icd::{sleep::{Sleep, SleepDone, SleepEndpoint}, wire_error::{FatalError, ERROR_KEY}};
-use postcard_rpc::{headered::{self, extract_header_from_bytes}, Endpoint as _, WireHeader};
+use james_icd::{
+    sleep::{Sleep, SleepDone, SleepEndpoint},
+    wire_error::{FatalError, ERROR_KEY},
+};
+use postcard_rpc::{
+    headered::{self, extract_header_from_bytes},
+    Endpoint as _, WireHeader,
+};
 use static_cell::StaticCell;
-
-// use crate::CON;
 
 type EpOut = <Driver<'static, USB_OTG_FS> as embassy_usb::driver::Driver<'static>>::EndpointOut;
 type EpIn = <Driver<'static, USB_OTG_FS> as embassy_usb::driver::Driver<'static>>::EndpointIn;
@@ -17,7 +20,6 @@ pub type Sender = &'static Mutex<ThreadModeRawMutex, SenderInner>;
 
 pub struct SenderInner {
     ep_in: EpIn,
-    ctr: u8,
 }
 
 impl SenderInner {
@@ -41,40 +43,10 @@ impl SenderInner {
     }
 }
 
-// #[embassy_executor::task]
-// pub async fn dummy_loop(sender: Sender, unique: u64) {
-//     let mut tick = Ticker::every(Duration::from_millis(1500));
-//     let uni = unique.to_le_bytes();
-//     loop {
-//         tick.next().await;
-//         let mut tx = sender.lock().await;
-//         tx.dummy_send(&uni).await;
-//     }
-// }
-
-async fn send_all(out: &[u8], ep_in: &mut EpIn) {
-    if out.is_empty() {
-        return;
-    }
-    ep_in.wait_enabled().await;
-    // write in segments of 64. The last chunk may
-    // be 0 < len <= 64.
-    for ch in out.chunks(64) {
-        if ep_in.write(ch).await.is_err() {
-            return;
-        }
-    }
-    // If the total we sent was a multiple of 64, send an
-    // empty message to "flush" the transaction
-    if (out.len() & (64 - 1)) == 0 {
-        let _ = ep_in.write(&[]).await;
-    }
-}
-
 pub static SENDER: StaticCell<Mutex<ThreadModeRawMutex, SenderInner>> = StaticCell::new();
 
 pub fn init_sender(ep_in: EpIn) -> Sender {
-    SENDER.init(Mutex::new(SenderInner { ep_in, ctr: 0 }))
+    SENDER.init(Mutex::new(SenderInner { ep_in }))
 }
 
 #[embassy_executor::task]
