@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nusb::{
-    transfer::{Queue, RequestBuffer},
+    transfer::{Queue, RequestBuffer, TransferError},
     DeviceInfo,
 };
 use postcard::experimental::schema::Schema;
@@ -16,6 +16,10 @@ use std::sync::Arc;
 
 pub(crate) const BULK_OUT_EP: u8 = 0x01;
 pub(crate) const BULK_IN_EP: u8 = 0x81;
+
+struct NusbCtx {
+    sub_map: Mutex<HashMap<Key, Sender<RpcFrame>>>,
+}
 
 fn raw_nusb_worker<F: FnMut(&DeviceInfo) -> bool>(func: F, ctx: WireContext) -> Result<(), String> {
     let x = nusb::list_devices()
@@ -38,11 +42,13 @@ fn raw_nusb_worker<F: FnMut(&DeviceInfo) -> bool>(func: F, ctx: WireContext) -> 
         new_subs,
     } = ctx;
 
-    let subs = Arc::new(Mutex::new(HashMap::new()));
+    let nctxt = Arc::new(NusbCtx {
+        sub_map: Mutex::new(HashMap::new()),
+    });
 
     tokio::task::spawn(out_worker(boq, outgoing));
-    tokio::task::spawn(in_worker(biq, incoming, subs.clone()));
-    tokio::task::spawn(sub_worker(new_subs, subs));
+    tokio::task::spawn(in_worker(biq, incoming, nctxt.clone()));
+    tokio::task::spawn(sub_worker(new_subs, nctxt));
 
     Ok(())
 }
@@ -65,12 +71,11 @@ async fn out_worker(mut boq: Queue<Vec<u8>>, mut rec: Receiver<RpcFrame>) {
     }
 }
 
-async fn in_worker(
-    mut biq: Queue<RequestBuffer>,
-    ctxt: Arc<HostContext>,
-    subs: Arc<Mutex<HashMap<Key, Sender<RpcFrame>>>>,
-) {
-    for _ in 0..4 {
+async fn in_worker(mut biq: Queue<RequestBuffer>, ctxt: Arc<HostContext>, nctxt: Arc<NusbCtx>) {
+    let mut consecutive_errs = 0;
+    const IN_FLIGHT_REQS: usize = 4;
+
+    for _ in 0..IN_FLIGHT_REQS {
         biq.submit(RequestBuffer::new(1024));
     }
 
@@ -78,11 +83,54 @@ async fn in_worker(
         let res = biq.next_complete().await;
 
         if let Err(e) = res.status {
-            tracing::error!("In Worker error: {e:?}, exiting");
-            // TODO we should notify sub worker!
-            ctxt.map.close();
-            return;
+            consecutive_errs += 1;
+
+            tracing::error!("In Worker error: {e:?}, consecutive: {consecutive_errs:?}");
+
+            let fatal = if let TransferError::Stall = e {
+                tracing::warn!("Attempting stall recovery!");
+
+                // Stall recovery shouldn't be used with in-flight requests, so
+                // cancel them all. They'll still pop out of next_complete.
+                biq.cancel_all();
+                tracing::info!("Cancelled all in-flight requests");
+
+                // Now we need to join all in flight requests
+                for _ in 0..(IN_FLIGHT_REQS - 1) {
+                    let res = biq.next_complete().await;
+                    tracing::info!("Drain state: {:?}", res.status);
+                }
+
+                // Now we can mark the stall as clear
+                match biq.clear_halt() {
+                    Ok(()) => {
+                        tracing::info!("Stall cleared! Rehydrating queue...");
+                        for _ in 0..IN_FLIGHT_REQS {
+                            biq.submit(RequestBuffer::new(1024));
+                        }
+                        false
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to clear stall: {e:?}, Fatal.");
+                        true
+                    }
+                }
+            } else {
+                true
+            };
+
+            if fatal {
+                tracing::error!("Fatal Error, exiting");
+                // TODO we should notify sub worker!
+                ctxt.map.close();
+                return;
+            } else {
+                tracing::info!("Potential recovery, resuming in_worker");
+                continue;
+            }
         }
+
+        consecutive_errs = 0;
 
         // replace the submission
         biq.submit(RequestBuffer::new(1024));
@@ -95,7 +143,7 @@ async fn in_worker(
         let mut handled = false;
 
         {
-            let mut sg = subs.lock().await;
+            let mut sg = nctxt.sub_map.lock().await;
             let key = hdr.key;
 
             // Remove if sending fails
@@ -145,14 +193,11 @@ async fn in_worker(
     }
 }
 
-async fn sub_worker(
-    mut new_subs: Receiver<SubInfo>,
-    subs: Arc<Mutex<HashMap<Key, Sender<RpcFrame>>>>,
-) {
+async fn sub_worker(mut new_subs: Receiver<SubInfo>, nctxt: Arc<NusbCtx>) {
     while let Some(sub) = new_subs.recv().await {
-        let mut sg = subs.lock().await;
+        let mut sg = nctxt.sub_map.lock().await;
         if let Some(_old) = sg.insert(sub.key, sub.tx) {
-            // warn: replacing old ting
+            tracing::warn!("Replacing old subscription for {:?}", sub.key);
         }
     }
 }
