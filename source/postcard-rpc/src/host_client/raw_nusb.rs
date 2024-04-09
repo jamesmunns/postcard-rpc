@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nusb::{
-    transfer::{Queue, RequestBuffer, TransferError},
+    transfer::{Queue, RequestBuffer},
     DeviceInfo,
 };
 use postcard::experimental::schema::Schema;
@@ -87,7 +87,9 @@ async fn in_worker(mut biq: Queue<RequestBuffer>, ctxt: Arc<HostContext>, nctxt:
 
             tracing::error!("In Worker error: {e:?}, consecutive: {consecutive_errs:?}");
 
-            let fatal = if let TransferError::Stall = e {
+            // Docs only recommend this for Stall, but it seems to work with
+            // UNKNOWN on MacOS as well, todo: look into why!
+            let fatal = if consecutive_errs <= 10 {
                 tracing::warn!("Attempting stall recovery!");
 
                 // Stall recovery shouldn't be used with in-flight requests, so
@@ -116,6 +118,7 @@ async fn in_worker(mut biq: Queue<RequestBuffer>, ctxt: Arc<HostContext>, nctxt:
                     }
                 }
             } else {
+                tracing::error!("Giving up after {consecutive_errs} errors in a row");
                 true
             };
 
