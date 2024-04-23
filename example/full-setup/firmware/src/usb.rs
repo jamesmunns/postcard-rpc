@@ -1,17 +1,18 @@
-use embassy_stm32::peripherals::{PA11, PA12, USB_OTG_FS};
-use embassy_stm32::usb_otg::Driver;
-use embassy_stm32::{bind_interrupts, peripherals, usb_otg};
-use embassy_usb::class::cdc_acm::CdcAcmClass;
-use embassy_usb::driver::Endpoint;
-use embassy_usb::msos::{self, windows_version};
-use embassy_usb::Builder;
-use embassy_usb::{class::cdc_acm::State, driver::EndpointError, UsbDevice};
+use embassy_stm32::{
+    bind_interrupts,
+    peripherals::{self, PA11, PA12, USB_OTG_FS},
+    usb_otg::{self, Driver},
+};
+use embassy_usb::{
+    driver::EndpointError,
+    msos::{self, windows_version},
+    Builder, UsbDevice,
+};
 use static_cell::StaticCell;
 
 pub type OtgDriver = Driver<'static, peripherals::USB_OTG_FS>;
 
 pub static USB_BUFS: StaticCell<UsbBuffers> = StaticCell::new();
-pub static USB_STATE: StaticCell<State> = StaticCell::new();
 
 bind_interrupts!(pub struct Irqs {
     OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
@@ -69,7 +70,6 @@ pub fn configure_usb(
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
     let bufs = USB_BUFS.init(UsbBuffers::new());
-    let state = USB_STATE.init(State::new());
 
     // Create the driver, from the HAL.
     let mut config = embassy_stm32::usb_otg::Config::default();
