@@ -1,53 +1,126 @@
-use embassy_time::Duration;
-
 use defmt::{info, warn};
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::mutex::Mutex;
-use embassy_time::Timer;
-use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender};
-
+use embassy_stm32::{peripherals::USB_OTG_FS, usb_otg::Driver};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
+use embassy_time::{Duration, Timer};
+use embassy_usb::driver::{Endpoint, EndpointError, EndpointIn, EndpointOut};
 use james_icd::{
     sleep::{Sleep, SleepDone, SleepEndpoint},
     wire_error::{FatalError, ERROR_KEY},
 };
-use postcard::experimental::schema::Schema;
 use postcard_rpc::{
-    accumulator::dispatch::{CobsDispatch, FeedError},
-    Endpoint, Key, WireHeader,
+    headered::{self, extract_header_from_bytes},
+    Endpoint as _, WireHeader,
 };
-use serde::Serialize;
 use static_cell::StaticCell;
 
-use crate::usb::{Disconnected, OtgDriver};
+type EpOut = <Driver<'static, USB_OTG_FS> as embassy_usb::driver::Driver<'static>>::EndpointOut;
+type EpIn = <Driver<'static, USB_OTG_FS> as embassy_usb::driver::Driver<'static>>::EndpointIn;
+pub type Sender = &'static Mutex<ThreadModeRawMutex, SenderInner>;
 
-struct SendContents {
-    tx: Sender<'static, OtgDriver>,
-    scratch: [u8; 128],
+pub struct SenderInner {
+    ep_in: EpIn,
 }
 
-#[derive(Clone)]
-struct Context {
-    send: &'static Mutex<ThreadModeRawMutex, SendContents>,
-    spawner: Spawner,
+impl SenderInner {
+    pub async fn send_all(&mut self, out: &[u8]) {
+        if out.is_empty() {
+            return;
+        }
+        self.ep_in.wait_enabled().await;
+        // write in segments of 64. The last chunk may
+        // be 0 < len <= 64.
+        for ch in out.chunks(64) {
+            if self.ep_in.write(ch).await.is_err() {
+                return;
+            }
+        }
+        // If the total we sent was a multiple of 64, send an
+        // empty message to "flush" the transaction
+        if (out.len() & (64 - 1)) == 0 {
+            let _ = self.ep_in.write(&[]).await;
+        }
+    }
 }
 
-impl Context {
-    async fn respond_keyed<T: Serialize + Schema>(&mut self, key: Key, seq_no: u32, msg: &T) {
-        // Lock the sender mutex to get access to the outgoing serial port
-        // as well as the shared scratch buffer.
-        let SendContents {
-            ref mut tx,
-            ref mut scratch,
-        } = &mut *self.send.lock().await;
+pub static SENDER: StaticCell<Mutex<ThreadModeRawMutex, SenderInner>> = StaticCell::new();
 
-        if let Ok(used) = postcard_rpc::headered::to_slice_cobs_keyed(seq_no, key, &msg, scratch) {
-            let max: usize = tx.max_packet_size().into();
-            for ch in used.chunks(max - 1) {
-                if tx.write_packet(ch).await.is_err() {
-                    break;
+pub fn init_sender(ep_in: EpIn) -> Sender {
+    SENDER.init(Mutex::new(SenderInner { ep_in }))
+}
+
+#[embassy_executor::task]
+pub async fn rpc_dispatch(mut ep_out: EpOut, sender: Sender) {
+    let mut buf = [0u8; 256];
+    'connect: loop {
+        // Wait for connection
+        ep_out.wait_enabled().await;
+
+        // For each packet...
+        'packet: loop {
+            // Accumulate a whole frame
+            let mut window = buf.as_mut_slice();
+            'buffer: loop {
+                if window.is_empty() {
+                    defmt::println!("Overflow!");
+                    loop {
+                        // Just drain until the end of the overflow frame
+                        match ep_out.read(&mut buf).await {
+                            Ok(n) if n < 64 => {
+                                // sender.lock().await.ep_in.write(b":(").await.ok();
+                                continue 'packet;
+                            }
+                            Ok(_) => {}
+                            Err(EndpointError::BufferOverflow) => panic!(),
+                            Err(EndpointError::Disabled) => continue 'connect,
+                        };
+                    }
+                }
+
+                let n = match ep_out.read(window).await {
+                    Ok(n) => n,
+                    Err(EndpointError::BufferOverflow) => panic!(),
+                    Err(EndpointError::Disabled) => continue 'connect,
+                };
+
+                let (_now, later) = window.split_at_mut(n);
+                window = later;
+                if n != 64 {
+                    break 'buffer;
                 }
             }
+
+            // We now have a full frame! Great!
+            let wlen = window.len();
+            let len = buf.len() - wlen;
+            let frame = &buf[..len];
+            defmt::println!("got frame: {=usize}", frame.len());
+
+            // If it's for us, process it
+            dispatch(frame, sender).await;
+
+            // sender.lock().await.ep_in.write(b":)").await.unwrap();
+        }
+    }
+}
+
+async fn dispatch(msg: &[u8], sender: Sender) {
+    let Ok((hdr, body)) = extract_header_from_bytes(msg) else {
+        defmt::error!("Bad dispatch");
+        return;
+    };
+    let spawner = Spawner::for_current_executor().await;
+    let res: Result<(), FatalError> = match hdr.key {
+        james_icd::sleep::SleepEndpoint::REQ_KEY => {
+            sleep_handler(&hdr, sender, spawner, body).map_err(Into::into)
+        }
+        _ => Err(FatalError::UnknownEndpoint),
+    };
+
+    if let Err(e) = res {
+        let mut scratch = [0u8; 256];
+        if let Ok(m) = headered::to_slice_keyed(hdr.seq_no, ERROR_KEY, &e, &mut scratch) {
+            sender.lock().await.send_all(m).await;
         }
     }
 }
@@ -57,74 +130,24 @@ enum CommsError {
     Postcard,
 }
 
-static SENDER: StaticCell<Mutex<ThreadModeRawMutex, SendContents>> = StaticCell::new();
-
-#[embassy_executor::task]
-pub async fn comms_task(class: CdcAcmClass<'static, OtgDriver>) {
-    let (tx, mut rx) = class.split();
-    let mut in_buf = [0u8; 128];
-    let send = SENDER.init(Mutex::new(SendContents {
-        tx,
-        scratch: [0u8; 128],
-    }));
-
-    let mut cobs_dispatch = CobsDispatch::<Context, CommsError, 8, 128>::new(Context {
-        send,
-        spawner: Spawner::for_current_executor().await,
-    });
-    cobs_dispatch
-        .dispatcher()
-        .add_handler::<SleepEndpoint>(sleep_handler)
-        .unwrap();
-
-    loop {
-        rx.wait_connection().await;
-
-        info!("Connected");
-        let _ = incoming(&mut rx, &mut in_buf, &mut cobs_dispatch).await;
-        info!("Disconnected");
-    }
-}
-
-async fn incoming(
-    rx: &mut Receiver<'static, OtgDriver>,
-    buf: &mut [u8],
-    cobs_dispatch: &mut CobsDispatch<Context, CommsError, 8, 128>,
-) -> Result<(), Disconnected> {
-    loop {
-        let ct = rx.read_packet(buf).await?;
-        info!("got frame");
-
-        let mut window = &buf[..ct];
-        while let Err(FeedError { err, remainder }) = cobs_dispatch.feed(window) {
-            let (seq_no, resp) = match err {
-                postcard_rpc::Error::NoMatchingHandler { key: _, seq_no } => {
-                    info!("NMH");
-                    (seq_no, FatalError::UnknownEndpoint)
-                }
-                postcard_rpc::Error::DispatchFailure(CommsError::PoolFull(seq)) => {
-                    info!("DFPF");
-                    (seq, FatalError::NotEnoughSenders)
-                }
-                postcard_rpc::Error::DispatchFailure(CommsError::Postcard) => {
-                    info!("PFPo");
-                    (0, FatalError::WireFailure)
-                }
-                postcard_rpc::Error::Postcard(_) => (0, FatalError::WireFailure),
-            };
-            let context = cobs_dispatch.dispatcher().context();
-            context.respond_keyed(ERROR_KEY, seq_no, &resp).await;
-            window = remainder;
+impl From<CommsError> for FatalError {
+    fn from(value: CommsError) -> Self {
+        match value {
+            CommsError::PoolFull(_) => FatalError::NotEnoughSenders,
+            CommsError::Postcard => FatalError::WireFailure,
         }
-        info!("done frame");
     }
 }
 
-fn sleep_handler(hdr: &WireHeader, c: &mut Context, bytes: &[u8]) -> Result<(), CommsError> {
+fn sleep_handler(
+    hdr: &WireHeader,
+    sender: Sender,
+    spawner: Spawner,
+    bytes: &[u8],
+) -> Result<(), CommsError> {
     info!("dispatching sleep...");
-    let new_c = c.clone();
     if let Ok(msg) = postcard::from_bytes::<Sleep>(bytes) {
-        if c.spawner.spawn(sleep_task(hdr.seq_no, new_c, msg)).is_ok() {
+        if spawner.spawn(sleep_task(hdr.seq_no, sender, msg)).is_ok() {
             Ok(())
         } else {
             Err(CommsError::PoolFull(hdr.seq_no))
@@ -136,24 +159,16 @@ fn sleep_handler(hdr: &WireHeader, c: &mut Context, bytes: &[u8]) -> Result<(), 
 }
 
 #[embassy_executor::task(pool_size = 3)]
-async fn sleep_task(seq_no: u32, c: Context, s: Sleep) {
+async fn sleep_task(seq_no: u32, c: Sender, s: Sleep) {
     info!("Sleep spawned");
     Timer::after(Duration::from_secs(s.seconds.into())).await;
     Timer::after(Duration::from_micros(s.micros.into())).await;
     info!("Sleep complete");
-    let SendContents {
-        ref mut tx,
-        ref mut scratch,
-    } = &mut *c.send.lock().await;
+    let mut buf = [0u8; 256];
     let msg = SleepDone { slept_for: s };
     if let Ok(used) =
-        postcard_rpc::headered::to_slice_cobs_keyed(seq_no, SleepEndpoint::RESP_KEY, &msg, scratch)
+        postcard_rpc::headered::to_slice_keyed(seq_no, SleepEndpoint::RESP_KEY, &msg, &mut buf)
     {
-        let max: usize = tx.max_packet_size().into();
-        for ch in used.chunks(max - 1) {
-            if tx.write_packet(ch).await.is_err() {
-                break;
-            }
-        }
+        c.lock().await.send_all(used).await;
     }
 }
