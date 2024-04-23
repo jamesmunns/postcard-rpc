@@ -3,7 +3,6 @@
 #![feature(type_alias_impl_trait)]
 
 use crate::{
-    comms::comms_task,
     comms2::init_sender,
     usb::{configure_usb, usb_task, UsbResources},
 };
@@ -20,7 +19,6 @@ use embassy_stm32::{
 
 use {defmt_rtt as _, panic_probe as _};
 
-mod comms;
 mod comms2;
 mod usb;
 
