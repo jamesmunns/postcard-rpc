@@ -1,14 +1,17 @@
 #![allow(async_fn_in_trait)]
 
+use crate::{headered::extract_header_from_bytes, Key, WireHeader};
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_usb::{
     driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut},
     msos::{self, windows_version},
     Builder, UsbDevice,
 };
+use postcard::experimental::schema::Schema;
+use serde::{Deserialize, Serialize};
 use static_cell::StaticCell;
 
-use crate::{headered::extract_header_from_bytes, WireHeader};
+mod dispatch_macro;
 
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
@@ -100,14 +103,32 @@ pub trait Dispatch {
     type Mutex: RawMutex;
     type Driver: Driver<'static>;
 
-    async fn dispatch(&self, hdr: WireHeader, body: &[u8], sender: Sender<Self::Mutex, Self::Driver>);
-    async fn frame_too_long(&self, len: usize, max: usize);
-    async fn frame_too_short(&self, got: &[u8]);
+    async fn dispatch(
+        &self,
+        hdr: WireHeader,
+        body: &[u8],
+        sender: Sender<Self::Mutex, Self::Driver>,
+        scratch: &mut [u8],
+    );
+    async fn error(
+        &self,
+        seq_no: u32,
+        error: WireError,
+        sender: Sender<Self::Mutex, Self::Driver>,
+        scratch: &mut [u8],
+    );
 }
 
 #[derive(Copy)]
 pub struct Sender<M: RawMutex + 'static, D: Driver<'static> + 'static> {
     inner: &'static Mutex<M, SenderInner<D>>,
+}
+
+impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
+    pub async fn send_all(&self, out: &[u8]) {
+        let mut inner = self.inner.lock().await;
+        inner.send_all(out).await;
+    }
 }
 
 impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Clone for Sender<M, D> {
@@ -160,8 +181,8 @@ pub async fn rpc_dispatch<M, D, T>(
     sender: Sender<M, D>,
     dispatch: T,
     rx_buf: &mut [u8],
-)
-where
+    tx_buf: &mut [u8],
+) where
     M: RawMutex + 'static,
     D: Driver<'static>,
     T: Dispatch<Mutex = M, Driver = D>,
@@ -184,7 +205,12 @@ where
                         match ep_out.read(rx_buf).await {
                             Ok(n) if n < 64 => {
                                 bonus = bonus.saturating_add(n);
-                                dispatch.frame_too_long(bonus.saturating_add(rx_buf.len()), rx_buf.len()).await;
+                                let err = WireError::FrameTooLong(FrameTooLong {
+                                    len: u32::try_from(bonus.saturating_add(rx_buf.len()))
+                                        .unwrap_or(u32::MAX),
+                                    max: u32::try_from(rx_buf.len()).unwrap_or(u32::MAX),
+                                });
+                                dispatch.error(0, err, sender.clone(), tx_buf).await;
                                 continue 'packet;
                             }
                             Ok(n) => {
@@ -219,11 +245,43 @@ where
 
             // If it's for us, process it
             if let Ok((hdr, body)) = extract_header_from_bytes(frame) {
-                dispatch.dispatch(hdr, body, sender.clone()).await;
+                dispatch.dispatch(hdr, body, sender.clone(), tx_buf).await;
             } else {
-                dispatch.frame_too_short(frame).await;
+                let err = WireError::FrameTooShort(FrameTooShort {
+                    len: u32::try_from(frame.len()).unwrap_or(u32::MAX),
+                });
+                dispatch.error(0, err, sender.clone(), tx_buf).await;
             }
         }
     }
 }
 
+pub const ERROR_KEY: Key = Key::for_path::<WireError>(ERROR_PATH);
+pub const ERROR_PATH: &str = "error";
+
+#[derive(Serialize, Deserialize, Schema, Debug)]
+pub struct FrameTooLong {
+    pub len: u32,
+    pub max: u32,
+}
+
+#[derive(Serialize, Deserialize, Schema, Debug)]
+pub struct FrameTooShort {
+    pub len: u32,
+}
+
+#[derive(Serialize, Deserialize, Schema, Debug)]
+pub enum WireError {
+    FrameTooLong(FrameTooLong),
+    FrameTooShort(FrameTooShort),
+    DeserFailed,
+    SerFailed,
+    UnknownKey([u8; 8]),
+    FailedToSpawn,
+}
+
+pub enum Outcome<T> {
+    Reply(T),
+    SpawnSuccess,
+    SpawnFailure,
+}
