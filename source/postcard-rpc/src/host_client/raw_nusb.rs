@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use nusb::{
     transfer::{Queue, RequestBuffer},
@@ -6,16 +6,30 @@ use nusb::{
 };
 use postcard::experimental::schema::Schema;
 use serde::de::DeserializeOwned;
-use tokio::sync::mpsc::{error::TrySendError, Receiver, Sender};
-use tokio::sync::Mutex;
+use tokio::sync::{
+    mpsc::{error::TrySendError, Receiver, Sender},
+    Mutex,
+};
 
-use crate::{headered::extract_header_from_bytes, Key};
+use crate::{
+    headered::extract_header_from_bytes,
+    host_client::{HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext},
+    Key,
+};
 
-use super::{HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext};
-use std::sync::Arc;
+// TODO: These should all be configurable, PRs welcome
 
+/// The Bulk Out Endpoint (0x00 | 0x01): Out EP 1
 pub(crate) const BULK_OUT_EP: u8 = 0x01;
+/// The Bulk In Endpoint (0x80 | 0x01): In EP 1
 pub(crate) const BULK_IN_EP: u8 = 0x81;
+/// The size in bytes of the largest possible IN transfer
+pub(crate) const MAX_TRANSFER_SIZE: usize = 1024;
+/// How many in-flight requests at once - allows nusb to keep pulling frames
+/// even if we haven't processed them host-side yet.
+pub(crate) const IN_FLIGHT_REQS: usize = 4;
+/// How many consecutive IN errors will we try to recover from before giving up?
+pub(crate) const MAX_STALL_RETRIES: usize = 10;
 
 struct NusbCtx {
     sub_map: Mutex<HashMap<Key, Sender<RpcFrame>>>,
@@ -53,6 +67,11 @@ fn raw_nusb_worker<F: FnMut(&DeviceInfo) -> bool>(func: F, ctx: WireContext) -> 
     Ok(())
 }
 
+/// Output worker, feeding frames to nusb.
+///
+/// TODO: We could maybe do something clever and have multiple "in flight" requests
+/// with nusb, instead of doing it ~serially. If you are noticing degraded OUT endpoint
+/// bandwidth (e.g. PC to USB device), lemme know and we can look at this.
 async fn out_worker(mut boq: Queue<Vec<u8>>, mut rec: Receiver<RpcFrame>) {
     loop {
         let Some(msg) = rec.recv().await else {
@@ -71,12 +90,12 @@ async fn out_worker(mut boq: Queue<Vec<u8>>, mut rec: Receiver<RpcFrame>) {
     }
 }
 
+/// Input worker, getting frames from nusb
 async fn in_worker(mut biq: Queue<RequestBuffer>, ctxt: Arc<HostContext>, nctxt: Arc<NusbCtx>) {
     let mut consecutive_errs = 0;
-    const IN_FLIGHT_REQS: usize = 4;
 
     for _ in 0..IN_FLIGHT_REQS {
-        biq.submit(RequestBuffer::new(1024));
+        biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
     }
 
     loop {
@@ -89,7 +108,7 @@ async fn in_worker(mut biq: Queue<RequestBuffer>, ctxt: Arc<HostContext>, nctxt:
 
             // Docs only recommend this for Stall, but it seems to work with
             // UNKNOWN on MacOS as well, todo: look into why!
-            let fatal = if consecutive_errs <= 10 {
+            let fatal = if consecutive_errs <= MAX_STALL_RETRIES {
                 tracing::warn!("Attempting stall recovery!");
 
                 // Stall recovery shouldn't be used with in-flight requests, so
@@ -108,7 +127,7 @@ async fn in_worker(mut biq: Queue<RequestBuffer>, ctxt: Arc<HostContext>, nctxt:
                     Ok(()) => {
                         tracing::info!("Stall cleared! Rehydrating queue...");
                         for _ in 0..IN_FLIGHT_REQS {
-                            biq.submit(RequestBuffer::new(1024));
+                            biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
                         }
                         false
                     }
@@ -133,15 +152,19 @@ async fn in_worker(mut biq: Queue<RequestBuffer>, ctxt: Arc<HostContext>, nctxt:
             }
         }
 
-        consecutive_errs = 0;
-
         // replace the submission
-        biq.submit(RequestBuffer::new(1024));
+        biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
 
         let Ok((hdr, body)) = extract_header_from_bytes(&res.data) else {
             tracing::warn!("Header decode error!");
             continue;
         };
+
+        // If we get a good decode, clear the error flag
+        if consecutive_errs != 0 {
+            tracing::info!("Clearing consecutive error counter after good header decode");
+            consecutive_errs = 0;
+        }
 
         let mut handled = false;
 
@@ -187,11 +210,13 @@ async fn in_worker(mut biq: Queue<RequestBuffer>, ctxt: Arc<HostContext>, nctxt:
             header: hdr,
             body: body.to_vec(),
         };
-        if let Err(ProcessError::Closed) = ctxt.process(frame) {
-            tracing::info!("Got process error, quitting");
-            return;
-        } else {
-            tracing::debug!("Handled message via map");
+        match ctxt.process_did_wake(frame) {
+            Ok(true) => tracing::debug!("Handled message via map"),
+            Ok(false) => tracing::debug!("Message not handled"),
+            Err(ProcessError::Closed) => {
+                tracing::warn!("Got process error, quitting");
+                return;
+            }
         }
     }
 }
@@ -205,22 +230,95 @@ async fn sub_worker(mut new_subs: Receiver<SubInfo>, nctxt: Arc<NusbCtx>) {
     }
 }
 
-/// # Constructor Methods
+/// # `nusb` Constructor Methods
 ///
-/// These methods are used to create a new [HostClient] instance for use with tokio serial and cobs encoding.
+/// These methods are used to create a new [HostClient] instance for use with `nusb` and
+/// USB bulk transfer encoding.
+///
+/// **Requires feature**: `raw-nusb`
 impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
 {
+    /// Try to create a new link using [`nusb`] for connectivity
+    ///
+    /// The provided function will be used to find a matching device. The first
+    /// matching device will be connected to. `err_uri_path` is
+    /// the path associated with the `WireErr` message type.
+    ///
+    /// Returns an error if no device could be found, or if there was an error
+    /// connecting to the device.
+    ///
+    /// This constructor is available when the `raw-nusb` feature is enabled.
+    ///
+    /// ## Example
+    ///
+    /// ```rust,no_run
+    /// use postcard_rpc::host_client::HostClient;
+    /// use serde::{Serialize, Deserialize};
+    /// use postcard::experimental::schema::Schema;
+    ///
+    /// /// A "wire error" type your server can use to respond to any
+    /// /// kind of request, for example if deserializing a request fails
+    /// #[derive(Debug, PartialEq, Schema, Serialize, Deserialize)]
+    /// pub enum Error {
+    ///    SomethingBad
+    /// }
+    ///
+    /// let client = HostClient::<Error>::try_new_raw_nusb(
+    ///     // Find the first device with the serial 12345678
+    ///     |d| d.serial_number() == Some("12345678"),
+    ///     // the URI/path for `Error` messages
+    ///     "error",
+    ///     // Outgoing queue depth in messages
+    ///     8,
+    /// ).unwrap();
+    /// ```
+    pub fn try_new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
+        func: F,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+    ) -> Result<Self, String> {
+        let (me, wire) = Self::new_manual(err_uri_path, outgoing_depth);
+        raw_nusb_worker(func, wire)?;
+        Ok(me)
+    }
+
+    /// Create a new link using [`nusb`] for connectivity
+    ///
+    /// Panics if connection fails. See [`Self::try_new_raw_nusb()`] for more details.
+    ///
+    /// This constructor is available when the `raw-nusb` feature is enabled.
+    ///
+    /// ## Example
+    ///
+    /// ```rust,no_run
+    /// use postcard_rpc::host_client::HostClient;
+    /// use serde::{Serialize, Deserialize};
+    /// use postcard::experimental::schema::Schema;
+    ///
+    /// /// A "wire error" type your server can use to respond to any
+    /// /// kind of request, for example if deserializing a request fails
+    /// #[derive(Debug, PartialEq, Schema, Serialize, Deserialize)]
+    /// pub enum Error {
+    ///    SomethingBad
+    /// }
+    ///
+    /// let client = HostClient::<Error>::new_raw_nusb(
+    ///     // Find the first device with the serial 12345678
+    ///     |d| d.serial_number() == Some("12345678"),
+    ///     // the URI/path for `Error` messages
+    ///     "error",
+    ///     // Outgoing queue depth in messages
+    ///     8,
+    /// );
+    /// ```
     pub fn new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
         func: F,
         err_uri_path: &str,
         outgoing_depth: usize,
     ) -> Self {
-        let (me, wire) = Self::new_manual(err_uri_path, outgoing_depth);
-
-        raw_nusb_worker(func, wire).unwrap();
-
-        me
+        Self::try_new_raw_nusb(func, err_uri_path, outgoing_depth)
+            .expect("should have found nusb device")
     }
 }

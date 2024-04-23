@@ -97,9 +97,11 @@ async fn cobs_wire_worker(mut port: SerialStream, ctx: WireContext) {
     }
 }
 
-/// # Constructor Methods
+/// # Serial Constructor Methods
 ///
 /// These methods are used to create a new [HostClient] instance for use with tokio serial and cobs encoding.
+///
+/// **Requires feature**: `cobs-serial`
 impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
