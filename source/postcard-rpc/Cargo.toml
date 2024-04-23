@@ -55,7 +55,7 @@ version = "0.1"
 optional = true
 
 [features]
-default = ["raw-nusb"]
+default = []
 test-utils = [
     "use-std",
 ]
