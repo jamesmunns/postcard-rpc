@@ -11,11 +11,11 @@ use std::{
     },
 };
 
-#[cfg(feature = "cobs-serial")]
-mod serial;
-
 #[cfg(feature = "raw-nusb")]
 mod raw_nusb;
+
+#[cfg(feature = "cobs-serial")]
+mod serial;
 
 use crate::{
     Endpoint, Key, Topic, WireHeader,
@@ -64,6 +64,11 @@ impl<T> From<WaitError> for HostErr<T> {
 /// has occurred.
 ///
 /// [HostClient]s can be cloned, and used across multiple tasks/threads.
+///
+/// There are currently two ways to create one, based on the transport used:
+///
+/// 1. With raw USB Bulk transfers: [`HostClient::new_raw_nusb()`] (**recommended**)
+/// 2. With cobs CDC-ACM transfers: [`HostClient::new_serial_cobs()`]
 pub struct HostClient<WireErr> {
     ctx: Arc<HostContext>,
     out: Sender<RpcFrame>,
@@ -304,6 +309,19 @@ pub enum ProcessError {
 }
 
 impl HostContext {
+    /// Like `HostContext::process` but tells you if we processed the message or
+    /// nobody wanted it
+    pub fn process_did_wake(&self, frame: RpcFrame) -> Result<bool, ProcessError> {
+        match self.map.wake(&frame.header, frame.body) {
+            WakeOutcome::Woke => Ok(true),
+            WakeOutcome::NoMatch(_) => Ok(false),
+            WakeOutcome::Closed(_) => Err(ProcessError::Closed),
+        }
+    }
+
+    /// Process the message, returns Ok if the message was taken or dropped.
+    ///
+    /// Returns an Err if the map was closed.
     pub fn process(&self, frame: RpcFrame) -> Result<(), ProcessError> {
         if let WakeOutcome::Closed(_) = self.map.wake(&frame.header, frame.body) {
             Err(ProcessError::Closed)

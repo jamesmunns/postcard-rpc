@@ -864,11 +864,10 @@ dependencies = [
 
 [[package]]
 name = "postcard-rpc"
-version = "0.4.0"
+version = "0.4.2"
 dependencies = [
  "cobs",
  "defmt",
- "embassy-usb",
  "heapless 0.8.0",
  "postcard",
  "serde",

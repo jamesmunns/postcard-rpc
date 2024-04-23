@@ -181,9 +181,8 @@ dependencies = [
 
 [[package]]
 name = "postcard-rpc"
-version = "0.2.0"
+version = "0.4.2"
 dependencies = [
- "cobs",
  "heapless 0.8.0",
  "postcard",
  "serde",

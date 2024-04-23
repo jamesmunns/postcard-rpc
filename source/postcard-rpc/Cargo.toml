@@ -1,6 +1,6 @@
 [package]
 name = "postcard-rpc"
-version = "0.4.0"
+version = "0.4.2"
 authors = ["James Munns <james@onevariable.com>"]
 edition = "2021"
 repository = "https://github.com/jamesmunns/postcard-rpc"
@@ -50,6 +50,14 @@ version = "1.33.0"
 features = ["sync", "rt", "macros", "io-util"]
 optional = true
 
+[dependencies.tracing]
+version = "0.1"
+optional = true
+
+#
+# no_std-only features
+#
+
 [dependencies.embassy-usb]
 version = "0.1"
 optional = true
@@ -62,14 +70,16 @@ optional = true
 version = "2.0"
 optional = true
 
-[dependencies.tracing]
-version = "0.1"
+#
+# Hacks
+#
+[dependencies.ssmarshal]
+version = "1.0"
 optional = true
+features = ["std"]
 
 [features]
-default = [
-    "embassy-usb-0_1-server"
-]
+default = []
 test-utils = [
     "use-std",
 ]
@@ -77,7 +87,7 @@ use-std = [
     "dep:maitake-sync",
     "dep:tokio",
     "postcard/use-std",
-    "dep:tracing"
+    "dep:tracing",
 ]
 cobs-serial = [
     "cobs/use_std",
@@ -91,4 +101,7 @@ embassy-usb-0_1-server = [
     "dep:embassy-usb",
     "dep:embassy-sync",
     "dep:static_cell",
+]
+_docs-fix = [
+    "dep:ssmarshal",
 ]
