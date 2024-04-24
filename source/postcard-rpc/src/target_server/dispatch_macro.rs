@@ -21,10 +21,16 @@ macro_rules! define_dispatch {
         }
     };
     (
-        dispatcher: $name:ident<Mutex = $mutex:ident, Driver = $driver:ident>;
+        dispatcher: $name:ident<Mutex = $mutex:ty, Driver = $driver:ty>;
         $($endpoint:ty => $flavor:tt $handler:ident,)*
     ) => {
         pub struct $name;
+
+        impl $name {
+            pub fn new() -> Self {
+                $name
+            }
+        }
 
         impl $crate::target_server::Dispatch for $name {
             type Mutex = $mutex;
@@ -35,7 +41,6 @@ macro_rules! define_dispatch {
                 hdr: $crate::WireHeader,
                 body: &[u8],
                 sender: $crate::target_server::Sender<Self::Mutex, Self::Driver>,
-                scratch: &mut [u8],
             ) {
                 #[deny(unreachable_patterns)]
                 match hdr.key {
@@ -43,7 +48,7 @@ macro_rules! define_dispatch {
                         <$endpoint as $crate::Endpoint>::REQ_KEY => {
                             let Ok(req) = postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
                                 let err = $crate::target_server::WireError::DeserFailed;
-                                self.error(hdr.seq_no, err, sender, scratch).await;
+                                self.error(hdr.seq_no, err, sender).await;
                                 return;
                             };
                             use $crate::target_server::Outcome;
@@ -51,27 +56,23 @@ macro_rules! define_dispatch {
                             let resp: Outcome<<$endpoint as $crate::Endpoint>::Response> = define_dispatch!(@arm $flavor ($endpoint) $handler hdr req sender);
                             match resp {
                                 Outcome::Reply(t) => {
-                                    if let Ok(used) =
-                                        $crate::headered::to_slice_keyed(hdr.seq_no, <$endpoint as $crate::Endpoint>::RESP_KEY, &t, scratch)
-                                    {
-                                        sender.send_all(used).await;
-                                    } else {
+                                    if sender.reply::<$endpoint>(hdr.seq_no, &t).await.is_err() {
                                         let err = $crate::target_server::WireError::SerFailed;
-                                        self.error(hdr.seq_no, err, sender, scratch).await;
+                                        self.error(hdr.seq_no, err, sender).await;
                                         return;
                                     }
                                 }
                                 Outcome::SpawnSuccess => {},
                                 Outcome::SpawnFailure => {
                                     let err = $crate::target_server::WireError::FailedToSpawn;
-                                    self.error(hdr.seq_no, err, sender, scratch).await;
+                                    self.error(hdr.seq_no, err, sender).await;
                                 }
                             }
                         }
                     )*
                     other => {
                         let err = $crate::target_server::WireError::UnknownKey(other.to_bytes());
-                        self.error(hdr.seq_no, err, sender, scratch).await;
+                        self.error(hdr.seq_no, err, sender).await;
                         return;
                     },
                 }
@@ -81,11 +82,8 @@ macro_rules! define_dispatch {
                 seq_no: u32,
                 error: $crate::target_server::WireError,
                 sender: $crate::target_server::Sender<Self::Mutex, Self::Driver>,
-                scratch: &mut [u8],
             ) {
-                if let Ok(used) = $crate::headered::to_slice_keyed(seq_no, $crate::target_server::ERROR_KEY, &error, scratch) {
-                    sender.send_all(used).await;
-                }
+                let _ = sender.reply_keyed(seq_no, $crate::target_server::ERROR_KEY, &error).await;
             }
         }
 

@@ -6,10 +6,10 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 embassy-stm32 = { version = "0.1.0", features = ["defmt", "stm32f405rg", "unstable-pac", "memory-x", "time-driver-any", "exti"]  }
-embassy-sync = { version = "0.4.0", features = ["defmt"] }
+embassy-sync = { version = "0.5.0", features = ["defmt"] }
 embassy-executor = { version = "0.5", features = ["nightly", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.3", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-usb = { version = "0.1.0", features = ["defmt" ] }
+embassy-usb = { version = "0.2.0", features = ["defmt" ] }
 embassy-net = { version = "0.4.0", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"] }
 
 defmt = "0.3"
@@ -35,7 +35,7 @@ default-features = false
 
 [dependencies.postcard-rpc]
 path = "../../../source/postcard-rpc"
-features = ["defmt", "embassy-usb-0_1-server"]
+features = ["defmt", "embassy-usb-0_2-server"]
 
 [dependencies.james-icd]
 path = "../james-icd"
@@ -48,12 +48,12 @@ incremental = false
 opt-level = 'z'
 
 [patch.crates-io]
-embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "1de44e7086e05b148dec5cbe38a3971c08dea742" }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "1de44e7086e05b148dec5cbe38a3971c08dea742" }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "1de44e7086e05b148dec5cbe38a3971c08dea742" }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "1de44e7086e05b148dec5cbe38a3971c08dea742" }
-embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "1de44e7086e05b148dec5cbe38a3971c08dea742" }
-embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "1de44e7086e05b148dec5cbe38a3971c08dea742" }
+embassy-stm32 = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
+embassy-sync = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
+embassy-executor = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
+embassy-time = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
+embassy-usb = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
+embassy-net = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
 
 [features]
 

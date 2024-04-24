@@ -20,7 +20,6 @@ pub struct UsbBuffers {
     pub bos_descriptor: [u8; 256],
     pub control_buf: [u8; 64],
     pub msos_descriptor: [u8; 256],
-    pub ep_out_buffer: [u8; 256],
 }
 
 impl UsbBuffers {
@@ -30,7 +29,6 @@ impl UsbBuffers {
             bos_descriptor: [0u8; 256],
             msos_descriptor: [0u8; 256],
             control_buf: [0u8; 64],
-            ep_out_buffer: [0u8; 256],
         }
     }
 }
@@ -105,14 +103,12 @@ pub trait Dispatch {
         hdr: WireHeader,
         body: &[u8],
         sender: Sender<Self::Mutex, Self::Driver>,
-        scratch: &mut [u8],
     );
     async fn error(
         &self,
         seq_no: u32,
         error: WireError,
         sender: Sender<Self::Mutex, Self::Driver>,
-        scratch: &mut [u8],
     );
 }
 
@@ -122,9 +118,25 @@ pub struct Sender<M: RawMutex + 'static, D: Driver<'static> + 'static> {
 }
 
 impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
-    pub async fn send_all(&self, out: &[u8]) {
+    #[inline]
+    pub async fn reply<E>(&self, seq_no: u32, resp: &E::Response) -> Result<(), ()>
+    where
+        E: crate::Endpoint,
+        E::Response: Serialize,
+    {
         let mut inner = self.inner.lock().await;
-        inner.send_all(out).await;
+        let SenderInner { ep_in, tx_buf } = &mut *inner;
+        reply::<D, E>(ep_in, seq_no, resp, tx_buf).await
+    }
+
+    #[inline]
+    pub async fn reply_keyed<T>(&self, seq_no: u32, key: Key, resp: &T) -> Result<(), ()>
+    where
+        T: Serialize + Schema,
+    {
+        let mut inner = self.inner.lock().await;
+        let SenderInner { ep_in, tx_buf } = &mut *inner;
+        reply_keyed::<D, T>(ep_in, key, seq_no, resp, tx_buf).await
     }
 }
 
@@ -136,27 +148,56 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Clone for Sender<M, D>
 
 pub struct SenderInner<D: Driver<'static>> {
     ep_in: D::EndpointIn,
+    tx_buf: &'static mut [u8],
 }
 
-impl<D: Driver<'static>> SenderInner<D> {
-    pub async fn send_all(&mut self, out: &[u8]) {
-        if out.is_empty() {
-            return;
-        }
-        self.ep_in.wait_enabled().await;
-        // write in segments of 64. The last chunk may
-        // be 0 < len <= 64.
-        for ch in out.chunks(64) {
-            if self.ep_in.write(ch).await.is_err() {
-                return;
-            }
-        }
-        // If the total we sent was a multiple of 64, send an
-        // empty message to "flush" the transaction
-        if (out.len() & (64 - 1)) == 0 {
-            let _ = self.ep_in.write(&[]).await;
+async fn reply<D, E>(ep_in: &mut D::EndpointIn, seq_no: u32, resp: &E::Response, out: &mut [u8]) -> Result<(), ()>
+where
+    D: Driver<'static>,
+    E: crate::Endpoint,
+    E::Response: Serialize,
+{
+    if let Ok(used) = crate::headered::to_slice_keyed(seq_no, E::RESP_KEY, resp, out) {
+        send_all::<D>(ep_in, used).await
+    } else {
+        Err(())
+    }
+}
+
+async fn reply_keyed<D, T>(ep_in: &mut D::EndpointIn, key: Key, seq_no: u32, resp: &T, out: &mut [u8]) -> Result<(), ()>
+where
+    D: Driver<'static>,
+    T: Serialize + Schema,
+{
+    if let Ok(used) = crate::headered::to_slice_keyed(seq_no, key, resp, out) {
+        send_all::<D>(ep_in, used).await
+    } else {
+        Err(())
+    }
+}
+
+async fn send_all<D>(ep_in: &mut D::EndpointIn, out: &[u8]) -> Result<(), ()>
+where
+    D: Driver<'static>,
+{
+    if out.is_empty() {
+        return Ok(());
+    }
+    ep_in.wait_enabled().await;
+    // write in segments of 64. The last chunk may
+    // be 0 < len <= 64.
+    for ch in out.chunks(64) {
+        if ep_in.write(ch).await.is_err() {
+            return Err(());
         }
     }
+    // If the total we sent was a multiple of 64, send an
+    // empty message to "flush" the transaction
+    if (out.len() & (64 - 1)) == 0 && ep_in.write(&[]).await.is_err() {
+        return Err(());
+    }
+
+    Ok(())
 }
 
 impl<M, D> Sender<M, D>
@@ -166,9 +207,10 @@ where
 {
     pub fn init_sender(
         sc: &'static StaticCell<Mutex<M, SenderInner<D>>>,
+        tx_buf: &'static mut [u8],
         ep_in: D::EndpointIn,
     ) -> Self {
-        let x = sc.init(Mutex::new(SenderInner { ep_in }));
+        let x = sc.init(Mutex::new(SenderInner { ep_in, tx_buf }));
         Sender { inner: x }
     }
 }
@@ -178,8 +220,8 @@ pub async fn rpc_dispatch<M, D, T>(
     sender: Sender<M, D>,
     dispatch: T,
     rx_buf: &mut [u8],
-    tx_buf: &mut [u8],
-) where
+) -> !
+where
     M: RawMutex + 'static,
     D: Driver<'static>,
     T: Dispatch<Mutex = M, Driver = D>,
@@ -207,7 +249,7 @@ pub async fn rpc_dispatch<M, D, T>(
                                         .unwrap_or(u32::MAX),
                                     max: u32::try_from(rx_buf.len()).unwrap_or(u32::MAX),
                                 });
-                                dispatch.error(0, err, sender.clone(), tx_buf).await;
+                                dispatch.error(0, err, sender.clone()).await;
                                 continue 'packet;
                             }
                             Ok(n) => {
@@ -242,12 +284,12 @@ pub async fn rpc_dispatch<M, D, T>(
 
             // If it's for us, process it
             if let Ok((hdr, body)) = extract_header_from_bytes(frame) {
-                dispatch.dispatch(hdr, body, sender.clone(), tx_buf).await;
+                dispatch.dispatch(hdr, body, sender.clone()).await;
             } else {
                 let err = WireError::FrameTooShort(FrameTooShort {
                     len: u32::try_from(frame.len()).unwrap_or(u32::MAX),
                 });
-                dispatch.error(0, err, sender.clone(), tx_buf).await;
+                dispatch.error(0, err, sender.clone()).await;
             }
         }
     }
