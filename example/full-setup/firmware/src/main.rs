@@ -16,10 +16,11 @@ use embassy_stm32::{
     time::Hertz,
     Config,
 };
+use postcard_rpc::target_server::configure_usb;
 
 use {defmt_rtt as _, panic_probe as _};
 
-mod comms;
+// mod comms;
 mod usb;
 
 #[embassy_executor::main]

@@ -1,19 +1,19 @@
 #[macro_export]
 macro_rules! define_dispatch {
-    (@arm blocking ($endpoint:ty) $handler:ident $header:ident $req:ident) => {
+    (@arm blocking ($endpoint:ty) $handler:ident $header:ident $req:ident $sender:ident) => {
         {
             $crate::target_server::Outcome::Reply($handler($header.clone(), $req))
         }
     };
-    (@arm async ($endpoint:ty) $handler:ident $header:ident $req:ident) => {
+    (@arm async ($endpoint:ty) $handler:ident $header:ident $req:ident $sender:ident) => {
         {
             $crate::target_server::Outcome::Reply($handler($header.clone(), $req).await)
         }
     };
-    (@arm spawn ($endpoint:ty) $handler:ident $header:ident $req:ident) => {
+    (@arm spawn ($endpoint:ty) $handler:ident $header:ident $req:ident $sender:ident) => {
         {
             let spawner = ::embassy_executor::Spawner::for_current_executor().await;
-            if spawner.spawn($handler($header.clone(), $req)).is_ok() {
+            if spawner.spawn($handler($header.clone(), $req, $sender.clone())).is_ok() {
                 $crate::target_server::Outcome::SpawnSuccess
             } else {
                 $crate::target_server::Outcome::SpawnFailure
@@ -48,7 +48,7 @@ macro_rules! define_dispatch {
                             };
                             use $crate::target_server::Outcome;
 
-                            let resp: Outcome<<$endpoint as $crate::Endpoint>::Response> = define_dispatch!(@arm $flavor ($endpoint) $handler hdr req);
+                            let resp: Outcome<<$endpoint as $crate::Endpoint>::Response> = define_dispatch!(@arm $flavor ($endpoint) $handler hdr req sender);
                             match resp {
                                 Outcome::Reply(t) => {
                                     if let Ok(used) =
@@ -95,7 +95,7 @@ macro_rules! define_dispatch {
 #[cfg(test)]
 #[allow(dead_code)]
 mod test {
-    use crate::{endpoint, Schema, WireHeader};
+    use crate::{endpoint, target_server::Sender, Schema, WireHeader};
     use embassy_usb_driver::{Bus, ControlPipe, EndpointIn, EndpointOut};
     use serde::{Deserialize, Serialize};
 
@@ -286,16 +286,13 @@ mod test {
         }
     }
 
-    #[test]
-    fn lol() {
-        define_dispatch! {
-            dispatcher: Dispatcher<Mutex = FakeMutex, Driver = FakeDriver>;
-            AlphaEndpoint => async alpha_handler,
-            BetaEndpoint => async beta_handler,
-            GammaEndpoint => async gamma_handler,
-            DeltaEndpoint => blocking delta_handler,
-            EpsilonEndpoint => spawn epsilon_handler_task,
-        }
+    define_dispatch! {
+        dispatcher: Dispatcher<Mutex = FakeMutex, Driver = FakeDriver>;
+        AlphaEndpoint => async alpha_handler,
+        BetaEndpoint => async beta_handler,
+        GammaEndpoint => async gamma_handler,
+        DeltaEndpoint => blocking delta_handler,
+        EpsilonEndpoint => spawn epsilon_handler_task,
     }
 
     async fn alpha_handler(_header: WireHeader, _body: AReq) -> AResp {
@@ -315,7 +312,7 @@ mod test {
     }
 
     #[embassy_executor::task]
-    async fn epsilon_handler_task(_header: WireHeader, _body: EReq) {
+    async fn epsilon_handler_task(_header: WireHeader, _body: EReq, _sender: Sender<FakeMutex, FakeDriver>) {
         todo!()
     }
 }

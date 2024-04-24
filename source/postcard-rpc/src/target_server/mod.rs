@@ -16,7 +16,6 @@ mod dispatch_macro;
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
 pub struct UsbBuffers {
-    pub device_descriptor: [u8; 256],
     pub config_descriptor: [u8; 256],
     pub bos_descriptor: [u8; 256],
     pub control_buf: [u8; 64],
@@ -27,7 +26,6 @@ pub struct UsbBuffers {
 impl UsbBuffers {
     pub const fn new() -> Self {
         Self {
-            device_descriptor: [0u8; 256],
             config_descriptor: [0u8; 256],
             bos_descriptor: [0u8; 256],
             msos_descriptor: [0u8; 256],
@@ -62,7 +60,6 @@ pub fn configure_usb<D: embassy_usb::driver::Driver<'static>>(
     let mut builder = Builder::new(
         driver,
         config,
-        &mut bufs.device_descriptor,
         &mut bufs.config_descriptor,
         &mut bufs.bos_descriptor,
         &mut bufs.msos_descriptor,
