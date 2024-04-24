@@ -2,21 +2,21 @@
 macro_rules! define_dispatch {
     (@arm blocking ($endpoint:ty) $handler:ident $header:ident $req:ident $sender:ident) => {
         {
-            $crate::target_server::Outcome::Reply($handler($header.clone(), $req))
+            $crate::standard_icd::Outcome::Reply($handler($header.clone(), $req))
         }
     };
     (@arm async ($endpoint:ty) $handler:ident $header:ident $req:ident $sender:ident) => {
         {
-            $crate::target_server::Outcome::Reply($handler($header.clone(), $req).await)
+            $crate::standard_icd::Outcome::Reply($handler($header.clone(), $req).await)
         }
     };
     (@arm spawn ($endpoint:ty) $handler:ident $header:ident $req:ident $sender:ident) => {
         {
             let spawner = ::embassy_executor::Spawner::for_current_executor().await;
             if spawner.spawn($handler($header.clone(), $req, $sender.clone())).is_ok() {
-                $crate::target_server::Outcome::SpawnSuccess
+                $crate::standard_icd::Outcome::SpawnSuccess
             } else {
-                $crate::target_server::Outcome::SpawnFailure
+                $crate::standard_icd::Outcome::SpawnFailure
             }
         }
     };
@@ -47,31 +47,31 @@ macro_rules! define_dispatch {
                     $(
                         <$endpoint as $crate::Endpoint>::REQ_KEY => {
                             let Ok(req) = postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
-                                let err = $crate::target_server::WireError::DeserFailed;
+                                let err = $crate::standard_icd::WireError::DeserFailed;
                                 self.error(hdr.seq_no, err, sender).await;
                                 return;
                             };
-                            use $crate::target_server::Outcome;
+                            use $crate::standard_icd::Outcome;
 
                             let resp: Outcome<<$endpoint as $crate::Endpoint>::Response> = define_dispatch!(@arm $flavor ($endpoint) $handler hdr req sender);
                             match resp {
                                 Outcome::Reply(t) => {
                                     if sender.reply::<$endpoint>(hdr.seq_no, &t).await.is_err() {
-                                        let err = $crate::target_server::WireError::SerFailed;
+                                        let err = $crate::standard_icd::WireError::SerFailed;
                                         self.error(hdr.seq_no, err, sender).await;
                                         return;
                                     }
                                 }
                                 Outcome::SpawnSuccess => {},
                                 Outcome::SpawnFailure => {
-                                    let err = $crate::target_server::WireError::FailedToSpawn;
+                                    let err = $crate::standard_icd::WireError::FailedToSpawn;
                                     self.error(hdr.seq_no, err, sender).await;
                                 }
                             }
                         }
                     )*
                     other => {
-                        let err = $crate::target_server::WireError::UnknownKey(other.to_bytes());
+                        let err = $crate::standard_icd::WireError::UnknownKey(other.to_bytes());
                         self.error(hdr.seq_no, err, sender).await;
                         return;
                     },
@@ -80,10 +80,10 @@ macro_rules! define_dispatch {
             async fn error(
                 &self,
                 seq_no: u32,
-                error: $crate::target_server::WireError,
+                error: $crate::standard_icd::WireError,
                 sender: $crate::target_server::Sender<Self::Mutex, Self::Driver>,
             ) {
-                let _ = sender.reply_keyed(seq_no, $crate::target_server::ERROR_KEY, &error).await;
+                let _ = sender.reply_keyed(seq_no, $crate::standard_icd::ERROR_KEY, &error).await;
             }
         }
 

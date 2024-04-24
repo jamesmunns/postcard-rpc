@@ -393,3 +393,40 @@ pub trait Topic {
     /// The unique [Key] identifying the Message
     const TOPIC_KEY: Key;
 }
+
+pub mod standard_icd {
+    use postcard::experimental::schema::Schema;
+    use serde::{Deserialize, Serialize};
+    use crate::Key;
+
+
+    pub const ERROR_KEY: Key = Key::for_path::<WireError>(ERROR_PATH);
+    pub const ERROR_PATH: &str = "error";
+
+    #[derive(Serialize, Deserialize, Schema, Debug)]
+    pub struct FrameTooLong {
+        pub len: u32,
+        pub max: u32,
+    }
+
+    #[derive(Serialize, Deserialize, Schema, Debug)]
+    pub struct FrameTooShort {
+        pub len: u32,
+    }
+
+    #[derive(Serialize, Deserialize, Schema, Debug)]
+    pub enum WireError {
+        FrameTooLong(FrameTooLong),
+        FrameTooShort(FrameTooShort),
+        DeserFailed,
+        SerFailed,
+        UnknownKey([u8; 8]),
+        FailedToSpawn,
+    }
+
+    pub enum Outcome<T> {
+        Reply(T),
+        SpawnSuccess,
+        SpawnFailure,
+    }
+}

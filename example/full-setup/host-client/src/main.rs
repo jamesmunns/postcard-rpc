@@ -2,13 +2,13 @@ use std::time::Duration;
 
 use james_icd::{
     sleep::{Sleep, SleepEndpoint},
-    wire_error::{FatalError, ERROR_PATH},
 };
 use postcard_rpc::host_client::HostClient;
+use postcard_rpc::standard_icd::{WireError, ERROR_PATH};
 
 #[tokio::main]
 async fn main() {
-    let client = HostClient::<FatalError>::new_raw_nusb(|d| {
+    let client = HostClient::<WireError>::new_raw_nusb(|d| {
         d.serial_number() == Some("12345678")
     }, ERROR_PATH, 8);
 

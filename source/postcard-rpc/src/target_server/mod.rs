@@ -1,6 +1,6 @@
 #![allow(async_fn_in_trait)]
 
-use crate::{headered::extract_header_from_bytes, Key, WireHeader};
+use crate::{headered::extract_header_from_bytes, standard_icd::{FrameTooShort, WireError, FrameTooLong}, Key, WireHeader};
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_usb::{
     driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut},
@@ -8,7 +8,7 @@ use embassy_usb::{
     Builder, UsbDevice,
 };
 use postcard::experimental::schema::Schema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use static_cell::StaticCell;
 
 mod dispatch_macro;
@@ -295,32 +295,3 @@ where
     }
 }
 
-pub const ERROR_KEY: Key = Key::for_path::<WireError>(ERROR_PATH);
-pub const ERROR_PATH: &str = "error";
-
-#[derive(Serialize, Deserialize, Schema, Debug)]
-pub struct FrameTooLong {
-    pub len: u32,
-    pub max: u32,
-}
-
-#[derive(Serialize, Deserialize, Schema, Debug)]
-pub struct FrameTooShort {
-    pub len: u32,
-}
-
-#[derive(Serialize, Deserialize, Schema, Debug)]
-pub enum WireError {
-    FrameTooLong(FrameTooLong),
-    FrameTooShort(FrameTooShort),
-    DeserFailed,
-    SerFailed,
-    UnknownKey([u8; 8]),
-    FailedToSpawn,
-}
-
-pub enum Outcome<T> {
-    Reply(T),
-    SpawnSuccess,
-    SpawnFailure,
-}
