@@ -126,3 +126,4 @@ _docs-fix = [
 
 [patch.crates-io]
 embassy-usb = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
+embassy-usb-driver = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }

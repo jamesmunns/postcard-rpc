@@ -11,7 +11,7 @@ use postcard::experimental::schema::Schema;
 use serde::Serialize;
 use static_cell::StaticCell;
 
-mod dispatch_macro;
+pub mod dispatch_macro;
 
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
@@ -122,11 +122,11 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
     pub async fn reply<E>(&self, seq_no: u32, resp: &E::Response) -> Result<(), ()>
     where
         E: crate::Endpoint,
-        E::Response: Serialize,
+        E::Response: Serialize + Schema,
     {
         let mut inner = self.inner.lock().await;
         let SenderInner { ep_in, tx_buf } = &mut *inner;
-        reply::<D, E>(ep_in, seq_no, resp, tx_buf).await
+        reply_keyed::<D, E::Response>(ep_in, E::RESP_KEY, seq_no, resp, tx_buf).await
     }
 
     #[inline]
@@ -151,19 +151,7 @@ pub struct SenderInner<D: Driver<'static>> {
     tx_buf: &'static mut [u8],
 }
 
-async fn reply<D, E>(ep_in: &mut D::EndpointIn, seq_no: u32, resp: &E::Response, out: &mut [u8]) -> Result<(), ()>
-where
-    D: Driver<'static>,
-    E: crate::Endpoint,
-    E::Response: Serialize,
-{
-    if let Ok(used) = crate::headered::to_slice_keyed(seq_no, E::RESP_KEY, resp, out) {
-        send_all::<D>(ep_in, used).await
-    } else {
-        Err(())
-    }
-}
-
+#[inline]
 async fn reply_keyed<D, T>(ep_in: &mut D::EndpointIn, key: Key, seq_no: u32, resp: &T, out: &mut [u8]) -> Result<(), ()>
 where
     D: Driver<'static>,
@@ -176,6 +164,7 @@ where
     }
 }
 
+#[inline]
 async fn send_all<D>(ep_in: &mut D::EndpointIn, out: &[u8]) -> Result<(), ()>
 where
     D: Driver<'static>,

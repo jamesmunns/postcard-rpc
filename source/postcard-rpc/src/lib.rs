@@ -394,6 +394,9 @@ pub trait Topic {
     const TOPIC_KEY: Key;
 }
 
+/// These are items you can use for your error path and error key.
+///
+/// This is used by [`define_dispatch!()`] as well.
 pub mod standard_icd {
     use postcard::experimental::schema::Schema;
     use serde::{Deserialize, Serialize};
