@@ -398,10 +398,9 @@ pub trait Topic {
 ///
 /// This is used by [`define_dispatch!()`] as well.
 pub mod standard_icd {
+    use crate::Key;
     use postcard::experimental::schema::Schema;
     use serde::{Deserialize, Serialize};
-    use crate::Key;
-
 
     pub const ERROR_KEY: Key = Key::for_path::<WireError>(ERROR_PATH);
     pub const ERROR_PATH: &str = "error";

@@ -1,6 +1,10 @@
 #![allow(async_fn_in_trait)]
 
-use crate::{headered::extract_header_from_bytes, standard_icd::{FrameTooShort, WireError, FrameTooLong}, Key, WireHeader};
+use crate::{
+    headered::extract_header_from_bytes,
+    standard_icd::{FrameTooLong, FrameTooShort, WireError},
+    Key, WireHeader,
+};
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_usb::{
     driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut},
@@ -11,27 +15,10 @@ use postcard::experimental::schema::Schema;
 use serde::Serialize;
 use static_cell::StaticCell;
 
+pub mod buffers;
 pub mod dispatch_macro;
 
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
-
-pub struct UsbBuffers {
-    pub config_descriptor: [u8; 256],
-    pub bos_descriptor: [u8; 256],
-    pub control_buf: [u8; 64],
-    pub msos_descriptor: [u8; 256],
-}
-
-impl UsbBuffers {
-    pub const fn new() -> Self {
-        Self {
-            config_descriptor: [0u8; 256],
-            bos_descriptor: [0u8; 256],
-            msos_descriptor: [0u8; 256],
-            control_buf: [0u8; 64],
-        }
-    }
-}
 
 pub fn example_config() -> embassy_usb::Config<'static> {
     // Create embassy-usb Config
@@ -52,7 +39,7 @@ pub fn example_config() -> embassy_usb::Config<'static> {
 
 pub fn configure_usb<D: embassy_usb::driver::Driver<'static>>(
     driver: D,
-    bufs: &'static mut UsbBuffers,
+    bufs: &'static mut buffers::UsbDeviceBuffers,
     config: embassy_usb::Config<'static>,
 ) -> (UsbDevice<'static, D>, D::EndpointIn, D::EndpointOut) {
     let mut builder = Builder::new(
@@ -104,12 +91,8 @@ pub trait Dispatch {
         body: &[u8],
         sender: Sender<Self::Mutex, Self::Driver>,
     );
-    async fn error(
-        &self,
-        seq_no: u32,
-        error: WireError,
-        sender: Sender<Self::Mutex, Self::Driver>,
-    );
+    async fn error(&self, seq_no: u32, error: WireError, sender: Sender<Self::Mutex, Self::Driver>);
+    fn sender(&self) -> Sender<Self::Mutex, Self::Driver>;
 }
 
 #[derive(Copy)]
@@ -152,7 +135,13 @@ pub struct SenderInner<D: Driver<'static>> {
 }
 
 #[inline]
-async fn reply_keyed<D, T>(ep_in: &mut D::EndpointIn, key: Key, seq_no: u32, resp: &T, out: &mut [u8]) -> Result<(), ()>
+async fn reply_keyed<D, T>(
+    ep_in: &mut D::EndpointIn,
+    key: Key,
+    seq_no: u32,
+    resp: &T,
+    out: &mut [u8],
+) -> Result<(), ()>
 where
     D: Driver<'static>,
     T: Serialize + Schema,
@@ -206,15 +195,15 @@ where
 
 pub async fn rpc_dispatch<M, D, T>(
     mut ep_out: D::EndpointOut,
-    sender: Sender<M, D>,
     dispatch: T,
-    rx_buf: &mut [u8],
+    rx_buf: &'static mut [u8],
 ) -> !
 where
     M: RawMutex + 'static,
-    D: Driver<'static>,
+    D: Driver<'static> + 'static,
     T: Dispatch<Mutex = M, Driver = D>,
 {
+    let sender = dispatch.sender();
     'connect: loop {
         // Wait for connection
         ep_out.wait_enabled().await;
@@ -283,4 +272,3 @@ where
         }
     }
 }
-

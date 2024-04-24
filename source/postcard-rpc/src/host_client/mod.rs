@@ -17,9 +17,7 @@ mod raw_nusb;
 #[cfg(feature = "cobs-serial")]
 mod serial;
 
-use crate::{
-    Endpoint, Key, Topic, WireHeader,
-};
+use crate::{Endpoint, Key, Topic, WireHeader};
 use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,

@@ -2,11 +2,11 @@
 
 use std::collections::HashMap;
 
-use postcard::experimental::schema::Schema;
 use crate::{
     host_client::{HostClient, ProcessError, RpcFrame, WireContext},
     Endpoint, Key, Topic, WireHeader,
 };
+use postcard::experimental::schema::Schema;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{
     select,
@@ -78,8 +78,6 @@ pub struct LocalClient {
     pub to_server: Sender<RpcFrame>,
     pub from_server: Receiver<RpcFrame>,
 }
-
-
 
 pub fn make_client<E>(cli: LocalClient, depth: usize, err_uri_path: &str) -> HostClient<E>
 where

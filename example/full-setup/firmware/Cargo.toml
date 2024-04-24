@@ -53,6 +53,7 @@ embassy-sync = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e
 embassy-executor = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
 embassy-time = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
 embassy-usb = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
+embassy-usb-driver = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
 embassy-net = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
 
 [features]

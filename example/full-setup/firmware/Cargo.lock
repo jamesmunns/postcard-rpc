@@ -373,7 +373,7 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "embassy-time-driver",
- "embassy-usb-driver 0.1.0 (git+https://github.com/jamesmunns/embassy?rev=0d0d8e14e2b0e81307ff70c5a31e300785da19f9)",
+ "embassy-usb-driver",
  "embedded-can",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
@@ -449,17 +449,11 @@ dependencies = [
  "embassy-futures",
  "embassy-net-driver-channel",
  "embassy-sync",
- "embassy-usb-driver 0.1.0 (git+https://github.com/jamesmunns/embassy?rev=0d0d8e14e2b0e81307ff70c5a31e300785da19f9)",
+ "embassy-usb-driver",
  "heapless 0.8.0",
  "ssmarshal",
  "usbd-hid",
 ]
-
-[[package]]
-name = "embassy-usb-driver"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fc247028eae04174b6635104a35b1ed336aabef4654f5e87a8f32327d231970"
 
 [[package]]
 name = "embassy-usb-driver"
@@ -879,7 +873,7 @@ dependencies = [
  "embassy-executor",
  "embassy-sync",
  "embassy-usb",
- "embassy-usb-driver 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "embassy-usb-driver",
  "heapless 0.8.0",
  "postcard",
  "serde",

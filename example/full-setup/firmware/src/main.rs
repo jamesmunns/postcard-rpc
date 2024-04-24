@@ -2,43 +2,46 @@
 #![no_main]
 #![feature(impl_trait_in_assoc_type)]
 
-use comms::Dispatcher;
-// use crate::{
-//     comms::init_sender,
-//     usb::{configure_usb, usb_task, UsbResources},
-// };
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::{
-    bind_interrupts, peripherals::USB_OTG_FS, rcc::{
-        AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPreDiv, PllSource,
-        Sysclk,
-    }, time::Hertz, usb::{Driver, Endpoint, Out}, Config
+    bind_interrupts,
+    peripherals::{self, USB_OTG_FS},
+    rcc::{AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPreDiv, PllSource, Sysclk},
+    time::Hertz,
+    usb::{Driver, Endpoint, Out},
+    Config,
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
-use postcard_rpc::target_server::{configure_usb, example_config, rpc_dispatch, Sender, SenderInner, UsbBuffers};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_time::{Duration, Timer};
+use embassy_usb::UsbDevice;
+use james_icd::sleep::{Sleep, SleepDone, SleepEndpoint};
+use postcard_rpc::{
+    define_dispatch,
+    target_server::{buffers::AllBuffers, configure_usb, example_config, rpc_dispatch, Sender},
+    WireHeader,
+};
 use static_cell::StaticCell;
-
-use crate::usb::usb_task;
-
 use {defmt_rtt as _, panic_probe as _};
 
-static EP_OUT_BUF: StaticCell<[u8; 256]> = StaticCell::new();
-static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
-static OTHER_BUFS: StaticCell<UsbBuffers> = StaticCell::new();
-static SENDER_INNER: StaticCell<Mutex<ThreadModeRawMutex, SenderInner<Driver<'static, USB_OTG_FS>>>> = StaticCell::new();
-
-mod comms;
-mod usb;
+/// These are all buffers needed by postcard-rpc's server
+static ALL_BUFFERS: StaticCell<AllBuffers<256, 256, 256>> = StaticCell::new();
 
 bind_interrupts!(pub struct Irqs {
     OTG_FS => embassy_stm32::usb::InterruptHandler<embassy_stm32::peripherals::USB_OTG_FS>;
 });
 
+define_dispatch! {
+    dispatcher: Dispatcher<Mutex = ThreadModeRawMutex, Driver = Driver<'static, USB_OTG_FS>>;
+    SleepEndpoint => spawn sleep_task,
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Hello World!");
 
+    // This is the configuration for the Adafruit STM32F405 Feather Express.
+    // Your config may be different!
     let config = {
         let mut config = Config::default();
         config.rcc.hse = Some(Hse {
@@ -61,30 +64,55 @@ async fn main(spawner: Spawner) {
     };
 
     let p = embassy_stm32::init(config);
-    let ep_out_buffer = EP_OUT_BUF.init([0u8; 256]);
-    let bufs = OTHER_BUFS.init(UsbBuffers::new());
-    let tx_buf = TX_BUF.init([0u8; 256]);
+    let bufs = ALL_BUFFERS.init(AllBuffers::new());
 
     // Create the driver, from the HAL.
     let mut config = embassy_stm32::usb::Config::default();
     config.vbus_detection = false;
-    let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, ep_out_buffer, config);
+    let driver = Driver::new_fs(
+        p.USB_OTG_FS,
+        Irqs,
+        p.PA12,
+        p.PA11,
+        &mut bufs.endpoint_out,
+        config,
+    );
     let usb_config = example_config();
+    let (d, ep_in, ep_out) = configure_usb(driver, &mut bufs.usb_device, usb_config);
 
-    let (d, ep_in, ep_out) = configure_usb(driver, bufs, usb_config);
-    let sender = Sender::init_sender(&SENDER_INNER, tx_buf, ep_in);
-    let dispatch = Dispatcher::new();
+    let dispatch = Dispatcher::new(&mut bufs.tx_buf, ep_in);
 
     spawner.must_spawn(usb_task(d));
-    spawner.must_spawn(dispatch_task(ep_out, sender, dispatch));
+    spawner.must_spawn(dispatch_task(ep_out, dispatch, &mut bufs.rx_buf));
 }
 
+/// This actually runs the dispatcher
 #[embassy_executor::task]
 async fn dispatch_task(
     ep_out: Endpoint<'static, USB_OTG_FS, Out>,
-    sender: Sender<ThreadModeRawMutex, Driver<'static, USB_OTG_FS>>,
     dispatch: Dispatcher,
+    rx_buf: &'static mut [u8],
 ) {
-    let mut rx_buf = [0u8; 256];
-    rpc_dispatch(ep_out, sender, dispatch, &mut rx_buf).await;
+    rpc_dispatch(ep_out, dispatch, rx_buf).await;
+}
+
+/// This handles the low level USB management
+#[embassy_executor::task]
+pub async fn usb_task(mut usb: UsbDevice<'static, Driver<'static, peripherals::USB_OTG_FS>>) {
+    usb.run().await;
+}
+
+/// And this is our example RPC task!
+#[embassy_executor::task(pool_size = 3)]
+async fn sleep_task(
+    header: WireHeader,
+    s: Sleep,
+    sender: Sender<ThreadModeRawMutex, Driver<'static, USB_OTG_FS>>,
+) {
+    info!("Sleep spawned");
+    Timer::after(Duration::from_secs(s.seconds.into())).await;
+    Timer::after(Duration::from_micros(s.micros.into())).await;
+    info!("Sleep complete");
+    let msg = SleepDone { slept_for: s };
+    let _ = sender.reply::<SleepEndpoint>(header.seq_no, &msg).await;
 }

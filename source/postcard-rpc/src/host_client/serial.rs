@@ -1,12 +1,19 @@
-
-use crate::{accumulator::raw::{CobsAccumulator, FeedResult}, headered::extract_header_from_bytes, Key};
+use super::{HostClient, ProcessError, RpcFrame, WireContext};
+use crate::{
+    accumulator::raw::{CobsAccumulator, FeedResult},
+    headered::extract_header_from_bytes,
+    Key,
+};
+use cobs::encode_vec;
 use postcard::experimental::schema::Schema;
 use serde::de::DeserializeOwned;
-use tokio_serial::{SerialPortBuilderExt, SerialStream};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, select, sync::mpsc::Sender};
-use cobs::encode_vec;
 use std::collections::HashMap;
-use super::{HostClient, RpcFrame, WireContext, ProcessError};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    select,
+    sync::mpsc::Sender,
+};
+use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
 async fn cobs_wire_worker(mut port: SerialStream, ctx: WireContext) {
     let mut buf = [0u8; 1024];
