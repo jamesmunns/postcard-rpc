@@ -86,7 +86,7 @@ pub trait Dispatch {
     type Driver: Driver<'static>;
 
     async fn dispatch(
-        &self,
+        &mut self,
         hdr: WireHeader,
         body: &[u8],
         sender: Sender<Self::Mutex, Self::Driver>,
@@ -195,7 +195,7 @@ where
 
 pub async fn rpc_dispatch<M, D, T>(
     mut ep_out: D::EndpointOut,
-    dispatch: T,
+    mut dispatch: T,
     rx_buf: &'static mut [u8],
 ) -> !
 where
