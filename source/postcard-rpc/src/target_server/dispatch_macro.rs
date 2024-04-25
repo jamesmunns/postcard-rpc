@@ -55,7 +55,7 @@ macro_rules! define_dispatch {
     (@arm spawn ($endpoint:ty) $handler:ident $context:ident $header:ident $req:ident $sender:ident) => {
         {
             let spawner = ::embassy_executor::Spawner::for_current_executor().await;
-            if spawner.spawn($handler($context, $header.clone(), $req, $sender.clone())).is_ok() {
+            if spawner.spawn($handler($header.clone(), $req, $sender.clone())).is_ok() {
                 $crate::standard_icd::Outcome::SpawnSuccess
             } else {
                 $crate::standard_icd::Outcome::SpawnFailure
