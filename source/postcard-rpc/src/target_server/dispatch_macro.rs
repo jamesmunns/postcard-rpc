@@ -83,7 +83,7 @@ macro_rules! define_dispatch {
                     ::embassy_sync::mutex::Mutex<$mutex, $crate::target_server::SenderInner<$driver>>,
                 > = ::static_cell::StaticCell::new();
                 $name {
-                    sender: Sender::init_sender(&SENDER_INNER, tx_buf, ep_in),
+                    sender: $crate::target_server::Sender::init_sender(&SENDER_INNER, tx_buf, ep_in),
                 }
             }
         }
