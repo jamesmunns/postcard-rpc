@@ -21,11 +21,11 @@ use postcard_rpc::{
     target_server::{buffers::AllBuffers, configure_usb, example_config, rpc_dispatch, Sender},
     WireHeader,
 };
-use static_cell::StaticCell;
+use static_cell::ConstInitCell;
 use {defmt_rtt as _, panic_probe as _};
 
 /// These are all buffers needed by postcard-rpc's server
-static ALL_BUFFERS: StaticCell<AllBuffers<256, 256, 256>> = StaticCell::new();
+static ALL_BUFFERS: ConstInitCell<AllBuffers<256, 256, 256>> = ConstInitCell::new(AllBuffers::new());
 
 bind_interrupts!(pub struct Irqs {
     OTG_FS => embassy_stm32::usb::InterruptHandler<embassy_stm32::peripherals::USB_OTG_FS>;
@@ -64,7 +64,7 @@ async fn main(spawner: Spawner) {
     };
 
     let p = embassy_stm32::init(config);
-    let bufs = ALL_BUFFERS.init(AllBuffers::new());
+    let bufs = ALL_BUFFERS.take();
 
     // Create the driver, from the HAL.
     let mut config = embassy_stm32::usb::Config::default();

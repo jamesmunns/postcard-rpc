@@ -1047,8 +1047,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "static_cell"
 version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa6ba4cf83bf80d3eb25f098ea5e790a0a1fcb5e357442259b231e412c2d3ca0"
+source = "git+https://github.com/jamesmunns/static-cell?rev=c0337f742edcfc5d7bf91f008e37ccdb53cf2cce#c0337f742edcfc5d7bf91f008e37ccdb53cf2cce"
 dependencies = [
  "portable-atomic",
 ]
