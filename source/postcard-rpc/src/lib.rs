@@ -190,6 +190,9 @@ pub mod host_client;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
+#[cfg(feature = "embassy-usb-0_2-server")]
+pub mod target_server;
+
 mod macros;
 
 /// Error type for [Dispatch]
@@ -389,4 +392,43 @@ pub trait Topic {
     const PATH: &'static str;
     /// The unique [Key] identifying the Message
     const TOPIC_KEY: Key;
+}
+
+/// These are items you can use for your error path and error key.
+///
+/// This is used by [`define_dispatch!()`] as well.
+pub mod standard_icd {
+    use crate::Key;
+    use postcard::experimental::schema::Schema;
+    use serde::{Deserialize, Serialize};
+
+    pub const ERROR_KEY: Key = Key::for_path::<WireError>(ERROR_PATH);
+    pub const ERROR_PATH: &str = "error";
+
+    #[derive(Serialize, Deserialize, Schema, Debug)]
+    pub struct FrameTooLong {
+        pub len: u32,
+        pub max: u32,
+    }
+
+    #[derive(Serialize, Deserialize, Schema, Debug)]
+    pub struct FrameTooShort {
+        pub len: u32,
+    }
+
+    #[derive(Serialize, Deserialize, Schema, Debug)]
+    pub enum WireError {
+        FrameTooLong(FrameTooLong),
+        FrameTooShort(FrameTooShort),
+        DeserFailed,
+        SerFailed,
+        UnknownKey([u8; 8]),
+        FailedToSpawn,
+    }
+
+    pub enum Outcome<T> {
+        Reply(T),
+        SpawnSuccess,
+        SpawnFailure,
+    }
 }

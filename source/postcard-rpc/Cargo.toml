@@ -54,8 +54,42 @@ optional = true
 version = "0.1"
 optional = true
 
+#
+# no_std-only features
+#
+
+[dependencies.embassy-usb]
+version = "0.2"
+optional = true
+
+[dependencies.embassy-usb-driver]
+version = "0.1"
+optional = true
+
+[dependencies.embassy-sync]
+version = "0.5"
+optional = true
+
+[dependencies.static_cell]
+version = "2.0"
+optional = true
+
+[dependencies.embassy-executor]
+version = "0.5"
+optional = true
+
+#
+# Hack features (see below)
+#
+[dependencies.ssmarshal]
+version = "1.0"
+optional = true
+features = ["std"]
+
 [features]
-default = []
+default = [
+    # "embassy-usb-0_2-server",
+]
 test-utils = [
     "use-std",
 ]
@@ -63,7 +97,7 @@ use-std = [
     "dep:maitake-sync",
     "dep:tokio",
     "postcard/use-std",
-    "dep:tracing"
+    "dep:tracing",
 ]
 cobs-serial = [
     "cobs/use_std",
@@ -73,3 +107,24 @@ raw-nusb = [
     "dep:nusb",
     "use-std",
 ]
+embassy-usb-0_2-server = [
+    "dep:embassy-usb",
+    "dep:embassy-sync",
+    "dep:static_cell",
+    "dep:embassy-usb-driver",
+    "dep:embassy-executor",
+]
+
+# NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal
+# which doesn't work on `std` builds without the `std` feature. This causes
+# `cargo doc --all-features` (and docs.rs builds) to fail. Sneakily re-active
+# that feature when `--all-features` is set. This feature is considered unstable
+# and should not be relied upon.
+_docs-fix = [
+    "dep:ssmarshal",
+]
+
+[patch.crates-io]
+embassy-usb = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
+embassy-usb-driver = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
+static_cell = { git = "https://github.com/jamesmunns/static-cell", rev = "c0337f742edcfc5d7bf91f008e37ccdb53cf2cce" }
