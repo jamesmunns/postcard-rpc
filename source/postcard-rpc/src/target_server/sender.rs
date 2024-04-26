@@ -41,6 +41,17 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         let SenderInner { ep_in, tx_buf } = &mut *inner;
         reply_keyed::<D, T>(ep_in, key, seq_no, resp, tx_buf).await
     }
+
+    #[inline]
+    pub async fn publish<T>(&self, seq_no: u32, msg: &T::Message) -> Result<(), ()>
+    where
+        T: crate::Topic,
+        T::Message: Serialize + Schema,
+    {
+        let mut inner = self.inner.lock().await;
+        let SenderInner { ep_in, tx_buf } = &mut *inner;
+        reply_keyed::<D, T::Message>(ep_in, T::TOPIC_KEY, seq_no, msg, tx_buf).await
+    }
 }
 
 impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Clone for Sender<M, D> {
