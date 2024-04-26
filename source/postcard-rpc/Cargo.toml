@@ -88,7 +88,7 @@ features = ["std"]
 
 [features]
 default = [
-    # "embassy-usb-0_2-server",
+    "embassy-usb-0_2-server",
 ]
 test-utils = [
     "use-std",
