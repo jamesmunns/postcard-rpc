@@ -17,7 +17,9 @@ mod raw_nusb;
 #[cfg(feature = "cobs-serial")]
 mod serial;
 
-use crate::{Endpoint, Key, Topic, WireHeader};
+#[cfg(feature = "webusb")]
+mod webusb;
+
 use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,
@@ -28,6 +30,8 @@ use tokio::{
     select,
     sync::mpsc::{Receiver, Sender},
 };
+
+use crate::{Endpoint, Key, Topic, WireHeader};
 
 /// Host Error Kind
 #[derive(Debug, PartialEq)]
