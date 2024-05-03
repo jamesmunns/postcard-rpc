@@ -405,18 +405,18 @@ pub mod standard_icd {
     pub const ERROR_KEY: Key = Key::for_path::<WireError>(ERROR_PATH);
     pub const ERROR_PATH: &str = "error";
 
-    #[derive(Serialize, Deserialize, Schema, Debug)]
+    #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
     pub struct FrameTooLong {
         pub len: u32,
         pub max: u32,
     }
 
-    #[derive(Serialize, Deserialize, Schema, Debug)]
+    #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
     pub struct FrameTooShort {
         pub len: u32,
     }
 
-    #[derive(Serialize, Deserialize, Schema, Debug)]
+    #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
     pub enum WireError {
         FrameTooLong(FrameTooLong),
         FrameTooShort(FrameTooShort),
@@ -424,11 +424,5 @@ pub mod standard_icd {
         SerFailed,
         UnknownKey([u8; 8]),
         FailedToSpawn,
-    }
-
-    pub enum Outcome<T> {
-        Reply(T),
-        SpawnSuccess,
-        SpawnFailure,
     }
 }
