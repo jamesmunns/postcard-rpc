@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 // TODO running inside dioxus requires using dioxus spawn, but
 // this isn't strictly a *WebUSB* requirement.
 // We could also be e.g. running inside a naked `trunk` app.
+// Also this is the only part of this impl that isn't a generic vec pipe 🤔
 use dioxus_core::prelude::*;
 use postcard::experimental::schema::Schema;
 use serde::de::DeserializeOwned;
