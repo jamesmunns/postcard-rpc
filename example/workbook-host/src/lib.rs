@@ -1,4 +1,5 @@
 pub mod client;
+pub use workbook_icd as icd;
 
 pub async fn read_line() -> String {
     tokio::task::spawn_blocking(|| {

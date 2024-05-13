@@ -17,12 +17,12 @@ use postcard_rpc::{
     WireHeader,
 };
 
-use static_cell::ConstInitCell;
+use static_cell::ConstStaticCell;
 use workbook_fw::{get_unique_id, Irqs};
 use workbook_icd::PingEndpoint;
 
-static ALL_BUFFERS: ConstInitCell<AllBuffers<256, 256, 256>> =
-    ConstInitCell::new(AllBuffers::new());
+static ALL_BUFFERS: ConstStaticCell<AllBuffers<256, 256, 256>> =
+    ConstStaticCell::new(AllBuffers::new());
 
 pub struct Context {}
 

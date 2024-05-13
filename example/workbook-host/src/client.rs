@@ -3,7 +3,7 @@ use postcard_rpc::{
     host_client::{HostClient, HostErr},
     standard_icd::{WireError, ERROR_PATH},
 };
-use workbook_icd::PingEndpoint;
+use workbook_icd::{AccelRange, BadPositionError, GetUniqueIdEndpoint, PingEndpoint, Rgb8, SetAllLedEndpoint, SetSingleLedEndpoint, SingleLed, StartAccel, StartAccelerationEndpoint, StopAccelerationEndpoint};
 
 pub struct WorkbookClient {
     pub client: HostClient<WireError>,
@@ -47,6 +47,60 @@ impl WorkbookClient {
     pub async fn ping(&self, id: u32) -> Result<u32, WorkbookError<Infallible>> {
         let val = self.client.send_resp::<PingEndpoint>(&id).await?;
         Ok(val)
+    }
+
+    pub async fn get_id(&self) -> Result<u64, WorkbookError<Infallible>> {
+        let id = self.client.send_resp::<GetUniqueIdEndpoint>(&()).await?;
+        Ok(id)
+    }
+
+    pub async fn set_rgb_single(
+        &self,
+        position: u32,
+        r: u8,
+        g: u8,
+        b: u8,
+    ) -> Result<(), WorkbookError<BadPositionError>> {
+        self.client
+            .send_resp::<SetSingleLedEndpoint>(&SingleLed {
+                position,
+                rgb: Rgb8 { r, g, b },
+            })
+            .await?
+            .flatten()
+    }
+
+    pub async fn set_all_rgb_single(
+        &self,
+        r: u8,
+        g: u8,
+        b: u8,
+    ) -> Result<(), WorkbookError<Infallible>> {
+        self.client
+            .send_resp::<SetAllLedEndpoint>(&[Rgb8 { r, g, b }; 24])
+            .await?;
+        Ok(())
+    }
+
+    pub async fn start_accelerometer(
+        &self,
+        interval_ms: u32,
+        range: AccelRange,
+    ) -> Result<(), WorkbookError<Infallible>> {
+        self.client
+            .send_resp::<StartAccelerationEndpoint>(&StartAccel { interval_ms, range })
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn stop_accelerometer(&self) -> Result<bool, WorkbookError<Infallible>> {
+        let res = self
+            .client
+            .send_resp::<StopAccelerationEndpoint>(&())
+            .await?;
+
+        Ok(res)
     }
 }
 

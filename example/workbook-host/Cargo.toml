@@ -22,4 +22,4 @@ features = [
 ]
 
 [patch.crates-io]
-postcard-rpc         = { git = "https://github.com/jamesmunns/postcard-rpc", rev = "eb304c2f5d9bbda796859b63d831e83d7b82961a" }
+postcard-rpc = { path = "../../source/postcard-rpc" }
