@@ -29,7 +29,11 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
     {
         let mut inner = self.inner.lock().await;
         let SenderInner { ep_in, tx_buf } = &mut *inner;
-        reply_keyed::<D, E::Response>(ep_in, E::RESP_KEY, seq_no, resp, tx_buf).await
+        if let Ok(used) = crate::headered::to_slice_keyed(seq_no, E::RESP_KEY, resp, tx_buf) {
+            send_all::<D>(ep_in, used).await
+        } else {
+            Err(())
+        }
     }
 
     #[inline]
@@ -39,7 +43,11 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
     {
         let mut inner = self.inner.lock().await;
         let SenderInner { ep_in, tx_buf } = &mut *inner;
-        reply_keyed::<D, T>(ep_in, key, seq_no, resp, tx_buf).await
+        if let Ok(used) = crate::headered::to_slice_keyed(seq_no, key, resp, tx_buf) {
+            send_all::<D>(ep_in, used).await
+        } else {
+            Err(())
+        }
     }
 
     #[inline]
@@ -50,7 +58,11 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
     {
         let mut inner = self.inner.lock().await;
         let SenderInner { ep_in, tx_buf } = &mut *inner;
-        reply_keyed::<D, T::Message>(ep_in, T::TOPIC_KEY, seq_no, msg, tx_buf).await
+        if let Ok(used) = crate::headered::to_slice_keyed(seq_no, T::TOPIC_KEY, msg, tx_buf) {
+            send_all::<D>(ep_in, used).await
+        } else {
+            Err(())
+        }
     }
 }
 
@@ -63,25 +75,6 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Clone for Sender<M, D>
 pub struct SenderInner<D: Driver<'static>> {
     ep_in: D::EndpointIn,
     tx_buf: &'static mut [u8],
-}
-
-#[inline]
-async fn reply_keyed<D, T>(
-    ep_in: &mut D::EndpointIn,
-    key: Key,
-    seq_no: u32,
-    resp: &T,
-    out: &mut [u8],
-) -> Result<(), ()>
-where
-    D: Driver<'static>,
-    T: Serialize + Schema,
-{
-    if let Ok(used) = crate::headered::to_slice_keyed(seq_no, key, resp, out) {
-        send_all::<D>(ep_in, used).await
-    } else {
-        Err(())
-    }
 }
 
 #[inline]
