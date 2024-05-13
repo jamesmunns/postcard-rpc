@@ -1,0 +1,19 @@
+[package]
+name = "workbook-icd"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies.serde]
+version = "1.0"
+features = ["derive"]
+default-features = false
+
+[dependencies.postcard]
+version = "1.0"
+features = ["experimental-derive"]
+
+[dependencies.postcard-rpc]
+version = "0.4"
+
+[patch.crates-io]
+postcard-rpc = { git = "https://github.com/jamesmunns/postcard-rpc", rev = "eb304c2f5d9bbda796859b63d831e83d7b82961a" }

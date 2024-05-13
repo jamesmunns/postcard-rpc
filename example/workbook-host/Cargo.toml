@@ -1,0 +1,25 @@
+[package]
+name = "workbook-host-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies.workbook-icd]
+path = "../workbook-icd"
+
+[dependencies.postcard-rpc]
+version = "0.4"
+features = [
+    "use-std",
+    "raw-nusb",
+]
+
+[dependencies.tokio]
+version = "1.37.0"
+features = [
+    "rt-multi-thread",
+    "macros",
+    "time",
+]
+
+[patch.crates-io]
+postcard-rpc         = { git = "https://github.com/jamesmunns/postcard-rpc", rev = "eb304c2f5d9bbda796859b63d831e83d7b82961a" }
