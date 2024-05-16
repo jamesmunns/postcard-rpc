@@ -50,8 +50,8 @@ impl From<UsbTransferStatus> for Error {
 ///     WebUsbClient::new(0x16c0, 0, 1000, 1, 1)
 ///         .await
 ///         .expect("WebUSB error"),
-///     ERROR_PATH,
-///     MAGIC_EIGHTBALL,
+///     crate::standard_icd::ERROR_PATH,
+///     8,
 /// )
 /// .expect("could not create HostClient");
 /// ```
