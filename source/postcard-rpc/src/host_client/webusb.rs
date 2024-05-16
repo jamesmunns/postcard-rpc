@@ -1,9 +1,8 @@
-use dioxus_core::prelude::spawn;
 use gloo::utils::format::JsValueSerdeExt;
 use serde_json::json;
 use tracing::info;
 use wasm_bindgen::{prelude::*, JsCast};
-use wasm_bindgen_futures::JsFuture;
+use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{UsbDevice, UsbInTransferResult, UsbTransferStatus};
 
 use super::Client;
@@ -112,7 +111,7 @@ impl Client for WebUsbClient {
     type Error = Error;
 
     async fn receive(&self) -> Result<Vec<u8>, Self::Error> {
-        tracing::info!("receive…");
+        tracing::trace!("receive…");
         let res: UsbInTransferResult = JsFuture::from(
             self.device
                 .transfer_in(self.ep_in, self.transfer_max_length),
@@ -136,7 +135,7 @@ impl Client for WebUsbClient {
     }
 
     async fn send(&self, mut data: Vec<u8>) -> Result<(), Self::Error> {
-        tracing::info!("send…");
+        tracing::trace!("send…");
         // TODO for reasons unknown, web-sys wants mutable access to the send buffer.
         // tracking issue: https://github.com/rustwasm/wasm-bindgen/issues/3963
         JsFuture::from(
@@ -148,6 +147,6 @@ impl Client for WebUsbClient {
     }
 
     fn spawn(&self, fut: impl core::future::Future<Output = ()> + 'static) {
-        spawn(fut);
+        spawn_local(fut);
     }
 }
