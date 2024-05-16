@@ -1,154 +1,153 @@
-use std::{collections::HashMap, sync::Arc};
+use dioxus_core::prelude::spawn;
+use gloo::utils::format::JsValueSerdeExt;
+use serde_json::json;
+use tracing::info;
+use wasm_bindgen::{prelude::*, JsCast};
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{UsbDevice, UsbInTransferResult, UsbTransferStatus};
 
-// TODO running inside dioxus requires using dioxus spawn, but
-// this isn't strictly a *WebUSB* requirement.
-// We could also be e.g. running inside a naked `trunk` app.
-// Also this is the only part of this impl that isn't a generic vec pipe 🤔
-use dioxus_core::prelude::*;
-use postcard::experimental::schema::Schema;
-use serde::de::DeserializeOwned;
-use tokio::sync::{
-    mpsc::{error::TrySendError, Receiver, Sender},
-    Mutex,
-};
-use tracing::{debug, warn};
+use super::Client;
 
-use super::{HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext};
-use crate::{headered::extract_header_from_bytes, Key};
-
-// TODO type shared with nusb transport
-pub(crate) type Subscriptions = HashMap<Key, Sender<RpcFrame>>;
-
-fn usb_worker(
-    wire_in: Receiver<Vec<u8>>,
-    wire_out: Sender<Vec<u8>>,
-    ctx: WireContext,
-) -> Result<(), String> {
-    let WireContext {
-        outgoing,
-        incoming,
-        new_subs,
-    } = ctx;
-
-    let subscriptions: Arc<Mutex<Subscriptions>> = Arc::new(Mutex::new(Subscriptions::new()));
-
-    spawn(out_worker(wire_out, outgoing));
-    spawn(in_worker(wire_in, incoming, subscriptions.clone()));
-    spawn(sub_worker(new_subs, subscriptions));
-
-    Ok(())
+#[derive(Clone)]
+pub struct WebUsbClient {
+    device: UsbDevice,
+    transfer_max_length: u32,
+    ep_in: u8,
+    ep_out: u8,
 }
 
-/// Output worker, feeding frames to webusb.
-async fn out_worker(wire_out: Sender<Vec<u8>>, mut rec: Receiver<RpcFrame>) {
-    loop {
-        let Some(msg) = rec.recv().await else {
-            tracing::warn!("Receiver Closed, this could be bad");
-            return;
-        };
-        if let Err(e) = wire_out.send(msg.to_bytes()).await {
-            tracing::error!("Output Queue Error: {e:?}, exiting");
-            return;
-        }
+#[derive(thiserror::Error, Debug, Clone)]
+pub enum Error {
+    #[error("Browser error: {0}")]
+    Browser(String),
+    #[error("USB transfer error: {0}")]
+    UsbTransfer(&'static str),
+}
+
+impl From<JsValue> for Error {
+    fn from(e: JsValue) -> Self {
+        let error_s = format!("{e:?}");
+        Self::Browser(error_s)
     }
 }
 
-/// Input worker, getting frames from webusb
-async fn in_worker(
-    mut wire_in: Receiver<Vec<u8>>,
-    host_ctx: Arc<HostContext>,
-    subscriptions: Arc<Mutex<Subscriptions>>,
-) {
-    loop {
-        let Some(res) = wire_in.recv().await else {
-            warn!("in_worker: receiver channel closed, exiting");
-            return;
+impl From<UsbTransferStatus> for Error {
+    fn from(status: UsbTransferStatus) -> Self {
+        let cause = match status {
+            UsbTransferStatus::Ok => unreachable!(),
+            UsbTransferStatus::Stall => "stall",
+            UsbTransferStatus::Babble => "babble",
+            _ => "unknown",
         };
 
-        let Ok((hdr, body)) = extract_header_from_bytes(&res) else {
-            warn!("Header decode error!");
-            continue;
+        Self::UsbTransfer(cause)
+    }
+}
+
+/// # Example usage ()
+/// ```no_run
+/// let client = HostClient::<WireError>::new_with_client(
+///     WebUsbClient::new(0x16c0, 0, 1000, 1, 1)
+///         .await
+///         .expect("WebUSB error"),
+///     ERROR_PATH,
+///     MAGIC_EIGHTBALL,
+/// )
+/// .expect("could not create HostClient");
+/// ```
+impl WebUsbClient {
+    pub async fn new(
+        vendor_id: u16,
+        interface: u8,
+        transfer_max_length: u32,
+        ep_in: u8,
+        ep_out: u8,
+    ) -> Result<Self, Error> {
+        let window = gloo::utils::window();
+        let navigator = window.navigator();
+        let usb = navigator.usb();
+
+        // TODO probably better filter API: Option<Value> parameter in constructor instead of vendor_id
+        // however: that doesn't allow the manual ensure-filtering below 🤔
+        let filter = json!({
+            "filters": [{"vendorId": vendor_id}]
+        });
+        let filter = JsValue::from_serde(&filter).unwrap();
+        // try to get device from already paired list
+        let devices: js_sys::Array = JsFuture::from(usb.get_devices()).await?.into();
+        let device = if devices.length() > 0 {
+            info!("found {} existing devices", devices.length());
+            // need to ensure we get the right one because others might've been paired in the past
+            devices
+                .into_iter()
+                .map(|dev| dev.dyn_into::<UsbDevice>().expect("WebUSB api broke"))
+                .filter(|device| device.vendor_id() == vendor_id)
+                .nth(0)
+        } else {
+            None
         };
 
-        debug!("in_worker received {hdr:?}");
+        let device = match device {
+            Some(device) => device,
+            None => JsFuture::from(usb.request_device(&filter.into()))
+                .await?
+                .dyn_into()
+                .map_err(|e| Error::from(e))?,
+        };
+        JsFuture::from(device.open()).await?;
+        tracing::info!("deveie openc, claiming interface {interface}");
+        JsFuture::from(device.claim_interface(interface)).await?;
+        info!("done");
 
-        let mut handled = false;
+        Ok(Self {
+            device,
+            transfer_max_length,
+            ep_in,
+            ep_out,
+        })
+    }
+}
 
-        {
-            let mut subs_guard = subscriptions.lock().await;
-            let key = hdr.key;
+impl Client for WebUsbClient {
+    type Error = Error;
 
-            // Remove if sending fails
-            let remove_sub = if let Some(m) = subs_guard.get(&key) {
-                handled = true;
-                let frame = RpcFrame {
-                    header: hdr.clone(),
-                    body: body.to_vec(),
-                };
-                let res = m.try_send(frame);
+    async fn receive(&self) -> Result<Vec<u8>, Self::Error> {
+        tracing::info!("receive…");
+        let res: UsbInTransferResult = JsFuture::from(
+            self.device
+                .transfer_in(self.ep_in, self.transfer_max_length),
+        )
+        .await?
+        .into();
 
-                match res {
-                    Ok(()) => {
-                        debug!("Handled message via subscription");
-                        false
-                    }
-                    Err(TrySendError::Full(_)) => {
-                        tracing::error!("Subscription channel full! Message dropped.");
-                        false
-                    }
-                    Err(TrySendError::Closed(_)) => true,
+        let status = res.status();
+        if status == UsbTransferStatus::Ok {
+            match res.data() {
+                Some(view) => {
+                    let arr = js_sys::Uint8Array::new(&view.buffer());
+                    let data = arr.to_vec();
+                    Ok(data)
                 }
-            } else {
-                false
-            };
-
-            if remove_sub {
-                debug!("Dropping subscription");
-                subs_guard.remove(&key);
+                None => Ok(vec![]),
             }
-        }
-
-        if handled {
-            continue;
-        }
-
-        let frame = RpcFrame {
-            header: hdr,
-            body: body.to_vec(),
-        };
-
-        match host_ctx.process_did_wake(frame) {
-            Ok(true) => debug!("Handled message via map"),
-            Ok(false) => debug!("Message not handled"),
-            Err(ProcessError::Closed) => {
-                warn!("Got process error, quitting");
-                return;
-            }
+        } else {
+            Err(status.into())
         }
     }
-}
 
-async fn sub_worker(mut new_subs: Receiver<SubInfo>, subscriptions: Arc<Mutex<Subscriptions>>) {
-    while let Some(sub) = new_subs.recv().await {
-        let mut sub_guard = subscriptions.lock().await;
-        if let Some(_old) = sub_guard.insert(sub.key, sub.tx) {
-            warn!("Replacing old subscription for {:?}", sub.key);
-        }
+    async fn send(&self, mut data: Vec<u8>) -> Result<(), Self::Error> {
+        tracing::info!("send…");
+        // TODO for reasons unknown, web-sys wants mutable access to the send buffer.
+        // tracking issue: https://github.com/rustwasm/wasm-bindgen/issues/3963
+        JsFuture::from(
+            self.device
+                .transfer_out_with_u8_array(self.ep_out, &mut data),
+        )
+        .await?;
+        Ok(())
     }
-}
 
-impl<WireErr> HostClient<WireErr>
-where
-    WireErr: DeserializeOwned + Schema,
-{
-    pub fn new_webusb(
-        wire_in: Receiver<Vec<u8>>,
-        wire_out: Sender<Vec<u8>>,
-        err_uri_path: &str,
-        outgoing_depth: usize,
-    ) -> Result<Self, String> {
-        let (me, wire_ctx) = Self::new_manual(err_uri_path, outgoing_depth);
-        usb_worker(wire_in, wire_out, wire_ctx)?;
-        Ok(me)
+    fn spawn(&self, fut: impl core::future::Future<Output = ()> + 'static) {
+        spawn(fut);
     }
 }
