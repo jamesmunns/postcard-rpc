@@ -5,8 +5,6 @@ edition = "2021"
 
 [dependencies]
 cortex-m                = { version = "0.7.6", features = ["inline-asm"] }
-# NOTE: if you need the `nightly` feature of `embassy-executor`, you MUST also activate
-# the `embassy-executor-nightly` feature of `postcard-rpc`!
 embassy-executor        = { version = "0.5.0", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
 embassy-rp              = { version = "0.1.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"] }
 embassy-sync            = { version = "0.5.0", features = ["defmt"] }

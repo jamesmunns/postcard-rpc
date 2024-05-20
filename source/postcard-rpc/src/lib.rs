@@ -173,9 +173,6 @@
 //! available with or without the standard library.
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
-// If you use the nightly feature from embassy-executor, we need to activate this feature
-// as our docs/tests will also end up using that feature too.
-#![cfg_attr(feature = "embassy-executor-nightly", feature(type_alias_impl_trait))]
 
 use headered::extract_header_from_bytes;
 use postcard::experimental::schema::Schema;
