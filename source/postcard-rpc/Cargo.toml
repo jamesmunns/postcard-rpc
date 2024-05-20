@@ -62,9 +62,6 @@ optional = true
 version = "0.2"
 optional = true
 
-[dependencies.embassy-usb-driver]
-version = "0.1"
-optional = true
 
 [dependencies.embassy-sync]
 version = "0.5"
@@ -111,7 +108,6 @@ embassy-usb-0_2-server = [
     "dep:embassy-usb",
     "dep:embassy-sync",
     "dep:static_cell",
-    "dep:embassy-usb-driver",
     "dep:embassy-executor",
 ]
 

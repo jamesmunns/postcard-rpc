@@ -4,7 +4,7 @@
 /// # use postcard_rpc::target_server::dispatch_macro::fake::*;
 /// # use postcard_rpc::{endpoint, target_server::{sender::Sender, SpawnContext}, WireHeader, define_dispatch};
 /// # use postcard::experimental::schema::Schema;
-/// # use embassy_usb_driver::{Bus, ControlPipe, EndpointIn, EndpointOut};
+/// # use embassy_usb::driver::{Bus, ControlPipe, EndpointIn, EndpointOut};
 /// # use serde::{Deserialize, Serialize};
 ///
 /// pub struct DispatchCtx;
@@ -199,7 +199,7 @@ pub mod fake {
     use crate::target_server::SpawnContext;
     #[allow(unused_imports)]
     use crate::{endpoint, target_server::sender::Sender, Schema, WireHeader};
-    use embassy_usb_driver::{Bus, ControlPipe, EndpointIn, EndpointOut};
+    use embassy_usb::driver::{Bus, ControlPipe, EndpointIn, EndpointOut};
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Schema)]
@@ -236,8 +236,8 @@ pub mod fake {
     pub struct FakeCtlPipe;
     pub struct FakeBus;
 
-    impl embassy_usb_driver::Endpoint for FakeEpOut {
-        fn info(&self) -> &embassy_usb_driver::EndpointInfo {
+    impl embassy_usb::driver::Endpoint for FakeEpOut {
+        fn info(&self) -> &embassy_usb::driver::EndpointInfo {
             todo!()
         }
 
@@ -250,13 +250,13 @@ pub mod fake {
         async fn read(
             &mut self,
             _buf: &mut [u8],
-        ) -> Result<usize, embassy_usb_driver::EndpointError> {
+        ) -> Result<usize, embassy_usb::driver::EndpointError> {
             todo!()
         }
     }
 
-    impl embassy_usb_driver::Endpoint for FakeEpIn {
-        fn info(&self) -> &embassy_usb_driver::EndpointInfo {
+    impl embassy_usb::driver::Endpoint for FakeEpIn {
+        fn info(&self) -> &embassy_usb::driver::EndpointInfo {
             todo!()
         }
 
@@ -266,7 +266,7 @@ pub mod fake {
     }
 
     impl EndpointIn for FakeEpIn {
-        async fn write(&mut self, _buf: &[u8]) -> Result<(), embassy_usb_driver::EndpointError> {
+        async fn write(&mut self, _buf: &[u8]) -> Result<(), embassy_usb::driver::EndpointError> {
             todo!()
         }
     }
@@ -285,7 +285,7 @@ pub mod fake {
             _buf: &mut [u8],
             _first: bool,
             _last: bool,
-        ) -> Result<usize, embassy_usb_driver::EndpointError> {
+        ) -> Result<usize, embassy_usb::driver::EndpointError> {
             todo!()
         }
 
@@ -294,7 +294,7 @@ pub mod fake {
             _data: &[u8],
             _first: bool,
             _last: bool,
-        ) -> Result<(), embassy_usb_driver::EndpointError> {
+        ) -> Result<(), embassy_usb::driver::EndpointError> {
             todo!()
         }
 
@@ -320,13 +320,13 @@ pub mod fake {
             todo!()
         }
 
-        async fn poll(&mut self) -> embassy_usb_driver::Event {
+        async fn poll(&mut self) -> embassy_usb::driver::Event {
             todo!()
         }
 
         fn endpoint_set_enabled(
             &mut self,
-            _ep_addr: embassy_usb_driver::EndpointAddress,
+            _ep_addr: embassy_usb::driver::EndpointAddress,
             _enabled: bool,
         ) {
             todo!()
@@ -334,22 +334,22 @@ pub mod fake {
 
         fn endpoint_set_stalled(
             &mut self,
-            _ep_addr: embassy_usb_driver::EndpointAddress,
+            _ep_addr: embassy_usb::driver::EndpointAddress,
             _stalled: bool,
         ) {
             todo!()
         }
 
-        fn endpoint_is_stalled(&mut self, _ep_addr: embassy_usb_driver::EndpointAddress) -> bool {
+        fn endpoint_is_stalled(&mut self, _ep_addr: embassy_usb::driver::EndpointAddress) -> bool {
             todo!()
         }
 
-        async fn remote_wakeup(&mut self) -> Result<(), embassy_usb_driver::Unsupported> {
+        async fn remote_wakeup(&mut self) -> Result<(), embassy_usb::driver::Unsupported> {
             todo!()
         }
     }
 
-    impl embassy_usb_driver::Driver<'static> for FakeDriver {
+    impl embassy_usb::driver::Driver<'static> for FakeDriver {
         type EndpointOut = FakeEpOut;
 
         type EndpointIn = FakeEpIn;
@@ -360,19 +360,19 @@ pub mod fake {
 
         fn alloc_endpoint_out(
             &mut self,
-            _ep_type: embassy_usb_driver::EndpointType,
+            _ep_type: embassy_usb::driver::EndpointType,
             _max_packet_size: u16,
             _interval_ms: u8,
-        ) -> Result<Self::EndpointOut, embassy_usb_driver::EndpointAllocError> {
+        ) -> Result<Self::EndpointOut, embassy_usb::driver::EndpointAllocError> {
             todo!()
         }
 
         fn alloc_endpoint_in(
             &mut self,
-            _ep_type: embassy_usb_driver::EndpointType,
+            _ep_type: embassy_usb::driver::EndpointType,
             _max_packet_size: u16,
             _interval_ms: u8,
-        ) -> Result<Self::EndpointIn, embassy_usb_driver::EndpointAllocError> {
+        ) -> Result<Self::EndpointIn, embassy_usb::driver::EndpointAllocError> {
             todo!()
         }
 

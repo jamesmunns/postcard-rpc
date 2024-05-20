@@ -1128,7 +1128,6 @@ dependencies = [
  "embassy-executor",
  "embassy-sync",
  "embassy-usb",
- "embassy-usb-driver",
  "heapless 0.8.0",
  "postcard",
  "serde",

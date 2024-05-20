@@ -1,5 +1,5 @@
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
-use embassy_usb_driver::{Driver, Endpoint, EndpointIn};
+use embassy_usb::driver::{Driver, Endpoint, EndpointIn};
 use postcard::experimental::schema::Schema;
 use serde::Serialize;
 use static_cell::StaticCell;
