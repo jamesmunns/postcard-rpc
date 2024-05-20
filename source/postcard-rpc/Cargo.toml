@@ -85,6 +85,9 @@ optional = true
 version = "0.5"
 optional = true
 
+[dev-dependencies]
+postcard-rpc = { path = "../postcard-rpc", features = ["test-utils"] }
+
 #
 # Hack features (see below)
 #
@@ -118,12 +121,6 @@ embassy-usb-0_2-server = [
     "dep:static_cell",
     "dep:embassy-usb-driver",
     "dep:embassy-executor",
-]
-
-# NOTE: if you use the nightly feature of embassy-executor, you must
-# also activate this feature!
-embassy-executor-nightly = [
-    "embassy-executor/nightly"
 ]
 
 # NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal
