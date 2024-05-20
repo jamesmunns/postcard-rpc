@@ -22,7 +22,7 @@ const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321
 
 /// A trait that defines the postcard-rpc message dispatching behavior
 ///
-/// This is normally generated automatically by the [`define_dispatch!()`]
+/// This is normally generated automatically by the [`define_dispatch!()`][crate::define_dispatch]
 /// macro.
 pub trait Dispatch {
     type Mutex: RawMutex;
