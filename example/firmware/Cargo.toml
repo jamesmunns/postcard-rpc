@@ -13,7 +13,7 @@ embassy-usb             = { version = "0.2.0", features = ["defmt"] }
 embedded-hal-bus        = { version = "0.1",   features = ["async"] }
 lis3dh-async            = { version = "0.9.2", features = ["defmt"] }
 panic-probe             = { version = "0.3",   features = ["print-defmt"] }
-postcard-rpc            = { version = "0.4",   features = ["embassy-usb-0_2-server"] }
+postcard-rpc            = { version = "0.5",   features = ["embassy-usb-0_2-server"] }
 postcard                = { version = "1.0.8", features = ["experimental-derive"] }
 portable-atomic         = { version = "1.6.0", features = ["critical-section"] }
 
@@ -38,6 +38,9 @@ codegen-units = 1
 incremental = false
 
 [patch.crates-io]
+# NOTE: Although embassy-usb has released 0.2, we still need to use patched deps for the other various crates
+# for now. See https://github.com/embassy-rs/embassy/issues/2936 for getting other min versions of these
+# crates published.
 embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "763b57449fef31b2ca5205542e2c0a52e6b786c1" }
 embassy-executor     = { git = "https://github.com/embassy-rs/embassy", rev = "763b57449fef31b2ca5205542e2c0a52e6b786c1" }
 embassy-rp           = { git = "https://github.com/embassy-rs/embassy", rev = "763b57449fef31b2ca5205542e2c0a52e6b786c1" }

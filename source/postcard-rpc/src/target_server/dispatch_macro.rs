@@ -195,6 +195,7 @@ macro_rules! define_dispatch {
 /// as well as provide impls for docs. Don't rely on any of this!
 #[doc(hidden)]
 #[allow(dead_code)]
+#[cfg(feature = "test-utils")]
 pub mod fake {
     use crate::target_server::SpawnContext;
     #[allow(unused_imports)]

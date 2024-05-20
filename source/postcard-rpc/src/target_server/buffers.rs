@@ -16,7 +16,7 @@ impl<const EO: usize, const TX: usize, const RX: usize> AllBuffers<EO, TX, RX> {
     }
 }
 
-/// Buffers used by the [`UsbDevice`] of `embassy-usb`
+/// Buffers used by the [`UsbDevice`][embassy_usb::UsbDevice] of `embassy-usb`
 pub struct UsbDeviceBuffers {
     pub config_descriptor: [u8; 256],
     pub bos_descriptor: [u8; 256],
