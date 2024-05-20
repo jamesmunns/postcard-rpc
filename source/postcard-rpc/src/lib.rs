@@ -173,6 +173,7 @@
 //! available with or without the standard library.
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
+#![feature(impl_trait_in_assoc_type)]
 
 use headered::extract_header_from_bytes;
 use postcard::experimental::schema::Schema;
