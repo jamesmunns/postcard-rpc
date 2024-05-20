@@ -1,6 +1,6 @@
 [package]
 name = "postcard-rpc"
-version = "0.4.2"
+version = "0.5.0"
 authors = ["James Munns <james@onevariable.com>"]
 edition = "2021"
 repository = "https://github.com/jamesmunns/postcard-rpc"
@@ -19,8 +19,15 @@ documentation = "https://docs.rs/postcard-rpc/"
 readme = "../../README.md"
 
 [package.metadata.docs.rs]
-all-features = true
 rustdoc-args = ["--cfg", "doc_cfg"]
+features = [
+    "test-utils",
+    "use-std",
+    "cobs-serial",
+    "raw-nusb",
+    "embassy-usb-0_2-server",
+    "_docs-fix",
+]
 
 [dependencies]
 cobs = { version = "0.2.3", optional = true, default-features = false }
@@ -87,9 +94,7 @@ optional = true
 features = ["std"]
 
 [features]
-default = [
-    # "embassy-usb-0_2-server",
-]
+default = []
 test-utils = [
     "use-std",
 ]
@@ -115,15 +120,17 @@ embassy-usb-0_2-server = [
     "dep:embassy-executor",
 ]
 
+# NOTE: if you use the nightly feature of embassy-executor, you must
+# also activate this feature!
+embassy-executor-nightly = [
+    "embassy-executor/nightly"
+]
+
 # NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal
 # which doesn't work on `std` builds without the `std` feature. This causes
-# `cargo doc --all-features` (and docs.rs builds) to fail. Sneakily re-active
+# `cargo doc --all-features` (and docs.rs builds) to fail. Sneakily re-activate
 # that feature when `--all-features` is set. This feature is considered unstable
 # and should not be relied upon.
 _docs-fix = [
     "dep:ssmarshal",
 ]
-
-[patch.crates-io]
-embassy-usb = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }
-embassy-usb-driver = { git = "https://github.com/jamesmunns/embassy", rev = "0d0d8e14e2b0e81307ff70c5a31e300785da19f9" }

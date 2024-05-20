@@ -7,7 +7,7 @@ edition = "2021"
 path = "../workbook-icd"
 
 [dependencies.postcard-rpc]
-version = "0.4"
+version = "0.5"
 features = [
     "use-std",
     "raw-nusb",

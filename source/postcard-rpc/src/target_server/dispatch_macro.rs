@@ -1,6 +1,10 @@
 /// # Define Dispatch Macro
 ///
 /// ```rust
+/// # // If you use the nightly feature from embassy-executor, we need to activate this feature
+/// # // as our docs/tests will also end up using that feature too.
+/// # #![cfg_attr(feature = "embassy-executor-nightly", feature(type_alias_impl_trait))]
+///
 /// # use postcard_rpc::target_server::dispatch_macro::fake::*;
 /// # use postcard_rpc::{endpoint, target_server::{sender::Sender, SpawnContext}, WireHeader, define_dispatch};
 /// # use postcard::experimental::schema::Schema;
