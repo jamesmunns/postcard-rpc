@@ -22,7 +22,7 @@ use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,
 };
-use postcard::experimental::schema::Schema;
+use postcard::experimental::schema::{NamedType, Schema};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{
     select,
@@ -136,7 +136,7 @@ where
     {
         let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
         let msg = postcard::to_stdvec(&t).expect("Allocations should not ever fail");
-        let frame = RpcFrame {
+        let frame: RpcFrame = RpcFrame {
             header: WireHeader {
                 key: E::REQ_KEY,
                 seq_no,
@@ -160,6 +160,54 @@ where
                 Ok(r)
             },
             e = err_resp => {
+                let resp = e?;
+                let r = postcard::from_bytes::<WireErr>(&resp)?;
+                Err(HostErr::Wire(r))
+            },
+        }
+    }
+
+    /// Send a message of dynamically typed `req_schema` [NamedType] to an endpoint specified by `req_key` [Key], and await
+    /// a response of dynamically typed `resp_schema` [NamedType] (or WireErr) to `resp_key` [Key].
+    ///
+    /// This function will wait potentially forever. Consider using with a timeout.
+    pub async fn send_resp_dyn(
+        &self,
+        req_schema: &'static NamedType,
+        req_key: Key,
+        resp_schema: &'static NamedType,
+        resp_key: Key,
+        payload: &serde_json::Value,
+    ) -> Result<serde_json::Value, HostErr<WireErr>> {
+        let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
+        let msg = postcard_dyn::to_stdvec_dyn(req_schema, &payload)
+            .expect("Allocations should not ever fail");
+        let frame: RpcFrame = RpcFrame {
+            header: WireHeader {
+                key: req_key,
+                seq_no,
+            },
+            body: msg,
+        };
+        self.out.send(frame).await.map_err(|_| HostErr::Closed)?;
+        let ok_resp = self.ctx.map.wait(WireHeader {
+            seq_no,
+            key: resp_key,
+        });
+        let err_resp = self.ctx.map.wait(WireHeader {
+            seq_no,
+            key: self.err_key,
+        });
+
+        select! {
+            o = ok_resp => {
+                let resp = o?;
+                // TODO proper error handling
+                let r = postcard_dyn::from_slice_dyn(resp_schema, &resp).expect("deser error");
+                Ok(r)
+            },
+            e = err_resp => {
+                // TODO proper error handling
                 let resp = e?;
                 let r = postcard::from_bytes::<WireErr>(&resp)?;
                 Err(HostErr::Wire(r))
