@@ -22,7 +22,7 @@ const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321
 
 /// A trait that defines the postcard-rpc message dispatching behavior
 ///
-/// This is normally generated automatically by the [`define_dispatch!()`]
+/// This is normally generated automatically by the [`define_dispatch!()`][crate::define_dispatch]
 /// macro.
 pub trait Dispatch {
     type Mutex: RawMutex;
@@ -43,16 +43,20 @@ pub trait Dispatch {
     fn sender(&self) -> Sender<Self::Mutex, Self::Driver>;
 }
 
+/// A conversion trait for taking the Context and making a SpawnContext
+///
+/// This is necessary if you use the `spawn` variant of `define_dispatch!`.
 pub trait SpawnContext {
     type SpawnCtxt: 'static;
     fn spawn_ctxt(&mut self) -> Self::SpawnCtxt;
 }
 
+/// A basic example of embassy_usb configuration values
 pub fn example_config() -> embassy_usb::Config<'static> {
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0x16c0, 0x27DD);
     config.manufacturer = Some("Embassy");
-    config.product = Some("USB-serial example");
+    config.product = Some("postcard-rpc example");
     config.serial_number = Some("12345678");
 
     // Required for windows compatibility.
@@ -65,6 +69,9 @@ pub fn example_config() -> embassy_usb::Config<'static> {
     config
 }
 
+/// Configure the USB driver for use with postcard-rpc
+///
+/// At the moment this is very geared towards USB FS.
 pub fn configure_usb<D: embassy_usb::driver::Driver<'static>>(
     driver: D,
     bufs: &'static mut buffers::UsbDeviceBuffers,
@@ -107,6 +114,7 @@ pub fn configure_usb<D: embassy_usb::driver::Driver<'static>>(
     (usb, ep_in, ep_out)
 }
 
+/// Handle RPC Dispatching
 pub async fn rpc_dispatch<M, D, T>(
     mut ep_out: D::EndpointOut,
     mut dispatch: T,

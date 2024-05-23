@@ -15,7 +15,6 @@ pub mod raw {
     }
 
     /// The result of feeding the accumulator.
-    #[cfg_attr(feature = "use-defmt", derive(defmt::Format))]
     pub enum FeedResult<'a, 'b> {
         /// Consumed all data, still pending.
         Consumed,

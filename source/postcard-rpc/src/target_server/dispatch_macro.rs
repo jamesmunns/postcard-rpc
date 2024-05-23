@@ -132,6 +132,7 @@ macro_rules! define_dispatch {
             type Mutex = $mutex;
             type Driver = $driver;
 
+            /// Handle dispatching of a single frame
             async fn dispatch(
                 &mut self,
                 hdr: $crate::WireHeader,
@@ -171,6 +172,7 @@ macro_rules! define_dispatch {
                 }
             }
 
+            /// Send a single error message
             async fn error(
                 &self,
                 seq_no: u32,
@@ -180,6 +182,7 @@ macro_rules! define_dispatch {
                 let _ = self.sender.reply_keyed(seq_no, $crate::standard_icd::ERROR_KEY, &error).await;
             }
 
+            /// Get a clone of the Sender of this Dispatch impl
             fn sender(&self) -> $crate::target_server::sender::Sender<Self::Mutex, Self::Driver> {
                 self.sender.clone()
             }
@@ -192,6 +195,7 @@ macro_rules! define_dispatch {
 /// as well as provide impls for docs. Don't rely on any of this!
 #[doc(hidden)]
 #[allow(dead_code)]
+#[cfg(feature = "test-utils")]
 pub mod fake {
     use crate::target_server::SpawnContext;
     #[allow(unused_imports)]
