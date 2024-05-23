@@ -6,15 +6,8 @@ edition = "2021"
 repository = "https://github.com/jamesmunns/postcard-rpc"
 description = "A no_std + serde compatible RPC library for Rust"
 license = "MIT OR Apache-2.0"
-categories = [
-    "embedded",
-    "no-std",
-]
-keywords = [
-    "serde",
-    "cobs",
-    "framing",
-]
+categories = ["embedded", "no-std"]
+keywords = ["serde", "cobs", "framing"]
 documentation = "https://docs.rs/postcard-rpc/"
 readme = "../../README.md"
 
@@ -64,6 +57,11 @@ optional = true
 [dependencies.postcard-dyn]
 git = "https://github.com/jamesmunns/postcard-dyn.git"
 optional = true
+
+[dependencies.serde_json]
+version = "1"
+optional = true
+
 #
 # no_std-only features
 #
@@ -101,9 +99,7 @@ features = ["std"]
 
 [features]
 default = []
-test-utils = [
-    "use-std",
-]
+test-utils = ["use-std"]
 use-std = [
     "dep:maitake-sync",
     "dep:tokio",
@@ -112,14 +108,8 @@ use-std = [
     "dep:serde_json",
     "dep:postcard-dyn",
 ]
-cobs-serial = [
-    "cobs/use_std",
-    "dep:tokio-serial",
-]
-raw-nusb = [
-    "dep:nusb",
-    "use-std",
-]
+cobs-serial = ["cobs/use_std", "dep:tokio-serial"]
+raw-nusb = ["dep:nusb", "use-std"]
 embassy-usb-0_2-server = [
     "dep:embassy-usb",
     "dep:embassy-sync",
@@ -133,6 +123,4 @@ embassy-usb-0_2-server = [
 # `cargo doc --all-features` (and docs.rs builds) to fail. Sneakily re-activate
 # that feature when `--all-features` is set. This feature is considered unstable
 # and should not be relied upon.
-_docs-fix = [
-    "dep:ssmarshal",
-]
+_docs-fix = ["dep:ssmarshal"]

@@ -17,7 +17,6 @@ mod raw_nusb;
 #[cfg(feature = "cobs-serial")]
 mod serial;
 
-use crate::{Endpoint, Key, Topic, WireHeader};
 use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,
@@ -28,6 +27,8 @@ use tokio::{
     select,
     sync::mpsc::{Receiver, Sender},
 };
+
+use crate::{Endpoint, Key, Topic, WireHeader};
 
 /// Host Error Kind
 #[derive(Debug, PartialEq)]
@@ -136,7 +137,7 @@ where
     {
         let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
         let msg = postcard::to_stdvec(&t).expect("Allocations should not ever fail");
-        let frame: RpcFrame = RpcFrame {
+        let frame = RpcFrame {
             header: WireHeader {
                 key: E::REQ_KEY,
                 seq_no,
