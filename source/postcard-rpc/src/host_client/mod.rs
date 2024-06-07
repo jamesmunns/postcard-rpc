@@ -3,6 +3,7 @@
 //! This library is meant to be used with the `Dispatch` type and the
 //! postcard-rpc wire protocol.
 
+use core::future::Future;
 use std::{
     marker::PhantomData,
     sync::{
@@ -17,7 +18,11 @@ mod raw_nusb;
 #[cfg(feature = "cobs-serial")]
 mod serial;
 
-use crate::{Endpoint, Key, Topic, WireHeader};
+#[cfg(feature = "webusb")]
+pub mod webusb;
+
+mod util;
+
 use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,
@@ -28,6 +33,8 @@ use tokio::{
     select,
     sync::mpsc::{Receiver, Sender},
 };
+
+use crate::{Endpoint, Key, Topic, WireHeader};
 
 /// Host Error Kind
 #[derive(Debug, PartialEq)]
@@ -53,6 +60,17 @@ impl<T> From<WaitError> for HostErr<T> {
     fn from(_: WaitError) -> Self {
         Self::Closed
     }
+}
+
+pub trait Client: Clone + 'static {
+    type Error; // or std?
+    async fn receive(&self) -> Result<Vec<u8>, Self::Error>;
+    async fn send(&self, data: Vec<u8>) -> Result<(), Self::Error>;
+    // TODO:
+    // 1. tokio::task::spawn requires `Send`, but the webusb futures aren't send.
+    // can't fix this with #[trait_variant::make(Client: Send)] sadly…
+    // 2. no task handles at all are a bit meh
+    fn spawn(&self, fut: impl Future<Output = ()> + 'static);
 }
 
 /// The [HostClient] is the primary PC-side interface.
