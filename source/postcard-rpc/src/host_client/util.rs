@@ -1,6 +1,5 @@
 // the contents of this file can probably be moved up to `mod.rs`
-use core::fmt::Debug;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use postcard::experimental::schema::Schema;
 use serde::de::DeserializeOwned;
@@ -10,11 +9,14 @@ use tokio::sync::{
 };
 use tracing::{debug, trace, warn};
 
-use super::{
-    HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext, WireRx, WireSpawn,
-    WireTx,
+use crate::{
+    headered::extract_header_from_bytes,
+    host_client::{
+        HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext, WireRx, WireSpawn,
+        WireTx,
+    },
+    Key,
 };
-use crate::{headered::extract_header_from_bytes, Key};
 
 pub(crate) type Subscriptions = HashMap<Key, Sender<RpcFrame>>;
 
@@ -22,6 +24,10 @@ impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
 {
+    /// Generic HostClient logic, using the various Wire traits
+    ///
+    /// Typically used internally, but may also be used to implement HostClient
+    /// over arbitrary transports.
     pub fn new_with_wire<WTX, WRX, WSP>(
         tx: WTX,
         rx: WRX,
@@ -34,7 +40,7 @@ where
         WRX: WireRx,
         WSP: WireSpawn,
     {
-        let (me, wire_ctx) = Self::new_manual(err_uri_path, outgoing_depth);
+        let (me, wire_ctx) = Self::new_manual_priv(err_uri_path, outgoing_depth);
 
         let WireContext {
             outgoing,

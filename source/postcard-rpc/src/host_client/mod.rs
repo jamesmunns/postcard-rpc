@@ -12,17 +12,6 @@ use std::{
     },
 };
 
-#[cfg(all(feature = "raw-nusb", not(target_family = "wasm")))]
-mod raw_nusb;
-
-#[cfg(all(feature = "cobs-serial", not(target_family = "wasm")))]
-mod serial;
-
-#[cfg(all(feature = "webusb", target_family = "wasm"))]
-pub mod webusb;
-
-mod util;
-
 use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,
@@ -35,6 +24,17 @@ use tokio::{
 };
 
 use crate::{Endpoint, Key, Topic, WireHeader};
+
+#[cfg(all(feature = "raw-nusb", not(target_family = "wasm")))]
+mod raw_nusb;
+
+#[cfg(all(feature = "cobs-serial", not(target_family = "wasm")))]
+mod serial;
+
+#[cfg(all(feature = "webusb", target_family = "wasm"))]
+pub mod webusb;
+
+mod util;
 
 /// Host Error Kind
 #[derive(Debug, PartialEq)]
@@ -163,13 +163,17 @@ where
 {
     /// Create a new manually implemented [HostClient].
     ///
-    /// This allows you to implement your own "Wire" abstraction, if you
-    /// aren't using a COBS-encoded serial port.
-    ///
-    /// This is temporary solution until Rust 1.76 when async traits are
-    /// stable, and we can have users provide a `Wire` trait that acts as
-    /// a bidirectional [RpcFrame] sink/source.
+    /// This is now deprecated, it is recommended to use [`HostClient::new_with_wire`] instead.
+    #[deprecated = "HostClient::new_manual will become private in the future, use HostClient::new_with_wire instead"]
     pub fn new_manual(err_uri_path: &str, outgoing_depth: usize) -> (Self, WireContext) {
+        Self::new_manual_priv(err_uri_path, outgoing_depth)
+    }
+
+    /// Private method for creating internal context
+    pub(crate) fn new_manual_priv(
+        err_uri_path: &str,
+        outgoing_depth: usize,
+    ) -> (Self, WireContext) {
         let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(outgoing_depth);
         let (tx_si, rx_si) = tokio::sync::mpsc::channel(outgoing_depth);
 

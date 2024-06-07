@@ -1,4 +1,6 @@
 use gloo::utils::format::JsValueSerdeExt;
+use postcard::experimental::schema::Schema;
+use serde::de::DeserializeOwned;
 use serde_json::json;
 use tracing::info;
 use wasm_bindgen::{prelude::*, JsCast};
@@ -6,8 +8,6 @@ use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{UsbDevice, UsbInTransferResult, UsbTransferStatus};
 
 use crate::host_client::{HostClient, WireRx, WireSpawn, WireTx};
-use postcard::experimental::schema::Schema;
-use serde::de::DeserializeOwned;
 
 #[derive(Clone)]
 pub struct WebUsbWire {

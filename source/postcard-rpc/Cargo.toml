@@ -20,6 +20,7 @@ features = [
     "raw-nusb",
     "embassy-usb-0_2-server",
     "_docs-fix",
+    # TODO: What to do about the webusb feature? Can we do separate target builds?
 ]
 
 [dependencies]
@@ -138,13 +139,7 @@ features = ["std"]
 
 
 [features]
-default = [
-    # AJM TEMP: Work on all the host side features
-    "use-std",
-    # "cobs-serial",
-    # "raw-nusb",
-    "webusb",
-]
+default = []
 test-utils = ["use-std"]
 use-std = [
     "dep:maitake-sync",
