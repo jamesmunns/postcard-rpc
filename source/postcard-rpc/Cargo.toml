@@ -138,26 +138,54 @@ features = ["std"]
 
 
 [features]
-default = []
+default = [
+    # AJM TEMP: Work on all the host side features
+    "use-std",
+    # "cobs-serial",
+    # "raw-nusb",
+    "webusb",
+]
 test-utils = ["use-std"]
 use-std = [
     "dep:maitake-sync",
     "dep:tokio",
     "postcard/use-std",
+    "dep:thiserror",
     "dep:tracing",
     "dep:trait-variant",
 ]
-cobs-serial = ["cobs/use_std", "dep:tokio-serial"]
-raw-nusb = ["dep:nusb", "use-std"]
-webusb = [
 
+# Cobs Serial support.
+#
+# Works on: Win, Mac, Linux
+# Does NOT work on: WASM
+cobs-serial = ["cobs/use_std", "dep:tokio-serial"]
+
+# Raw (bulk) USB support
+#
+# Works on: Win, Mac, Linux
+# Does NOT work on: WASM
+raw-nusb = ["dep:nusb", "use-std"]
+
+# WebUSB support
+#
+# Works on: WASM
+# Does NOT work on: Win, Mac, Linux
+#
+# NOTE: Requires the following in your `.cargo/config.toml`, or otherwise
+# activated via RUSTFLAGS:
+#
+# ```toml
+# [target.wasm32-unknown-unknown]
+# rustflags = "--cfg=web_sys_unstable_apis"
+# ```
+webusb = [
     "dep:gloo",
     "dep:web-sys",
     "dep:serde_json",
     "dep:wasm-bindgen",
     "dep:wasm-bindgen-futures",
     "dep:js-sys",
-    "dep:thiserror",
     "use-std",
 ]
 embassy-usb-0_2-server = [
