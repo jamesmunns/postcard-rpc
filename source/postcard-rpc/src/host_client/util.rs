@@ -1,6 +1,5 @@
 // the contents of this file can probably be moved up to `mod.rs`
-use core::fmt::Debug;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use postcard::experimental::schema::Schema;
 use serde::de::DeserializeOwned;
@@ -10,8 +9,14 @@ use tokio::sync::{
 };
 use tracing::{debug, trace, warn};
 
-use super::{Client, HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext};
-use crate::{headered::extract_header_from_bytes, Key};
+use crate::{
+    headered::extract_header_from_bytes,
+    host_client::{
+        HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext, WireRx, WireSpawn,
+        WireTx,
+    },
+    Key,
+};
 
 pub(crate) type Subscriptions = HashMap<Key, Sender<RpcFrame>>;
 
@@ -19,65 +24,70 @@ impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
 {
-    pub fn new_with_client<C>(client: C, err_uri_path: &str, outgoing_depth: usize) -> Self
+    /// Generic HostClient logic, using the various Wire traits
+    ///
+    /// Typically used internally, but may also be used to implement HostClient
+    /// over arbitrary transports.
+    pub fn new_with_wire<WTX, WRX, WSP>(
+        tx: WTX,
+        rx: WRX,
+        mut sp: WSP,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+    ) -> Self
     where
-        C: Client,
-        C::Error: Debug,
+        WTX: WireTx,
+        WRX: WireRx,
+        WSP: WireSpawn,
     {
-        let (me, wire_ctx) = Self::new_manual(err_uri_path, outgoing_depth);
-        spawn_workers(client, wire_ctx);
+        let (me, wire_ctx) = Self::new_manual_priv(err_uri_path, outgoing_depth);
+
+        let WireContext {
+            outgoing,
+            incoming,
+            new_subs,
+        } = wire_ctx;
+
+        let subscriptions: Arc<Mutex<Subscriptions>> = Arc::new(Mutex::new(Subscriptions::new()));
+
+        sp.spawn(out_worker(tx, outgoing));
+        sp.spawn(in_worker(rx, incoming, subscriptions.clone()));
+        sp.spawn(sub_worker(new_subs, subscriptions));
+
         me
     }
 }
 
-fn spawn_workers<C>(client: C, ctx: WireContext)
+/// Output worker, feeding frames to the `Client`.
+async fn out_worker<W>(mut wire: W, mut rec: Receiver<RpcFrame>)
 where
-    C: Client,
-    C::Error: Debug,
-{
-    let WireContext {
-        outgoing,
-        incoming,
-        new_subs,
-    } = ctx;
-
-    let subscriptions: Arc<Mutex<Subscriptions>> = Arc::new(Mutex::new(Subscriptions::new()));
-
-    client.spawn(out_worker(client.clone(), outgoing));
-    client.spawn(in_worker(client.clone(), incoming, subscriptions.clone()));
-    client.spawn(sub_worker(new_subs, subscriptions));
-}
-
-/// Output worker, feeding frames to webusb.
-async fn out_worker<C>(client: C, mut rec: Receiver<RpcFrame>)
-where
-    C: Client,
-    C::Error: Debug,
+    W: WireTx,
+    W::Error: Debug,
 {
     loop {
         let Some(msg) = rec.recv().await else {
             tracing::warn!("Receiver Closed, this could be bad");
             return;
         };
-        if let Err(e) = client.send(msg.to_bytes()).await {
+        if let Err(e) = wire.send(msg.to_bytes()).await {
             tracing::error!("Output Queue Error: {e:?}, exiting");
             return;
         }
     }
 }
 
-/// Input worker, getting frames from webusb
-async fn in_worker<C>(
-    client: C,
+/// Input worker, getting frames from the `Client`
+async fn in_worker<W>(
+    mut wire: W,
     host_ctx: Arc<HostContext>,
     subscriptions: Arc<Mutex<Subscriptions>>,
 ) where
-    C: Client,
-    C::Error: Debug,
+    W: WireRx,
+    W::Error: Debug,
 {
     loop {
-        let Ok(res) = client.receive().await else {
-            warn!("in_worker: client receive error, exiting");
+        let Ok(res) = wire.receive().await else {
+            warn!("in_worker: wire receive error, exiting");
             return;
         };
 

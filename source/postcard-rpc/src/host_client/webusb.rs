@@ -1,14 +1,16 @@
 use gloo::utils::format::JsValueSerdeExt;
+use postcard::experimental::schema::Schema;
+use serde::de::DeserializeOwned;
 use serde_json::json;
 use tracing::info;
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{UsbDevice, UsbInTransferResult, UsbTransferStatus};
 
-use super::Client;
+use crate::host_client::{HostClient, WireRx, WireSpawn, WireTx};
 
 #[derive(Clone)]
-pub struct WebUsbClient {
+pub struct WebUsbWire {
     device: UsbDevice,
     transfer_max_length: u32,
     ep_in: u8,
@@ -43,18 +45,47 @@ impl From<UsbTransferStatus> for Error {
     }
 }
 
+impl<WireErr> HostClient<WireErr>
+where
+    WireErr: DeserializeOwned + Schema,
+{
+    pub async fn try_new_webusb(
+        vendor_id: u16,
+        interface: u8,
+        transfer_max_length: u32,
+        ep_in: u8,
+        ep_out: u8,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+    ) -> Result<Self, Error> {
+        let wire =
+            WebUsbWire::new(vendor_id, interface, transfer_max_length, ep_in, ep_out).await?;
+        Ok(HostClient::new_with_wire(
+            wire.clone(),
+            wire.clone(),
+            wire,
+            err_uri_path,
+            outgoing_depth,
+        ))
+    }
+}
+
 /// # Example usage ()
 /// ```no_run
-/// let client = HostClient::<WireError>::new_with_client(
-///     WebUsbClient::new(0x16c0, 0, 1000, 1, 1)
+/// let wire = WebUsbWire::new(0x16c0, 0, 1000, 1, 1)
 ///         .await
-///         .expect("WebUSB error"),
+///         .expect("WebUSB error");
+///
+/// let client = HostClient::<WireError>::new_with_wire(
+///     wire.clone(),
+///     wire.clone(),
+///     wire,
 ///     crate::standard_icd::ERROR_PATH,
 ///     8,
 /// )
 /// .expect("could not create HostClient");
 /// ```
-impl WebUsbClient {
+impl WebUsbWire {
     pub async fn new(
         vendor_id: u16,
         interface: u8,
@@ -107,10 +138,26 @@ impl WebUsbClient {
     }
 }
 
-impl Client for WebUsbClient {
+impl WireTx for WebUsbWire {
     type Error = Error;
 
-    async fn receive(&self) -> Result<Vec<u8>, Self::Error> {
+    async fn send(&mut self, mut data: Vec<u8>) -> Result<(), Self::Error> {
+        tracing::trace!("send…");
+        // TODO for reasons unknown, web-sys wants mutable access to the send buffer.
+        // tracking issue: https://github.com/rustwasm/wasm-bindgen/issues/3963
+        JsFuture::from(
+            self.device
+                .transfer_out_with_u8_array(self.ep_out, &mut data),
+        )
+        .await?;
+        Ok(())
+    }
+}
+
+impl WireRx for WebUsbWire {
+    type Error = Error;
+
+    async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
         tracing::trace!("receive…");
         let res: UsbInTransferResult = JsFuture::from(
             self.device
@@ -133,20 +180,10 @@ impl Client for WebUsbClient {
             Err(status.into())
         }
     }
+}
 
-    async fn send(&self, mut data: Vec<u8>) -> Result<(), Self::Error> {
-        tracing::trace!("send…");
-        // TODO for reasons unknown, web-sys wants mutable access to the send buffer.
-        // tracking issue: https://github.com/rustwasm/wasm-bindgen/issues/3963
-        JsFuture::from(
-            self.device
-                .transfer_out_with_u8_array(self.ep_out, &mut data),
-        )
-        .await?;
-        Ok(())
-    }
-
-    fn spawn(&self, fut: impl core::future::Future<Output = ()> + 'static) {
+impl WireSpawn for WebUsbWire {
+    fn spawn(&mut self, fut: impl core::future::Future<Output = ()> + 'static) {
         spawn_local(fut);
     }
 }

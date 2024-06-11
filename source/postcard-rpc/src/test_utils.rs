@@ -83,7 +83,7 @@ pub fn make_client<E>(cli: LocalClient, depth: usize, err_uri_path: &str) -> Hos
 where
     E: Schema + DeserializeOwned,
 {
-    let (hcli, hcli_ctx) = HostClient::<E>::new_manual(err_uri_path, depth);
+    let (hcli, hcli_ctx) = HostClient::<E>::new_manual_priv(err_uri_path, depth);
     tokio::task::spawn(wire_worker(cli, hcli_ctx));
     hcli
 }

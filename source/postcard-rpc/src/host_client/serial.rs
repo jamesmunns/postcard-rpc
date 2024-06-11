@@ -1,108 +1,15 @@
-use super::{HostClient, ProcessError, RpcFrame, WireContext};
-use crate::{
-    accumulator::raw::{CobsAccumulator, FeedResult},
-    headered::extract_header_from_bytes,
-    Key,
-};
+use std::{collections::VecDeque, future::Future};
+
 use cobs::encode_vec;
 use postcard::experimental::schema::Schema;
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    select,
-    sync::mpsc::Sender,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
-async fn cobs_wire_worker(mut port: SerialStream, ctx: WireContext) {
-    let mut buf = [0u8; 1024];
-    let mut acc = CobsAccumulator::<1024>::new();
-    let mut subs: HashMap<Key, Sender<RpcFrame>> = HashMap::new();
-
-    let WireContext {
-        mut outgoing,
-        incoming,
-        mut new_subs,
-    } = ctx;
-
-    loop {
-        // Wait for EITHER a serialized request, OR some data from the embedded device
-        select! {
-            sub = new_subs.recv() => {
-                let Some(si) = sub else {
-                    return;
-                };
-
-                subs.insert(si.key, si.tx);
-            }
-            out = outgoing.recv() => {
-                // Receiver returns None when all Senders have hung up
-                let Some(msg) = out else {
-                    return;
-                };
-
-                // Turn the serialized message into a COBS encoded message
-                //
-                // TODO: this is a little wasteful, payload is already a vec,
-                // then we serialize it to a second vec, then encode that to
-                // a third cobs-encoded vec. Oh well.
-                let msg = msg.to_bytes();
-                let mut msg = encode_vec(&msg);
-                msg.push(0);
-
-                // And send it!
-                if port.write_all(&msg).await.is_err() {
-                    // I guess the serial port hung up.
-                    return;
-                }
-            }
-            inc = port.read(&mut buf) => {
-                // if read errored, we're done
-                let Ok(used) = inc else {
-                    return;
-                };
-                let mut window = &buf[..used];
-
-                'cobs: while !window.is_empty() {
-                    window = match acc.feed(window) {
-                        // Consumed the whole USB frame
-                        FeedResult::Consumed => break 'cobs,
-                        // Silently ignore line errors
-                        // TODO: probably add tracing here
-                        FeedResult::OverFull(new_wind) => new_wind,
-                        FeedResult::DeserError(new_wind) => new_wind,
-                        // We got a message! Attempt to dispatch it
-                        FeedResult::Success { data, remaining } => {
-                            // Attempt to extract a header so we can get the sequence number
-                            if let Ok((hdr, body)) = extract_header_from_bytes(data) {
-                                // Got a header, turn it into a frame
-                                let frame = RpcFrame { header: hdr.clone(), body: body.to_vec() };
-
-                                // Give priority to subscriptions. TBH I only do this because I know a hashmap
-                                // lookup is cheaper than a waitmap search.
-                                if let Some(tx) = subs.get_mut(&hdr.key) {
-                                    // Yup, we have a subscription
-                                    if tx.send(frame).await.is_err() {
-                                        // But if sending failed, the listener is gone, so drop it
-                                        subs.remove(&hdr.key);
-                                    }
-                                } else {
-                                    // Wake the given sequence number. If the WaitMap is closed, we're done here
-                                    if let Err(ProcessError::Closed) = incoming.process(frame) {
-                                        return;
-                                    }
-                                }
-                            }
-
-                            remaining
-                        }
-                    };
-                }
-            }
-        }
-    }
-}
+use crate::{
+    accumulator::raw::{CobsAccumulator, FeedResult},
+    host_client::{HostClient, WireRx, WireSpawn, WireTx},
+};
 
 /// # Serial Constructor Methods
 ///
@@ -117,8 +24,6 @@ where
     ///
     /// `serial_path` is the path to the serial port used. `err_uri_path` is
     /// the path associated with the `WireErr` message type.
-    ///
-    /// Panics if we couldn't open the serial port
     ///
     /// This constructor is available when the `cobs-serial` feature is enabled.
     ///
@@ -148,21 +53,168 @@ where
     ///     115_200,
     /// );
     /// ```
+    pub fn try_new_serial_cobs(
+        serial_path: &str,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+        baud: u32,
+    ) -> Result<Self, String> {
+        let port = tokio_serial::new(serial_path, baud)
+            .open_native_async()
+            .map_err(|e| format!("Open Error: {e:?}"))?;
+
+        let (rx, tx) = tokio::io::split(port);
+
+        Ok(HostClient::new_with_wire(
+            SerialWireTx { tx },
+            SerialWireRx {
+                rx,
+                buf: Box::new([0u8; 1024]),
+                acc: Box::new(CobsAccumulator::new()),
+                pending: VecDeque::new(),
+            },
+            SerialSpawn,
+            err_uri_path,
+            outgoing_depth,
+        ))
+    }
+
+    /// Create a new [HostClient]
     ///
+    /// Panics if we couldn't open the serial port.
+    ///
+    /// See [`HostClient::try_new_serial_cobs`] for more details
     pub fn new_serial_cobs(
         serial_path: &str,
         err_uri_path: &str,
         outgoing_depth: usize,
         baud: u32,
     ) -> Self {
-        let (me, wire) = Self::new_manual(err_uri_path, outgoing_depth);
+        Self::try_new_serial_cobs(serial_path, err_uri_path, outgoing_depth, baud).unwrap()
+    }
+}
 
-        let port = tokio_serial::new(serial_path, baud)
-            .open_native_async()
-            .unwrap();
+//////////////////////////////////////////////////////////////////////////////
+// Wire Interface Implementation
+//////////////////////////////////////////////////////////////////////////////
 
-        tokio::task::spawn(async move { cobs_wire_worker(port, wire).await });
+/// Tokio Serial Wire Interface Implementor
+///
+/// Uses Tokio for spawning tasks
+struct SerialSpawn;
 
-        me
+impl WireSpawn for SerialSpawn {
+    fn spawn(&mut self, fut: impl Future<Output = ()> + Send + 'static) {
+        // Explicitly drop the joinhandle as it impls Future and this makes
+        // clippy mad if you just let it drop implicitly
+        core::mem::drop(tokio::task::spawn(fut));
+    }
+}
+
+/// Tokio Serial Wire Transmit Interface Implementor
+struct SerialWireTx {
+    // boq: Queue<Vec<u8>>,
+    tx: WriteHalf<SerialStream>,
+}
+
+#[derive(thiserror::Error, Debug)]
+enum SerialWireTxError {
+    #[error("Transfer Error on Send")]
+    Transfer(#[from] std::io::Error),
+}
+
+impl WireTx for SerialWireTx {
+    type Error = SerialWireTxError;
+
+    #[inline]
+    fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        self.send_inner(data)
+    }
+}
+
+impl SerialWireTx {
+    async fn send_inner(&mut self, data: Vec<u8>) -> Result<(), SerialWireTxError> {
+        // Turn the serialized message into a COBS encoded message
+        //
+        // TODO: this is a little wasteful, data is already a vec,
+        // then we encode that to a second cobs-encoded vec. Oh well.
+        let mut msg = encode_vec(&data);
+        msg.push(0);
+
+        // And send it!
+        self.tx.write_all(&msg).await?;
+        Ok(())
+    }
+}
+
+/// NUSB Wire Receive Interface Implementor
+struct SerialWireRx {
+    rx: ReadHalf<SerialStream>,
+    buf: Box<[u8; 1024]>,
+    acc: Box<CobsAccumulator<1024>>,
+    pending: VecDeque<Vec<u8>>,
+}
+
+#[derive(thiserror::Error, Debug)]
+enum SerialWireRxError {
+    #[error("Transfer Error on Recv")]
+    Transfer(#[from] std::io::Error),
+}
+
+impl WireRx for SerialWireRx {
+    type Error = SerialWireRxError;
+
+    #[inline]
+    fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send {
+        self.recv_inner()
+    }
+}
+
+impl SerialWireRx {
+    async fn recv_inner(&mut self) -> Result<Vec<u8>, SerialWireRxError> {
+        // Receive until we've gotten AT LEAST one message, though we will continue
+        // consuming and buffering any read (partial) messages, to ensure they are not lost.
+        loop {
+            // Do we have any messages already prepared?
+            if let Some(p) = self.pending.pop_front() {
+                return Ok(p);
+            }
+
+            // Nothing in the pending queue, do a read to see if we can pull more
+            // data from the serial port
+            let used = self.rx.read(self.buf.as_mut_slice()).await?;
+
+            let mut window = &self.buf[..used];
+
+            // This buffering loop is necessary as a single `read()` might include
+            // more than one message
+            'cobs: while !window.is_empty() {
+                window = match self.acc.feed(window) {
+                    // Consumed the whole USB frame
+                    FeedResult::Consumed => break 'cobs,
+                    // Ignore line errors
+                    FeedResult::OverFull(new_wind) => {
+                        tracing::warn!("Overflowed COBS accumulator");
+                        new_wind
+                    }
+                    FeedResult::DeserError(new_wind) => {
+                        tracing::warn!("COBS formatting error");
+                        new_wind
+                    }
+                    // We got a message! Attempt to dispatch it
+                    FeedResult::Success { data, remaining } => {
+                        // TODO hacky check: the minimum size of a message is 9 bytes,
+                        // 8 for the header and one for the seq_no. Discard any "obviously"
+                        // malformed messages.
+                        if data.len() >= 9 {
+                            self.pending.push_back(data.to_vec());
+                        } else {
+                            tracing::warn!("Ignoring too-short message: {} bytes", data.len());
+                        }
+                        remaining
+                    }
+                };
+            }
+        }
     }
 }

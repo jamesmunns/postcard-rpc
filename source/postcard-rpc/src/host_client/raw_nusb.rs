@@ -1,21 +1,13 @@
-use std::{collections::HashMap, sync::Arc};
+use std::future::Future;
 
 use nusb::{
-    transfer::{Queue, RequestBuffer},
+    transfer::{Queue, RequestBuffer, TransferError},
     DeviceInfo,
 };
 use postcard::experimental::schema::Schema;
 use serde::de::DeserializeOwned;
-use tokio::sync::{
-    mpsc::{error::TrySendError, Receiver, Sender},
-    Mutex,
-};
 
-use crate::{
-    headered::extract_header_from_bytes,
-    host_client::{HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext},
-    Key,
-};
+use crate::host_client::{HostClient, WireRx, WireSpawn, WireTx};
 
 // TODO: These should all be configurable, PRs welcome
 
@@ -30,205 +22,6 @@ pub(crate) const MAX_TRANSFER_SIZE: usize = 1024;
 pub(crate) const IN_FLIGHT_REQS: usize = 4;
 /// How many consecutive IN errors will we try to recover from before giving up?
 pub(crate) const MAX_STALL_RETRIES: usize = 10;
-
-struct NusbCtx {
-    sub_map: Mutex<HashMap<Key, Sender<RpcFrame>>>,
-}
-
-fn raw_nusb_worker<F: FnMut(&DeviceInfo) -> bool>(func: F, ctx: WireContext) -> Result<(), String> {
-    let x = nusb::list_devices()
-        .map_err(|e| format!("Error listing devices: {e:?}"))?
-        .find(func)
-        .ok_or_else(|| String::from("Failed to find matching nusb device!"))?;
-    let dev = x
-        .open()
-        .map_err(|e| format!("Failed opening device: {e:?}"))?;
-    let interface = dev
-        .claim_interface(0)
-        .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
-
-    let boq = interface.bulk_out_queue(BULK_OUT_EP);
-    let biq = interface.bulk_in_queue(BULK_IN_EP);
-
-    let WireContext {
-        outgoing,
-        incoming,
-        new_subs,
-    } = ctx;
-
-    let nctxt = Arc::new(NusbCtx {
-        sub_map: Mutex::new(HashMap::new()),
-    });
-
-    tokio::task::spawn(out_worker(boq, outgoing));
-    tokio::task::spawn(in_worker(biq, incoming, nctxt.clone()));
-    tokio::task::spawn(sub_worker(new_subs, nctxt));
-
-    Ok(())
-}
-
-/// Output worker, feeding frames to nusb.
-///
-/// TODO: We could maybe do something clever and have multiple "in flight" requests
-/// with nusb, instead of doing it ~serially. If you are noticing degraded OUT endpoint
-/// bandwidth (e.g. PC to USB device), lemme know and we can look at this.
-async fn out_worker(mut boq: Queue<Vec<u8>>, mut rec: Receiver<RpcFrame>) {
-    loop {
-        let Some(msg) = rec.recv().await else {
-            tracing::info!("Receiver Closed, existing out_worker");
-            return;
-        };
-
-        boq.submit(msg.to_bytes());
-
-        let send_res = boq.next_complete().await;
-        if let Err(e) = send_res.status {
-            tracing::error!("Output Queue Error: {e:?}, exiting");
-            rec.close();
-            return;
-        }
-    }
-}
-
-/// Input worker, getting frames from nusb
-async fn in_worker(mut biq: Queue<RequestBuffer>, ctxt: Arc<HostContext>, nctxt: Arc<NusbCtx>) {
-    let mut consecutive_errs = 0;
-
-    for _ in 0..IN_FLIGHT_REQS {
-        biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
-    }
-
-    loop {
-        let res = biq.next_complete().await;
-
-        if let Err(e) = res.status {
-            consecutive_errs += 1;
-
-            tracing::error!("In Worker error: {e:?}, consecutive: {consecutive_errs:?}");
-
-            // Docs only recommend this for Stall, but it seems to work with
-            // UNKNOWN on MacOS as well, todo: look into why!
-            let fatal = if consecutive_errs <= MAX_STALL_RETRIES {
-                tracing::warn!("Attempting stall recovery!");
-
-                // Stall recovery shouldn't be used with in-flight requests, so
-                // cancel them all. They'll still pop out of next_complete.
-                biq.cancel_all();
-                tracing::info!("Cancelled all in-flight requests");
-
-                // Now we need to join all in flight requests
-                for _ in 0..(IN_FLIGHT_REQS - 1) {
-                    let res = biq.next_complete().await;
-                    tracing::info!("Drain state: {:?}", res.status);
-                }
-
-                // Now we can mark the stall as clear
-                match biq.clear_halt() {
-                    Ok(()) => {
-                        tracing::info!("Stall cleared! Rehydrating queue...");
-                        for _ in 0..IN_FLIGHT_REQS {
-                            biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
-                        }
-                        false
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to clear stall: {e:?}, Fatal.");
-                        true
-                    }
-                }
-            } else {
-                tracing::error!("Giving up after {consecutive_errs} errors in a row");
-                true
-            };
-
-            if fatal {
-                tracing::error!("Fatal Error, exiting");
-                // TODO we should notify sub worker!
-                ctxt.map.close();
-                return;
-            } else {
-                tracing::info!("Potential recovery, resuming in_worker");
-                continue;
-            }
-        }
-
-        // replace the submission
-        biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
-
-        let Ok((hdr, body)) = extract_header_from_bytes(&res.data) else {
-            tracing::warn!("Header decode error!");
-            continue;
-        };
-
-        // If we get a good decode, clear the error flag
-        if consecutive_errs != 0 {
-            tracing::info!("Clearing consecutive error counter after good header decode");
-            consecutive_errs = 0;
-        }
-
-        let mut handled = false;
-
-        {
-            let mut sg = nctxt.sub_map.lock().await;
-            let key = hdr.key;
-
-            // Remove if sending fails
-            let rem = if let Some(m) = sg.get(&key) {
-                handled = true;
-                let frame = RpcFrame {
-                    header: hdr.clone(),
-                    body: body.to_vec(),
-                };
-                let res = m.try_send(frame);
-
-                match res {
-                    Ok(()) => {
-                        tracing::debug!("Handled message via subscription");
-                        false
-                    }
-                    Err(TrySendError::Full(_)) => {
-                        tracing::error!("Subscription channel full! Message dropped.");
-                        false
-                    }
-                    Err(TrySendError::Closed(_)) => true,
-                }
-            } else {
-                false
-            };
-
-            if rem {
-                tracing::debug!("Dropping subscription");
-                sg.remove(&key);
-            }
-        }
-
-        if handled {
-            continue;
-        }
-
-        let frame = RpcFrame {
-            header: hdr,
-            body: body.to_vec(),
-        };
-        match ctxt.process_did_wake(frame) {
-            Ok(true) => tracing::debug!("Handled message via map"),
-            Ok(false) => tracing::debug!("Message not handled"),
-            Err(ProcessError::Closed) => {
-                tracing::warn!("Got process error, quitting");
-                return;
-            }
-        }
-    }
-}
-
-async fn sub_worker(mut new_subs: Receiver<SubInfo>, nctxt: Arc<NusbCtx>) {
-    while let Some(sub) = new_subs.recv().await {
-        let mut sg = nctxt.sub_map.lock().await;
-        if let Some(_old) = sg.insert(sub.key, sub.tx) {
-            tracing::warn!("Replacing old subscription for {:?}", sub.key);
-        }
-    }
-}
 
 /// # `nusb` Constructor Methods
 ///
@@ -279,9 +72,30 @@ where
         err_uri_path: &str,
         outgoing_depth: usize,
     ) -> Result<Self, String> {
-        let (me, wire) = Self::new_manual(err_uri_path, outgoing_depth);
-        raw_nusb_worker(func, wire)?;
-        Ok(me)
+        let x = nusb::list_devices()
+            .map_err(|e| format!("Error listing devices: {e:?}"))?
+            .find(func)
+            .ok_or_else(|| String::from("Failed to find matching nusb device!"))?;
+        let dev = x
+            .open()
+            .map_err(|e| format!("Failed opening device: {e:?}"))?;
+        let interface = dev
+            .claim_interface(0)
+            .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
+
+        let boq = interface.bulk_out_queue(BULK_OUT_EP);
+        let biq = interface.bulk_in_queue(BULK_IN_EP);
+
+        Ok(HostClient::new_with_wire(
+            NusbWireTx { boq },
+            NusbWireRx {
+                biq,
+                consecutive_errs: 0,
+            },
+            NusbSpawn,
+            err_uri_path,
+            outgoing_depth,
+        ))
     }
 
     /// Create a new link using [`nusb`] for connectivity
@@ -320,5 +134,173 @@ where
     ) -> Self {
         Self::try_new_raw_nusb(func, err_uri_path, outgoing_depth)
             .expect("should have found nusb device")
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Wire Interface Implementation
+//////////////////////////////////////////////////////////////////////////////
+
+/// NUSB Wire Interface Implementor
+///
+/// Uses Tokio for spawning tasks
+struct NusbSpawn;
+
+impl WireSpawn for NusbSpawn {
+    fn spawn(&mut self, fut: impl Future<Output = ()> + Send + 'static) {
+        // Explicitly drop the joinhandle as it impls Future and this makes
+        // clippy mad if you just let it drop implicitly
+        core::mem::drop(tokio::task::spawn(fut));
+    }
+}
+
+/// NUSB Wire Transmit Interface Implementor
+struct NusbWireTx {
+    boq: Queue<Vec<u8>>,
+}
+
+#[derive(thiserror::Error, Debug)]
+enum NusbWireTxError {
+    #[error("Transfer Error on Send")]
+    Transfer(#[from] TransferError),
+}
+
+impl WireTx for NusbWireTx {
+    type Error = NusbWireTxError;
+
+    #[inline]
+    fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        self.send_inner(data)
+    }
+}
+
+impl NusbWireTx {
+    async fn send_inner(&mut self, data: Vec<u8>) -> Result<(), NusbWireTxError> {
+        self.boq.submit(data);
+
+        let send_res = self.boq.next_complete().await;
+        if let Err(e) = send_res.status {
+            tracing::error!("Output Queue Error: {e:?}");
+            return Err(e.into());
+        }
+        Ok(())
+    }
+}
+
+/// NUSB Wire Receive Interface Implementor
+struct NusbWireRx {
+    biq: Queue<RequestBuffer>,
+    consecutive_errs: usize,
+}
+
+#[derive(thiserror::Error, Debug)]
+enum NusbWireRxError {
+    #[error("Transfer Error on Recv")]
+    Transfer(#[from] TransferError),
+}
+
+impl WireRx for NusbWireRx {
+    type Error = NusbWireRxError;
+
+    #[inline]
+    fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send {
+        self.recv_inner()
+    }
+}
+
+impl NusbWireRx {
+    async fn recv_inner(&mut self) -> Result<Vec<u8>, NusbWireRxError> {
+        loop {
+            let res = self.biq.next_complete().await;
+
+            if let Err(e) = res.status {
+                self.consecutive_errs += 1;
+
+                tracing::error!(
+                    "In Worker error: {e:?}, consecutive: {}",
+                    self.consecutive_errs
+                );
+
+                // Docs only recommend this for Stall, but it seems to work with
+                // UNKNOWN on MacOS as well, todo: look into why!
+                //
+                // Update: This stall condition seems to have been due to an errata in the
+                // STM32F4 USB hardware. See https://github.com/embassy-rs/embassy/pull/2823
+                //
+                // It is now questionable whether we should be doing this stall recovery at all,
+                // as it likely indicates an issue with the connected USB device
+                let recoverable = match e {
+                    TransferError::Stall | TransferError::Unknown => {
+                        self.consecutive_errs <= MAX_STALL_RETRIES
+                    }
+                    TransferError::Cancelled => false,
+                    TransferError::Disconnected => false,
+                    TransferError::Fault => false,
+                };
+
+                let fatal = if recoverable {
+                    tracing::warn!("Attempting stall recovery!");
+
+                    // Stall recovery shouldn't be used with in-flight requests, so
+                    // cancel them all. They'll still pop out of next_complete.
+                    self.biq.cancel_all();
+                    tracing::info!("Cancelled all in-flight requests");
+
+                    // Now we need to join all in flight requests
+                    for _ in 0..(IN_FLIGHT_REQS - 1) {
+                        let res = self.biq.next_complete().await;
+                        tracing::info!("Drain state: {:?}", res.status);
+                    }
+
+                    // Now we can mark the stall as clear
+                    match self.biq.clear_halt() {
+                        Ok(()) => {
+                            tracing::info!("Stall cleared! Rehydrating queue...");
+                            for _ in 0..IN_FLIGHT_REQS {
+                                self.biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
+                            }
+                            false
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to clear stall: {e:?}, Fatal.");
+                            true
+                        }
+                    }
+                } else {
+                    tracing::error!(
+                        "Giving up after {} errors in a row, final error: {e:?}",
+                        self.consecutive_errs
+                    );
+                    true
+                };
+
+                if fatal {
+                    tracing::error!("Fatal Error, exiting");
+                    // TODO we should notify sub worker!
+                    // ctxt.map.close();
+                    return Err(e.into());
+                } else {
+                    tracing::info!("Potential recovery, resuming NusbWireRx::recv_inner");
+                    continue;
+                }
+            }
+
+            // replace the submission
+            self.biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
+
+            // TODO: Min size of a header is 9 bytes, 8 for key, 1 for seq_no.
+            if res.data.len() < 9 {
+                tracing::warn!("Header decode error!");
+                continue;
+            };
+
+            // If we get a good decode, clear the error flag
+            if self.consecutive_errs != 0 {
+                tracing::info!("Clearing consecutive error counter after good header decode");
+                self.consecutive_errs = 0;
+            }
+
+            return Ok(res.data);
+        }
     }
 }

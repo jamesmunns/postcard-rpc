@@ -3,25 +3,14 @@
 //! This library is meant to be used with the `Dispatch` type and the
 //! postcard-rpc wire protocol.
 
-use core::future::Future;
 use std::{
+    future::Future,
     marker::PhantomData,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
     },
 };
-
-#[cfg(feature = "raw-nusb")]
-mod raw_nusb;
-
-#[cfg(feature = "cobs-serial")]
-mod serial;
-
-#[cfg(feature = "webusb")]
-pub mod webusb;
-
-mod util;
 
 use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
@@ -35,6 +24,17 @@ use tokio::{
 };
 
 use crate::{Endpoint, Key, Topic, WireHeader};
+
+#[cfg(all(feature = "raw-nusb", not(target_family = "wasm")))]
+mod raw_nusb;
+
+#[cfg(all(feature = "cobs-serial", not(target_family = "wasm")))]
+mod serial;
+
+#[cfg(all(feature = "webusb", target_family = "wasm"))]
+pub mod webusb;
+
+mod util;
 
 /// Host Error Kind
 #[derive(Debug, PartialEq)]
@@ -62,15 +62,78 @@ impl<T> From<WaitError> for HostErr<T> {
     }
 }
 
-pub trait Client: Clone + 'static {
-    type Error; // or std?
-    async fn receive(&self) -> Result<Vec<u8>, Self::Error>;
-    async fn send(&self, data: Vec<u8>) -> Result<(), Self::Error>;
-    // TODO:
-    // 1. tokio::task::spawn requires `Send`, but the webusb futures aren't send.
-    // can't fix this with #[trait_variant::make(Client: Send)] sadly…
-    // 2. no task handles at all are a bit meh
-    fn spawn(&self, fut: impl Future<Output = ()> + 'static);
+/// Wire Transmit Interface
+///
+/// Responsible for taking a serialized frame (including header and payload),
+/// performing any further encoding if necessary, and transmitting to the device.
+///
+/// Should complete once the message is fully sent (e.g. not just enqueued)
+/// if possible.
+///
+/// All errors are treated as fatal - resolvable or ignorable errors should not
+/// be returned to the caller.
+#[cfg(target_family = "wasm")]
+pub trait WireTx: 'static {
+    type Error: std::error::Error; // or std?
+    fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>>;
+}
+
+/// Wire Receive Interface
+///
+/// Responsible for accumulating a serialized frame (including header and payload),
+/// performing any further decoding if necessary, and returning to the caller.
+///
+/// All errors are treated as fatal - resolvable or ignorable errors should not
+/// be returned to the caller.
+#[cfg(target_family = "wasm")]
+pub trait WireRx: 'static {
+    type Error: std::error::Error; // or std?
+    fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>>;
+}
+
+/// Wire Spawn Interface
+///
+/// Should be suitable for spawning a task in the host executor.
+#[cfg(target_family = "wasm")]
+pub trait WireSpawn: 'static {
+    fn spawn(&mut self, fut: impl Future<Output = ()> + 'static);
+}
+
+/// Wire Transmit Interface
+///
+/// Responsible for taking a serialized frame (including header and payload),
+/// performing any further encoding if necessary, and transmitting to the device.
+///
+/// Should complete once the message is fully sent (e.g. not just enqueued)
+/// if possible.
+///
+/// All errors are treated as fatal - resolvable or ignorable errors should not
+/// be returned to the caller.
+#[cfg(not(target_family = "wasm"))]
+pub trait WireTx: Send + 'static {
+    type Error: std::error::Error; // or std?
+    fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send;
+}
+
+/// Wire Receive Interface
+///
+/// Responsible for accumulating a serialized frame (including header and payload),
+/// performing any further decoding if necessary, and returning to the caller.
+///
+/// All errors are treated as fatal - resolvable or ignorable errors should not
+/// be returned to the caller.
+#[cfg(not(target_family = "wasm"))]
+pub trait WireRx: Send + 'static {
+    type Error: std::error::Error; // or std?
+    fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send;
+}
+
+/// Wire Spawn Interface
+///
+/// Should be suitable for spawning a task in the host executor.
+#[cfg(not(target_family = "wasm"))]
+pub trait WireSpawn: 'static {
+    fn spawn(&mut self, fut: impl Future<Output = ()> + Send + 'static);
 }
 
 /// The [HostClient] is the primary PC-side interface.
@@ -100,13 +163,17 @@ where
 {
     /// Create a new manually implemented [HostClient].
     ///
-    /// This allows you to implement your own "Wire" abstraction, if you
-    /// aren't using a COBS-encoded serial port.
-    ///
-    /// This is temporary solution until Rust 1.76 when async traits are
-    /// stable, and we can have users provide a `Wire` trait that acts as
-    /// a bidirectional [RpcFrame] sink/source.
+    /// This is now deprecated, it is recommended to use [`HostClient::new_with_wire`] instead.
+    #[deprecated = "HostClient::new_manual will become private in the future, use HostClient::new_with_wire instead"]
     pub fn new_manual(err_uri_path: &str, outgoing_depth: usize) -> (Self, WireContext) {
+        Self::new_manual_priv(err_uri_path, outgoing_depth)
+    }
+
+    /// Private method for creating internal context
+    pub(crate) fn new_manual_priv(
+        err_uri_path: &str,
+        outgoing_depth: usize,
+    ) -> (Self, WireContext) {
         let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(outgoing_depth);
         let (tx_si, rx_si) = tokio::sync::mpsc::channel(outgoing_depth);
 
