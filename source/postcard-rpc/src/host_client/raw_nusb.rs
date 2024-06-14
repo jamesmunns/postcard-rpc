@@ -211,6 +211,7 @@ impl WireRx for NusbWireRx {
 impl NusbWireRx {
     async fn recv_inner(&mut self) -> Result<Vec<u8>, NusbWireRxError> {
         loop {
+            // Rehydrate the queue
             let pending = self.biq.pending();
             for _ in 0..(IN_FLIGHT_REQS.saturating_sub(pending)) {
                 self.biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
