@@ -360,6 +360,20 @@ impl Key {
     pub const fn to_bytes(&self) -> [u8; 8] {
         self.0
     }
+
+    /// Compare 2 keys in const context.
+    pub const fn const_cmp(&self, other: &Self) -> bool {
+        let mut i = 0;
+        while i < self.0.len() {
+            if self.0[i] != other.0[i] {
+                return false;
+            }
+
+            i += 1;
+        }
+
+        true
+    }
 }
 
 /// A marker trait denoting a single endpoint
