@@ -211,6 +211,11 @@ impl WireRx for NusbWireRx {
 impl NusbWireRx {
     async fn recv_inner(&mut self) -> Result<Vec<u8>, NusbWireRxError> {
         loop {
+            let pending = self.biq.pending();
+            for _ in 0..(IN_FLIGHT_REQS.saturating_sub(pending)) {
+                self.biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
+            }
+
             let res = self.biq.next_complete().await;
 
             if let Err(e) = res.status {
@@ -254,13 +259,7 @@ impl NusbWireRx {
 
                     // Now we can mark the stall as clear
                     match self.biq.clear_halt() {
-                        Ok(()) => {
-                            tracing::info!("Stall cleared! Rehydrating queue...");
-                            for _ in 0..IN_FLIGHT_REQS {
-                                self.biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
-                            }
-                            false
-                        }
+                        Ok(()) => false,
                         Err(e) => {
                             tracing::error!("Failed to clear stall: {e:?}, Fatal.");
                             true
@@ -284,9 +283,6 @@ impl NusbWireRx {
                     continue;
                 }
             }
-
-            // replace the submission
-            self.biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
 
             // TODO: Min size of a header is 9 bytes, 8 for key, 1 for seq_no.
             if res.data.len() < 9 {
