@@ -138,10 +138,26 @@ macro_rules! define_dispatch {
                 hdr: $crate::WireHeader,
                 body: &[u8],
             ) {
-                // Unreachable patterns lets us know if we had any duplicated request keys.
-                // If you hit this error: you either defined the same endpoint twice, OR you've
-                // had a schema collision.
-                #[deny(unreachable_patterns)]
+                const _REQ_KEYS_MUST_BE_UNIQUE: () = {
+                    let keys = [$(<$endpoint as $crate::Endpoint>::REQ_KEY),*];
+
+                    let mut i = 0;
+
+                    while i < keys.len() {
+                        let mut j = i + 1;
+                        while j < keys.len() {
+                            if keys[i].const_cmp(&keys[j]) {
+                                panic!("Keys are not unique, there is a collision!");
+                            }
+                            j += 1;
+                        }
+
+                        i += 1;
+                    }
+                };
+
+                let _ = _REQ_KEYS_MUST_BE_UNIQUE;
+
                 match hdr.key {
                     $(
                         <$endpoint as $crate::Endpoint>::REQ_KEY => {
