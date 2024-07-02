@@ -107,23 +107,19 @@ optional = true
 #
 
 [dependencies.embassy-usb]
-git = "https://github.com/embassy-rs/embassy/blob/main/embassy-usb"
-rev = "cf0d227cca92a80e85575154d380d1ff73fb32cf"
+git = "https://github.com/jucr-io/embassy/"
 optional = true
 
 [dependencies.embassy-usb-driver]
-git = "https://github.com/embassy-rs/embassy/blob/main/embassy-usb-driver"
-rev = "597315873dbef394ae4cefe0af740fcb1bb951e0"
+git = "https://github.com/jucr-io/embassy/"
 optional = true
 
 [dependencies.embassy-sync]
-git = "https://github.com/embassy-rs/embassy/blob/main/embassy-sync"
-rev = "cf0d227cca92a80e85575154d380d1ff73fb32cf"
+git = "https://github.com/jucr-io/embassy/"
 optional = true
 
 [dependencies.embassy-executor]
-git = "https://github.com/embassy-rs/embassy/blob/main/embassy-executor"
-rev = "2c42463205dae7e38535fb18f58e872df99e125a"
+git = "https://github.com/jucr-io/embassy/"
 optional = true
 
 [dependencies.static_cell]
