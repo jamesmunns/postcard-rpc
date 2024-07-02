@@ -107,19 +107,19 @@ optional = true
 #
 
 [dependencies.embassy-usb]
-git = "https://github.com/jucr-io/embassy/"
+git = "ssh://git@github.com/jucr-io/embassy/"
 optional = true
 
 [dependencies.embassy-usb-driver]
-git = "https://github.com/jucr-io/embassy/"
+git = "ssh://git@github.com/jucr-io/embassy/"
 optional = true
 
 [dependencies.embassy-sync]
-git = "https://github.com/jucr-io/embassy/"
+git = "ssh://git@github.com/jucr-io/embassy/"
 optional = true
 
 [dependencies.embassy-executor]
-git = "https://github.com/jucr-io/embassy/"
+git = "ssh://git@github.com/jucr-io/embassy/"
 optional = true
 
 [dependencies.static_cell]
