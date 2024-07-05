@@ -27,7 +27,7 @@ features = [
 cobs = { version = "0.2.3", optional = true, default-features = false }
 defmt = { version = "0.3.5", optional = true }
 heapless = "0.8.0"
-postcard = { git = "ssh://git@github.com/jamesmunns/postcard", rev = "93d4ba23760edabf408af26dc9dbc9bec0a8ade8", features = ["experimental-derive"] }
+postcard = { git = "ssh://git@github.com/jamesmunns/postcard", features = ["experimental-derive"] }
 serde = { version = "1.0.192", default-features = false, features = ["derive"] }
 
 #
