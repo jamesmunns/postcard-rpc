@@ -49,10 +49,10 @@ impl Stopper {
         let _ = self.inner.wait().await;
     }
 
-    // TODO: waiting for https://github.com/hawkw/mycelium/pull/480 to be released
-    // pub fn is_stopped(&self) -> bool {
-    //     self.inner.is_closed()
-    // }
+    /// Have we been stopped?
+    pub fn is_stopped(&self) -> bool {
+        self.inner.is_closed()
+    }
 
     /// Stop the stopper
     ///

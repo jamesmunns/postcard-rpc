@@ -362,10 +362,10 @@ where
         self.stopper.stop()
     }
 
-    // TODO: waiting for https://github.com/hawkw/mycelium/pull/480 to be released
-    // pub fn is_closed(&self) -> bool {
-    //     self.stopper.is_stopped()
-    // }
+    /// Has this host client been closed?
+    pub fn is_closed(&self) -> bool {
+        self.stopper.is_stopped()
+    }
 }
 
 /// A structure that represents a subscription to the given topic
