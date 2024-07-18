@@ -22,7 +22,6 @@ features = [
     "_docs-fix",
     # TODO: What to do about the webusb feature? Can we do separate target builds?
 ]
-default = ["use-std"]
 
 [dependencies]
 cobs = { version = "0.2.3", optional = true, default-features = false }
