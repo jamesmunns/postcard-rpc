@@ -379,7 +379,7 @@ dependencies = [
 
 [[package]]
 name = "postcard-rpc"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "heapless 0.8.0",
  "maitake-sync",
