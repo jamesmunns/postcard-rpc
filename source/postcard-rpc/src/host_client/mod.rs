@@ -36,7 +36,7 @@ mod serial;
 #[cfg(all(feature = "webusb", target_family = "wasm"))]
 pub mod webusb;
 
-mod util;
+pub(crate) mod util;
 
 /// Host Error Kind
 #[derive(Debug, PartialEq)]
