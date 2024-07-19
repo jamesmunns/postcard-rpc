@@ -6,6 +6,18 @@ use tokio::time::interval;
 #[tokio::main]
 pub async fn main() {
     let client = WorkbookClient::new();
+
+    tokio::select! {
+        _ = client.wait_closed() => {
+            println!("Client is closed, exiting...");
+        }
+        _ = run(&client) => {
+            println!("App is done")
+        }
+    }
+}
+
+async fn run(client: &WorkbookClient) {
     let mut ticker = interval(Duration::from_millis(250));
 
     for i in 0..10 {

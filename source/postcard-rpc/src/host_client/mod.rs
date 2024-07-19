@@ -366,6 +366,11 @@ where
     pub fn is_closed(&self) -> bool {
         self.stopper.is_stopped()
     }
+
+    /// Wait for the host client to be closed
+    pub async fn wait_closed(&self) {
+        self.stopper.wait_stopped().await;
+    }
 }
 
 /// A structure that represents a subscription to the given topic
