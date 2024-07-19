@@ -1,11 +1,15 @@
 // the contents of this file can probably be moved up to `mod.rs`
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
+use maitake_sync::WaitQueue;
 use postcard::experimental::schema::Schema;
 use serde::de::DeserializeOwned;
-use tokio::sync::{
-    mpsc::{error::TrySendError, Receiver, Sender},
-    Mutex,
+use tokio::{
+    select,
+    sync::{
+        mpsc::{error::TrySendError, Receiver, Sender},
+        Mutex,
+    },
 };
 use tracing::{debug, trace, warn};
 
@@ -19,6 +23,44 @@ use crate::{
 };
 
 pub(crate) type Subscriptions = HashMap<Key, Sender<RpcFrame>>;
+
+/// A basic cancellation-token
+///
+/// Used to terminate (and signal termination of) worker tasks
+#[derive(Clone)]
+pub struct Stopper {
+    inner: Arc<WaitQueue>,
+}
+
+impl Stopper {
+    /// Create a new Stopper
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(WaitQueue::new()),
+        }
+    }
+
+    /// Wait until the stopper has been stopped.
+    ///
+    /// Once this completes, the stopper has been permanently stopped
+    pub async fn wait_stopped(&self) {
+        // This completes if we are awoken OR if the queue is closed: either
+        // means we're cancelled
+        let _ = self.inner.wait().await;
+    }
+
+    /// Have we been stopped?
+    pub fn is_stopped(&self) -> bool {
+        self.inner.is_closed()
+    }
+
+    /// Stop the stopper
+    ///
+    /// All current and future calls to [Self::wait_stopped] will complete immediately
+    pub fn stop(&self) {
+        self.inner.close();
+    }
+}
 
 impl<WireErr> HostClient<WireErr>
 where
@@ -50,16 +92,37 @@ where
 
         let subscriptions: Arc<Mutex<Subscriptions>> = Arc::new(Mutex::new(Subscriptions::new()));
 
-        sp.spawn(out_worker(tx, outgoing));
-        sp.spawn(in_worker(rx, incoming, subscriptions.clone()));
-        sp.spawn(sub_worker(new_subs, subscriptions));
+        sp.spawn(out_worker(tx, outgoing, me.stopper.clone()));
+        sp.spawn(in_worker(
+            rx,
+            incoming,
+            subscriptions.clone(),
+            me.stopper.clone(),
+        ));
+        sp.spawn(sub_worker(new_subs, subscriptions, me.stopper.clone()));
 
         me
     }
 }
 
 /// Output worker, feeding frames to the `Client`.
-async fn out_worker<W>(mut wire: W, mut rec: Receiver<RpcFrame>)
+async fn out_worker<W>(wire: W, rec: Receiver<RpcFrame>, stop: Stopper)
+where
+    W: WireTx,
+    W::Error: Debug,
+{
+    let cancel_fut = stop.wait_stopped();
+    let operate_fut = out_worker_inner(wire, rec);
+    select! {
+        _ = cancel_fut => {},
+        _ = operate_fut => {
+            // if WE exited, notify everyone else it's stoppin time
+            stop.stop();
+        },
+    }
+}
+
+async fn out_worker_inner<W>(mut wire: W, mut rec: Receiver<RpcFrame>)
 where
     W: WireTx,
     W::Error: Debug,
@@ -78,6 +141,26 @@ where
 
 /// Input worker, getting frames from the `Client`
 async fn in_worker<W>(
+    wire: W,
+    host_ctx: Arc<HostContext>,
+    subscriptions: Arc<Mutex<Subscriptions>>,
+    stop: Stopper,
+) where
+    W: WireRx,
+    W::Error: Debug,
+{
+    let cancel_fut = stop.wait_stopped();
+    let operate_fut = in_worker_inner(wire, host_ctx, subscriptions);
+    select! {
+        _ = cancel_fut => {},
+        _ = operate_fut => {
+            // if WE exited, notify everyone else it's stoppin time
+            stop.stop();
+        },
+    }
+}
+
+async fn in_worker_inner<W>(
     mut wire: W,
     host_ctx: Arc<HostContext>,
     subscriptions: Arc<Mutex<Subscriptions>>,
@@ -154,7 +237,26 @@ async fn in_worker<W>(
     }
 }
 
-async fn sub_worker(mut new_subs: Receiver<SubInfo>, subscriptions: Arc<Mutex<Subscriptions>>) {
+async fn sub_worker(
+    new_subs: Receiver<SubInfo>,
+    subscriptions: Arc<Mutex<Subscriptions>>,
+    stop: Stopper,
+) {
+    let cancel_fut = stop.wait_stopped();
+    let operate_fut = sub_worker_inner(new_subs, subscriptions);
+    select! {
+        _ = cancel_fut => {},
+        _ = operate_fut => {
+            // if WE exited, notify everyone else it's stoppin time
+            stop.stop();
+        },
+    }
+}
+
+async fn sub_worker_inner(
+    mut new_subs: Receiver<SubInfo>,
+    subscriptions: Arc<Mutex<Subscriptions>>,
+) {
     while let Some(sub) = new_subs.recv().await {
         let mut sub_guard = subscriptions.lock().await;
         if let Some(_old) = sub_guard.insert(sub.key, sub.tx) {

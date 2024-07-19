@@ -41,11 +41,11 @@ incremental = false
 # NOTE: Although embassy-usb has released 0.2, we still need to use patched deps for the other various crates
 # for now. See https://github.com/embassy-rs/embassy/issues/2936 for getting other min versions of these
 # crates published.
-embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "763b57449fef31b2ca5205542e2c0a52e6b786c1" }
-embassy-executor     = { git = "https://github.com/embassy-rs/embassy", rev = "763b57449fef31b2ca5205542e2c0a52e6b786c1" }
-embassy-rp           = { git = "https://github.com/embassy-rs/embassy", rev = "763b57449fef31b2ca5205542e2c0a52e6b786c1" }
-embassy-sync         = { git = "https://github.com/embassy-rs/embassy", rev = "763b57449fef31b2ca5205542e2c0a52e6b786c1" }
-embassy-time         = { git = "https://github.com/embassy-rs/embassy", rev = "763b57449fef31b2ca5205542e2c0a52e6b786c1" }
-embassy-usb          = { git = "https://github.com/embassy-rs/embassy", rev = "763b57449fef31b2ca5205542e2c0a52e6b786c1" }
-embassy-usb-driver   = { git = "https://github.com/embassy-rs/embassy", rev = "763b57449fef31b2ca5205542e2c0a52e6b786c1" }
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
+embassy-executor     = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
+embassy-rp           = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
+embassy-sync         = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
+embassy-time         = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
+embassy-usb          = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
+embassy-usb-driver   = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
 postcard-rpc         = { path = "../../source/postcard-rpc" }

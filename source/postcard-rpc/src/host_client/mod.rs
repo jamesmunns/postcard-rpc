@@ -25,6 +25,8 @@ use tokio::{
 
 use crate::{Endpoint, Key, Topic, WireHeader};
 
+use self::util::Stopper;
+
 #[cfg(all(feature = "raw-nusb", not(target_family = "wasm")))]
 mod raw_nusb;
 
@@ -34,7 +36,7 @@ mod serial;
 #[cfg(all(feature = "webusb", target_family = "wasm"))]
 pub mod webusb;
 
-mod util;
+pub(crate) mod util;
 
 /// Host Error Kind
 #[derive(Debug, PartialEq)]
@@ -153,6 +155,7 @@ pub struct HostClient<WireErr> {
     out: Sender<RpcFrame>,
     subber: Sender<SubInfo>,
     err_key: Key,
+    stopper: Stopper,
     _pd: PhantomData<fn() -> WireErr>,
 }
 
@@ -190,6 +193,7 @@ where
             err_key,
             _pd: PhantomData,
             subber: tx_si.clone(),
+            stopper: Stopper::new(),
         };
 
         let wire = WireContext {
@@ -212,6 +216,23 @@ where
     ///
     /// This function will wait potentially forever. Consider using with a timeout.
     pub async fn send_resp<E: Endpoint>(
+        &self,
+        t: &E::Request,
+    ) -> Result<E::Response, HostErr<WireErr>>
+    where
+        E::Request: Serialize + Schema,
+        E::Response: DeserializeOwned + Schema,
+    {
+        let cancel_fut = self.stopper.wait_stopped();
+        let operate_fut = self.send_resp_inner::<E>(t);
+        select! {
+            _ = cancel_fut => Err(HostErr::Closed),
+            res = operate_fut => res,
+        }
+    }
+
+    /// Inner function version of [Self::send_resp]
+    async fn send_resp_inner<E: Endpoint>(
         &self,
         t: &E::Request,
     ) -> Result<E::Response, HostErr<WireErr>>
@@ -260,6 +281,19 @@ where
     where
         T::Message: Serialize,
     {
+        let cancel_fut = self.stopper.wait_stopped();
+        let operate_fut = self.publish_inner::<T>(seq_no, msg);
+        select! {
+            _ = cancel_fut => Err(IoClosed),
+            res = operate_fut => res,
+        }
+    }
+
+    /// Inner function version of [Self::publish]
+    async fn publish_inner<T: Topic>(&self, seq_no: u32, msg: &T::Message) -> Result<(), IoClosed>
+    where
+        T::Message: Serialize,
+    {
         let smsg = postcard::to_stdvec(msg).expect("alloc should never fail");
         self.out
             .send(RpcFrame {
@@ -287,6 +321,22 @@ where
     where
         T::Message: DeserializeOwned,
     {
+        let cancel_fut = self.stopper.wait_stopped();
+        let operate_fut = self.subscribe_inner::<T>(depth);
+        select! {
+            _ = cancel_fut => Err(IoClosed),
+            res = operate_fut => res,
+        }
+    }
+
+    /// Inner function version of [Self::subscribe]
+    async fn subscribe_inner<T: Topic>(
+        &self,
+        depth: usize,
+    ) -> Result<Subscription<T::Message>, IoClosed>
+    where
+        T::Message: DeserializeOwned,
+    {
         let (tx, rx) = tokio::sync::mpsc::channel(depth);
         self.subber
             .send(SubInfo {
@@ -299,6 +349,22 @@ where
             rx,
             _pd: PhantomData,
         })
+    }
+
+    /// Permanently close the connection to the client
+    ///
+    /// All other HostClients sharing the connection (e.g. created by cloning
+    /// a single HostClient) will also stop, and no further communication will
+    /// succeed. The in-flight messages will not be flushed.
+    ///
+    /// This will also signal any I/O worker tasks to halt immediately as well.
+    pub fn close(&self) {
+        self.stopper.stop()
+    }
+
+    /// Has this host client been closed?
+    pub fn is_closed(&self) -> bool {
+        self.stopper.is_stopped()
     }
 }
 
@@ -334,6 +400,7 @@ impl<WireErr> Clone for HostClient<WireErr> {
             err_key: self.err_key,
             _pd: PhantomData,
             subber: self.subber.clone(),
+            stopper: self.stopper.clone(),
         }
     }
 }

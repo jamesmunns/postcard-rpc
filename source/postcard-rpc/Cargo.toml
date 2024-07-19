@@ -43,7 +43,7 @@ version = "5.4.4"
 optional = true
 
 [dependencies.maitake-sync]
-version = "0.1.0"
+version = "0.1.2"
 optional = true
 
 [dependencies.tokio]
