@@ -1,10 +1,10 @@
 use std::{collections::HashMap, time::Duration};
 
 use postcard::experimental::schema::Schema;
+use postcard_rpc::test_utils::local_setup;
 use postcard_rpc::{
     endpoint, headered::to_stdvec_keyed, topic, Dispatch, Endpoint, Key, Topic, WireHeader,
 };
-use postcard_rpc::test_utils::local_setup;
 use serde::{Deserialize, Serialize};
 use tokio::task::yield_now;
 use tokio::time::timeout;
