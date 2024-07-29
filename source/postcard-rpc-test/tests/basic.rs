@@ -1,11 +1,12 @@
 use std::{collections::HashMap, time::Duration};
 
 use postcard::experimental::schema::Schema;
+use postcard_rpc::test_utils::local_setup;
 use postcard_rpc::{
     endpoint, headered::to_stdvec_keyed, topic, Dispatch, Endpoint, Key, Topic, WireHeader,
 };
-use postcard_rpc::test_utils::local_setup;
 use serde::{Deserialize, Serialize};
+use tokio::task::yield_now;
 use tokio::time::timeout;
 
 endpoint!(EndpointOne, Req1, Resp1, "endpoint/one");
@@ -78,7 +79,7 @@ async fn smoke_reqresp() {
     });
 
     // As the wire, get the outgoing request
-    let out1 = srv.from_client.recv().await.unwrap();
+    let out1 = srv.recv_from_client().await.unwrap();
 
     // Does the outgoing value match what we expect?
     let exp_out = to_stdvec_keyed(0, EndpointOne::REQ_KEY, &Req1 { a: 10, b: 100 }).unwrap();
@@ -127,7 +128,7 @@ async fn smoke_publish() {
         .unwrap();
 
     // As the wire, get the outgoing request
-    let out1 = srv.from_client.recv().await.unwrap();
+    let out1 = srv.recv_from_client().await.unwrap();
 
     // Does the outgoing value match what we expect?
     let exp_out = to_stdvec_keyed(123, TopicOne::TOPIC_KEY, &Req1 { a: 10, b: 100 }).unwrap();
@@ -157,4 +158,148 @@ async fn smoke_subscribe() {
         .unwrap();
 
     assert_eq!(publ, VAL);
+}
+
+#[tokio::test]
+async fn smoke_io_error() {
+    let (mut srv, client) = local_setup::<WireError>(8, "error");
+
+    // Do one round trip to make sure the connection works
+    {
+        let rr_rt = tokio::task::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .send_resp::<EndpointOne>(&Req1 { a: 10, b: 100 })
+                    .await
+            }
+        });
+
+        // As the wire, get the outgoing request
+        let out1 = srv.recv_from_client().await.unwrap();
+
+        // Does the outgoing value match what we expect?
+        let exp_out = to_stdvec_keyed(0, EndpointOne::REQ_KEY, &Req1 { a: 10, b: 100 }).unwrap();
+        let act_out = out1.to_bytes();
+        assert_eq!(act_out, exp_out);
+
+        // The request is still awaiting a response
+        assert!(!rr_rt.is_finished());
+
+        // Feed a simulated response "from the wire" back to the
+        // awaiting request
+        const RESP_001: Resp1 = Resp1 {
+            c: [1, 2, 3, 4, 5, 6, 7, 8],
+            d: -10,
+        };
+        srv.reply::<EndpointOne>(out1.header.seq_no, &RESP_001)
+            .await
+            .unwrap();
+
+        // Now wait for the request to complete
+        let end = rr_rt.await.unwrap().unwrap();
+
+        // We got the simulated value back
+        assert_eq!(end, RESP_001);
+    }
+
+    // Now, simulate an I/O error
+    srv.cause_fatal_error();
+
+    // Give the clients some time to halt
+    yield_now().await;
+
+    // Our server channels should now be closed - the tasks hung up
+    assert!(srv.from_client.recv().await.is_none());
+    assert!(srv.to_client.send(Vec::new()).await.is_err());
+
+    // Try again, but nothing should work because all the worker tasks just halted
+    {
+        let rr_rt = tokio::task::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .send_resp::<EndpointOne>(&Req1 { a: 10, b: 100 })
+                    .await
+            }
+        });
+
+        // As the wire, get the outgoing request - didn't happen
+        assert!(srv.recv_from_client().await.is_err());
+
+        // Now wait for the request to complete - it failed
+        rr_rt.await.unwrap().unwrap_err();
+    }
+}
+
+#[tokio::test]
+async fn smoke_closed() {
+    let (mut srv, client) = local_setup::<WireError>(8, "error");
+
+    // Do one round trip to make sure the connection works
+    {
+        let rr_rt = tokio::task::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .send_resp::<EndpointOne>(&Req1 { a: 10, b: 100 })
+                    .await
+            }
+        });
+
+        // As the wire, get the outgoing request
+        let out1 = srv.recv_from_client().await.unwrap();
+
+        // Does the outgoing value match what we expect?
+        let exp_out = to_stdvec_keyed(0, EndpointOne::REQ_KEY, &Req1 { a: 10, b: 100 }).unwrap();
+        let act_out = out1.to_bytes();
+        assert_eq!(act_out, exp_out);
+
+        // The request is still awaiting a response
+        assert!(!rr_rt.is_finished());
+
+        // Feed a simulated response "from the wire" back to the
+        // awaiting request
+        const RESP_001: Resp1 = Resp1 {
+            c: [1, 2, 3, 4, 5, 6, 7, 8],
+            d: -10,
+        };
+        srv.reply::<EndpointOne>(out1.header.seq_no, &RESP_001)
+            .await
+            .unwrap();
+
+        // Now wait for the request to complete
+        let end = rr_rt.await.unwrap().unwrap();
+
+        // We got the simulated value back
+        assert_eq!(end, RESP_001);
+    }
+
+    // Now, use the *client* to close the connection
+    client.close();
+
+    // Give the clients some time to halt
+    yield_now().await;
+
+    // Our server channels should now be closed - the tasks hung up
+    assert!(srv.from_client.recv().await.is_none());
+    assert!(srv.to_client.send(Vec::new()).await.is_err());
+
+    // Try again, but nothing should work because all the worker tasks just halted
+    {
+        let rr_rt = tokio::task::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .send_resp::<EndpointOne>(&Req1 { a: 10, b: 100 })
+                    .await
+            }
+        });
+
+        // As the wire, get the outgoing request - didn't happen
+        assert!(srv.recv_from_client().await.is_err());
+
+        // Now wait for the request to complete - it failed
+        rr_rt.await.unwrap().unwrap_err();
+    }
 }

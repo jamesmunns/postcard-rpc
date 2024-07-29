@@ -44,6 +44,10 @@ impl WorkbookClient {
         Self { client }
     }
 
+    pub async fn wait_closed(&self) {
+        self.client.wait_closed().await;
+    }
+
     pub async fn ping(&self, id: u32) -> Result<u32, WorkbookError<Infallible>> {
         let val = self.client.send_resp::<PingEndpoint>(&id).await?;
         Ok(val)
