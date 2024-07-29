@@ -7,7 +7,7 @@ edition = "2021"
 cortex-m                = { version = "0.7.6", features = ["inline-asm"] }
 embassy-executor        = { version = "0.5.0", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
 embassy-rp              = { version = "0.1.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"] }
-embassy-sync            = { version = "0.5.0", features = ["defmt"] }
+embassy-sync            = { version = "0.6.0", features = ["defmt"] }
 embassy-time            = { version = "0.3.0", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-usb             = { version = "0.2.0", features = ["defmt"] }
 embedded-hal-bus        = { version = "0.1",   features = ["async"] }
@@ -41,11 +41,11 @@ incremental = false
 # NOTE: Although embassy-usb has released 0.2, we still need to use patched deps for the other various crates
 # for now. See https://github.com/embassy-rs/embassy/issues/2936 for getting other min versions of these
 # crates published.
-embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
-embassy-executor     = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
-embassy-rp           = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
-embassy-sync         = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
-embassy-time         = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
-embassy-usb          = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
-embassy-usb-driver   = { git = "https://github.com/embassy-rs/embassy", rev = "2766993099b6604739ae25724aa2f6a9877d9902" }
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "4e5a646f8b1905de014462f5f0441952ec7e209b" }
+embassy-executor     = { git = "https://github.com/embassy-rs/embassy", rev = "4e5a646f8b1905de014462f5f0441952ec7e209b" }
+embassy-rp           = { git = "https://github.com/embassy-rs/embassy", rev = "4e5a646f8b1905de014462f5f0441952ec7e209b" }
+embassy-sync         = { git = "https://github.com/embassy-rs/embassy", rev = "4e5a646f8b1905de014462f5f0441952ec7e209b" }
+embassy-time         = { git = "https://github.com/embassy-rs/embassy", rev = "4e5a646f8b1905de014462f5f0441952ec7e209b" }
+embassy-usb          = { git = "https://github.com/embassy-rs/embassy", rev = "4e5a646f8b1905de014462f5f0441952ec7e209b" }
+embassy-usb-driver   = { git = "https://github.com/embassy-rs/embassy", rev = "4e5a646f8b1905de014462f5f0441952ec7e209b" }
 postcard-rpc         = { path = "../../source/postcard-rpc" }
