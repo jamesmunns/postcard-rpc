@@ -178,6 +178,11 @@ use headered::extract_header_from_bytes;
 use postcard::experimental::schema::Schema;
 use serde::{Deserialize, Serialize};
 
+#[doc(hidden)]
+pub mod export {
+    pub use postcard;
+}
+
 #[cfg(feature = "cobs")]
 pub mod accumulator;
 
@@ -322,7 +327,7 @@ pub struct WireHeader {
 ///
 /// Changing **anything** about *either* of the path or the schema will produce
 /// a drastically different `Key` value.
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash)]
 pub struct Key([u8; 8]);
 
@@ -439,4 +444,14 @@ pub mod standard_icd {
         UnknownKey([u8; 8]),
         FailedToSpawn,
     }
+}
+
+#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
+#[derive(Debug, PartialEq, Eq, Clone)]
+/// Possible errors in dispatch handling.
+pub enum DispatchError {
+    /// The deserialization of the header failed.
+    Header(postcard::Error),
+    /// The  deserialization of the body failed.
+    Body(postcard::Error),
 }
