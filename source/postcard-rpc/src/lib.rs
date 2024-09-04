@@ -190,7 +190,7 @@ pub mod host_client;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-#[cfg(feature = "embassy-usb-0_2-server")]
+#[cfg(feature = "embassy-usb-0_3-server")]
 pub mod target_server;
 
 mod macros;

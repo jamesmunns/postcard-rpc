@@ -1,6 +1,6 @@
 [package]
 name = "postcard-rpc"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["James Munns <james@onevariable.com>"]
 edition = "2021"
 repository = "https://github.com/jamesmunns/postcard-rpc"
@@ -18,7 +18,7 @@ features = [
     "use-std",
     "cobs-serial",
     "raw-nusb",
-    "embassy-usb-0_2-server",
+    "embassy-usb-0_3-server",
     "_docs-fix",
     # TODO: What to do about the webusb feature? Can we do separate target builds?
 ]
@@ -107,7 +107,7 @@ optional = true
 #
 
 [dependencies.embassy-usb]
-version = "0.2"
+version = "0.3"
 optional = true
 
 [dependencies.embassy-usb-driver]
@@ -183,7 +183,7 @@ webusb = [
     "dep:js-sys",
     "use-std",
 ]
-embassy-usb-0_2-server = [
+embassy-usb-0_3-server = [
     "dep:embassy-usb",
     "dep:embassy-sync",
     "dep:static_cell",
