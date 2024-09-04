@@ -44,12 +44,12 @@ RUSTFLAGS="--cfg=web_sys_unstable_apis" \
 cargo check \
     --manifest-path source/postcard-rpc/Cargo.toml \
     --no-default-features \
-    --features=embassy-usb-0_2-server \
+    --features=embassy-usb-0_3-server \
     --target thumbv7em-none-eabihf
 cargo build \
     --manifest-path source/postcard-rpc/Cargo.toml \
     --no-default-features \
-    --features=embassy-usb-0_2-server \
+    --features=embassy-usb-0_3-server \
     --target thumbv7em-none-eabihf
 
 # Example projects
