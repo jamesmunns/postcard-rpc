@@ -20,6 +20,7 @@ features = [
     "raw-nusb",
     "embassy-usb-0_3-server",
     "_docs-fix",
+    "hashv2",
     # TODO: What to do about the webusb feature? Can we do separate target builds?
 ]
 
@@ -190,6 +191,9 @@ embassy-usb-0_3-server = [
     "dep:embassy-usb-driver",
     "dep:embassy-executor",
 ]
+
+# Use the newer, NOT BACKWARDS COMPATIBLE, hashing algorithm for schemas
+hashv2 = []
 
 # NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal
 # which doesn't work on `std` builds without the `std` feature. This causes
