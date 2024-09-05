@@ -127,6 +127,11 @@ optional = true
 version = "0.5"
 optional = true
 
+[dependencies.futures-util]
+version = "0.3"
+optional = true
+default-features = false
+
 [dev-dependencies]
 postcard-rpc = { path = "../postcard-rpc", features = ["test-utils"] }
 
@@ -190,6 +195,7 @@ embassy-usb-0_3-server = [
     "dep:static_cell",
     "dep:embassy-usb-driver",
     "dep:embassy-executor",
+    "dep:futures-util",
 ]
 
 # Use the newer, NOT BACKWARDS COMPATIBLE, hashing algorithm for schemas

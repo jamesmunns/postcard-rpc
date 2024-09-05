@@ -3,6 +3,7 @@ use embassy_usb_driver::{Driver, Endpoint, EndpointIn};
 use postcard::experimental::schema::Schema;
 use serde::Serialize;
 use static_cell::StaticCell;
+use futures_util::FutureExt;
 
 use crate::Key;
 
@@ -40,7 +41,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         let mut inner = self.inner.lock().await;
         let SenderInner { ep_in, tx_buf, log_seq: _, max_log_len: _ } = &mut *inner;
         if let Ok(used) = crate::headered::to_slice_keyed(seq_no, E::RESP_KEY, resp, tx_buf) {
-            send_all::<D>(ep_in, used).await
+            send_all::<D>(ep_in, used, true).await
         } else {
             Err(())
         }
@@ -58,7 +59,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         let mut inner = self.inner.lock().await;
         let SenderInner { ep_in, tx_buf, log_seq: _, max_log_len: _ } = &mut *inner;
         if let Ok(used) = crate::headered::to_slice_keyed(seq_no, key, resp, tx_buf) {
-            send_all::<D>(ep_in, used).await
+            send_all::<D>(ep_in, used, true).await
         } else {
             Err(())
         }
@@ -73,10 +74,24 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
     {
         let mut inner = self.inner.lock().await;
         let SenderInner { ep_in, tx_buf, log_seq: _, max_log_len: _ } = &mut *inner;
+
         if let Ok(used) = crate::headered::to_slice_keyed(seq_no, T::TOPIC_KEY, msg, tx_buf) {
-            send_all::<D>(ep_in, used).await
+            send_all::<D>(ep_in, used, true).await
         } else {
             Err(())
+        }
+    }
+
+    pub async fn str_publish<'a, T>(&self, s: &'a str)
+    where
+        T: crate::Topic<Message = [u8]>
+    {
+        let mut inner = self.inner.lock().await;
+        let SenderInner { ep_in, tx_buf, log_seq, max_log_len: _ } = &mut *inner;
+        let seq_no = *log_seq;
+        *log_seq = log_seq.wrapping_add(1);
+        if let Ok(used) = crate::headered::to_slice_keyed(seq_no, T::TOPIC_KEY, s.as_bytes(), tx_buf) {
+            let _ = send_all::<D>(ep_in, used, false).await;
         }
     }
 
@@ -142,7 +157,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         // Calculate the TOTAL amount
         let act_used = ttl_len - remain;
 
-        let _ = send_all::<D>(ep_in, &tx_buf[..act_used]).await;
+        let _ = send_all::<D>(ep_in, &tx_buf[..act_used], false).await;
     }
 }
 
@@ -164,14 +179,23 @@ pub struct SenderInner<D: Driver<'static>> {
 ///
 /// If an empty slice is provided, no bytes will be sent.
 #[inline]
-async fn send_all<D>(ep_in: &mut D::EndpointIn, out: &[u8]) -> Result<(), ()>
+async fn send_all<D>(
+    ep_in: &mut D::EndpointIn,
+    out: &[u8],
+    wait_for_enabled: bool,
+) -> Result<(), ()>
 where
     D: Driver<'static>,
 {
     if out.is_empty() {
         return Ok(());
     }
-    ep_in.wait_enabled().await;
+    if wait_for_enabled {
+        ep_in.wait_enabled().await;
+    } else if ep_in.wait_enabled().now_or_never().is_none() {
+        return Ok(());
+    }
+
     // write in segments of 64. The last chunk may
     // be 0 < len <= 64.
     for ch in out.chunks(64) {
