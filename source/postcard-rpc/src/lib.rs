@@ -439,4 +439,10 @@ pub mod standard_icd {
         UnknownKey([u8; 8]),
         FailedToSpawn,
     }
+
+    #[cfg(not(feature = "use-std"))]
+    crate::topic!(Logging, [u8], "logs/formatted");
+
+    #[cfg(feature = "use-std")]
+    crate::topic!(Logging, Vec<u8>, "logs/formatted");
 }

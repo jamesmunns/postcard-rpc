@@ -25,7 +25,8 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         tx_buf: &'static mut [u8],
         ep_in: D::EndpointIn,
     ) -> Self {
-        let x = sc.init(Mutex::new(SenderInner { ep_in, tx_buf }));
+        let max_log_len = actual_varint_max_len(tx_buf.len());
+        let x = sc.init(Mutex::new(SenderInner { ep_in, tx_buf, log_seq: 0, max_log_len }));
         Sender { inner: x }
     }
 
@@ -37,7 +38,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         E::Response: Serialize + Schema,
     {
         let mut inner = self.inner.lock().await;
-        let SenderInner { ep_in, tx_buf } = &mut *inner;
+        let SenderInner { ep_in, tx_buf, log_seq: _, max_log_len: _ } = &mut *inner;
         if let Ok(used) = crate::headered::to_slice_keyed(seq_no, E::RESP_KEY, resp, tx_buf) {
             send_all::<D>(ep_in, used).await
         } else {
@@ -55,7 +56,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         T: Serialize + Schema,
     {
         let mut inner = self.inner.lock().await;
-        let SenderInner { ep_in, tx_buf } = &mut *inner;
+        let SenderInner { ep_in, tx_buf, log_seq: _, max_log_len: _ } = &mut *inner;
         if let Ok(used) = crate::headered::to_slice_keyed(seq_no, key, resp, tx_buf) {
             send_all::<D>(ep_in, used).await
         } else {
@@ -71,12 +72,77 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         T::Message: Serialize + Schema,
     {
         let mut inner = self.inner.lock().await;
-        let SenderInner { ep_in, tx_buf } = &mut *inner;
+        let SenderInner { ep_in, tx_buf, log_seq: _, max_log_len: _ } = &mut *inner;
         if let Ok(used) = crate::headered::to_slice_keyed(seq_no, T::TOPIC_KEY, msg, tx_buf) {
             send_all::<D>(ep_in, used).await
         } else {
             Err(())
         }
+    }
+
+    pub async fn fmt_publish<'a, T>(&self, args: core::fmt::Arguments<'a>)
+    where
+        T: crate::Topic<Message = [u8]>
+    {
+        let mut inner = self.inner.lock().await;
+        let SenderInner { ep_in, tx_buf, log_seq, max_log_len } = &mut *inner;
+        let ttl_len = tx_buf.len();
+
+        // First, populate the header
+        let hdr = crate::WireHeader { key: T::TOPIC_KEY, seq_no: *log_seq };
+        *log_seq = log_seq.wrapping_add(1);
+        let Ok(hdr_used) = postcard::to_slice(&hdr, tx_buf) else {
+            return;
+        };
+        let hdr_used = hdr_used.len();
+
+        // Then, reserve space for non-canonical length fields
+        // We also set all but the last bytes to be "continuation"
+        // bytes
+        let (_, remaining) = tx_buf.split_at_mut(hdr_used);
+        if remaining.len() < *max_log_len {
+            return;
+        }
+        let (len_field, body) = remaining.split_at_mut(*max_log_len);
+        for b in len_field.iter_mut() {
+            *b = 0x80;
+        }
+        len_field.last_mut().map(|b| *b = 0x00);
+
+        // Then, do the formatting
+        let body_len = body.len();
+        let mut sw = SliceWriter(body);
+        let res = core::fmt::write(&mut sw, args);
+
+        // Calculate the number of bytes used *for formatting*.
+        let remain = sw.0.len();
+        let used = body_len - remain;
+
+        // If we had an error, that's probably because we ran out
+        // of room. If we had an error, AND there is at least three
+        // bytes, then replace those with '.'s like ...
+        if res.is_err() && (body.len() >= 3) {
+            let start = body.len() - 3;
+            body[start..].iter_mut().for_each(|b| *b = b'.');
+        }
+
+        // then go back and fill in the len - we write the len
+        // directly to the reserved bytes, and if we DIDN'T use
+        // the full space, we mark the end of the real length as
+        // a continuation field. This will result in a non-canonical
+        // "extended" length in postcard, and will "spill into" the
+        // bytes we wrote previously above
+        let mut len_bytes = [0u8; varint_max::<usize>()];
+        let len_used = varint_usize(used, &mut len_bytes);
+        if len_used.len() != len_field.len() {
+            len_used.last_mut().map(|b| *b = *b | 0x80);
+        }
+        len_field[..len_used.len()].copy_from_slice(len_used);
+
+        // Calculate the TOTAL amount
+        let act_used = ttl_len - remain;
+
+        let _ = send_all::<D>(ep_in, &tx_buf[..act_used]).await;
     }
 }
 
@@ -90,6 +156,8 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Clone for Sender<M, D>
 pub struct SenderInner<D: Driver<'static>> {
     ep_in: D::EndpointIn,
     tx_buf: &'static mut [u8],
+    log_seq: u32,
+    max_log_len: usize,
 }
 
 /// Helper function for sending a single frame.
@@ -119,4 +187,75 @@ where
     }
 
     Ok(())
+}
+
+struct SliceWriter<'a>(&'a mut [u8]);
+
+impl<'a> core::fmt::Write for SliceWriter<'a> {
+    fn write_str(&mut self, s: &str) -> Result<(), core::fmt::Error> {
+        let sli = core::mem::take(&mut self.0);
+
+        // If this write would overflow us, note that, but still take
+        // as much as we possibly can here
+        let bad = s.len() > sli.len();
+        let to_write = s.len().min(sli.len());
+        let (now, later) = sli.split_at_mut(to_write);
+        now.copy_from_slice(s.as_bytes());
+        self.0 = later;
+
+        // Now, report whether we overflowed or not
+        if bad {
+            Err(core::fmt::Error)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Returns the maximum number of bytes required to encode T.
+const fn varint_max<T: Sized>() -> usize {
+    const BITS_PER_BYTE: usize = 8;
+    const BITS_PER_VARINT_BYTE: usize = 7;
+
+    // How many data bits do we need for this type?
+    let bits = core::mem::size_of::<T>() * BITS_PER_BYTE;
+
+    // We add (BITS_PER_VARINT_BYTE - 1), to ensure any integer divisions
+    // with a remainder will always add exactly one full byte, but
+    // an evenly divided number of bits will be the same
+    let roundup_bits = bits + (BITS_PER_VARINT_BYTE - 1);
+
+    // Apply division, using normal "round down" integer division
+    roundup_bits / BITS_PER_VARINT_BYTE
+}
+
+#[inline]
+fn varint_usize(n: usize, out: &mut [u8; varint_max::<usize>()]) -> &mut [u8] {
+    let mut value = n;
+    for i in 0..varint_max::<usize>() {
+        out[i] = value.to_le_bytes()[0];
+        if value < 128 {
+            return &mut out[..=i];
+        }
+
+        out[i] |= 0x80;
+        value >>= 7;
+    }
+    debug_assert_eq!(value, 0);
+    &mut out[..]
+}
+
+
+fn actual_varint_max_len(largest: usize) -> usize {
+    if largest < (2 << 7) {
+        1
+    } else if largest < (2 << 14) {
+        2
+    } else if largest < (2 << 21) {
+        3
+    } else if largest < (2 << 28) {
+        4
+    } else {
+        varint_max::<usize>()
+    }
 }

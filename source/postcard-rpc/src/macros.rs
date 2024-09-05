@@ -83,3 +83,14 @@ macro_rules! topic {
         }
     };
 }
+
+#[cfg(feature = "embassy-usb-0_3-server")]
+#[macro_export]
+macro_rules! sender_log {
+    ($sender:ident, $($arg:tt)*) => {
+        $sender.fmt_publish::<$crate::standard_icd::Logging>(format_args!($($arg)*))
+    };
+    ($($arg:tt)*) => {
+        compile_error!("You must pass the sender to `sender_log`!");
+    }
+}
