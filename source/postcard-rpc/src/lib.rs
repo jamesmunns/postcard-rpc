@@ -401,7 +401,7 @@ pub trait Endpoint {
 /// Typically used with the [topic] macro.
 pub trait Topic {
     /// The type of the Message (unidirectional)
-    type Message: Schema;
+    type Message: Schema + ?Sized;
     /// The path associated with this Topic
     const PATH: &'static str;
     /// The unique [Key] identifying the Message

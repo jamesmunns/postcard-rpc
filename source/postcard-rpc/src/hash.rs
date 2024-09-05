@@ -403,6 +403,7 @@ mod test {
         assert_ne!(hash_2, hash_6);
     }
 
+    // TODO: It is questionable if I like this outcome
     #[test]
     fn type_punning_questionable() {
         #[derive(Schema)]
