@@ -385,16 +385,34 @@ pub mod fnv1a64 {
 #[cfg(all(test, feature = "hashv2"))]
 mod test {
     use super::fnv1a64::hash_ty_path;
+    use super::*;
 
     #[test]
-    fn type_punning() {
+    fn type_punning_good() {
         let hash_1 = hash_ty_path::<Vec<u8>>("test_path");
         let hash_2 = hash_ty_path::<&[u8]>("test_path");
         let hash_3 = hash_ty_path::<Vec<u16>>("test_path");
         let hash_4 = hash_ty_path::<&[u16]>("test_path");
+        let hash_5 = hash_ty_path::<Vec<u8>>("test_patt");
+        let hash_6 = hash_ty_path::<&[u8]>("test_patt");
         assert_eq!(hash_1, hash_2);
         assert_eq!(hash_3, hash_4);
         assert_ne!(hash_1, hash_3);
         assert_ne!(hash_2, hash_4);
+        assert_ne!(hash_1, hash_5);
+        assert_ne!(hash_2, hash_6);
+    }
+
+    #[test]
+    fn type_punning_questionable() {
+        #[derive(Schema)]
+        struct Wrapper1(u8);
+
+        #[derive(Schema)]
+        struct Wrapper2(u8);
+
+        let hash_1 = hash_ty_path::<Wrapper1>("test_path");
+        let hash_2 = hash_ty_path::<Wrapper2>("test_path");
+        assert_eq!(hash_1, hash_2);
     }
 }
