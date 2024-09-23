@@ -7,11 +7,12 @@ use crate::{
 };
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_usb::{
+    driver::{Endpoint, EndpointError, EndpointOut},
     driver::Driver,
     msos::{self, windows_version},
     Builder, UsbDevice,
 };
-use embassy_usb_driver::{Endpoint, EndpointError, EndpointOut};
+
 use sender::Sender;
 
 pub mod buffers;
