@@ -223,23 +223,6 @@ where
         E::Request: Serialize + Schema,
         E::Response: DeserializeOwned + Schema,
     {
-        let cancel_fut = self.stopper.wait_stopped();
-        let operate_fut = self.send_resp_inner::<E>(t);
-        select! {
-            _ = cancel_fut => Err(HostErr::Closed),
-            res = operate_fut => res,
-        }
-    }
-
-    /// Inner function version of [Self::send_resp]
-    async fn send_resp_inner<E: Endpoint>(
-        &self,
-        t: &E::Request,
-    ) -> Result<E::Response, HostErr<WireErr>>
-    where
-        E::Request: Serialize + Schema,
-        E::Response: DeserializeOwned + Schema,
-    {
         let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
         let msg = postcard::to_stdvec(&t).expect("Allocations should not ever fail");
         let frame = RpcFrame {
@@ -249,21 +232,35 @@ where
             },
             body: msg,
         };
-        self.out.send(frame).await.map_err(|_| HostErr::Closed)?;
+        let frame = self.send_resp_raw(frame, E::RESP_KEY).await?;
+        let r = postcard::from_bytes::<E::Response>(&frame.body)?;
+        Ok(r)
+    }
+
+    pub async fn send_resp_raw(
+        &self,
+        rqst: RpcFrame,
+        resp_key: Key,
+    ) -> Result<RpcFrame, HostErr<WireErr>> {
+        let cancel_fut = self.stopper.wait_stopped();
+
+        // TODO: Do I need something like a .subscribe method to ensure this is enqueued?
         let ok_resp = self.ctx.map.wait(WireHeader {
-            seq_no,
-            key: E::RESP_KEY,
+            seq_no: rqst.header.seq_no,
+            key: resp_key,
         });
         let err_resp = self.ctx.map.wait(WireHeader {
-            seq_no,
+            seq_no: rqst.header.seq_no,
             key: self.err_key,
         });
+        let seq_no = rqst.header.seq_no;
+        self.out.send(rqst).await.map_err(|_| HostErr::Closed)?;
 
         select! {
+            _c = cancel_fut => Err(HostErr::Closed),
             o = ok_resp => {
                 let resp = o?;
-                let r = postcard::from_bytes::<E::Response>(&resp)?;
-                Ok(r)
+                Ok(RpcFrame { header: WireHeader { key: resp_key, seq_no }, body: resp })
             },
             e = err_resp => {
                 let resp = e?;
@@ -281,30 +278,25 @@ where
     where
         T::Message: Serialize,
     {
-        let cancel_fut = self.stopper.wait_stopped();
-        let operate_fut = self.publish_inner::<T>(seq_no, msg);
-        select! {
-            _ = cancel_fut => Err(IoClosed),
-            res = operate_fut => res,
-        }
+        let smsg = postcard::to_stdvec(msg).expect("alloc should never fail");
+        let frame = RpcFrame {
+            header: WireHeader {
+                key: T::TOPIC_KEY,
+                seq_no,
+            },
+            body: smsg,
+        };
+        self.publish_raw(frame).await
     }
 
-    /// Inner function version of [Self::publish]
-    async fn publish_inner<T: Topic>(&self, seq_no: u32, msg: &T::Message) -> Result<(), IoClosed>
-    where
-        T::Message: Serialize,
-    {
-        let smsg = postcard::to_stdvec(msg).expect("alloc should never fail");
-        self.out
-            .send(RpcFrame {
-                header: WireHeader {
-                    key: T::TOPIC_KEY,
-                    seq_no,
-                },
-                body: smsg,
-            })
-            .await
-            .map_err(|_| IoClosed)
+    pub async fn publish_raw(&self, frame: RpcFrame) -> Result<(), IoClosed> {
+        let cancel_fut = self.stopper.wait_stopped();
+        let operate_fut = self.out.send(frame);
+
+        select! {
+            _ = cancel_fut => Err(IoClosed),
+            res = operate_fut => res.map_err(|_| IoClosed),
+        }
     }
 
     /// Begin listening to a [Topic], receiving a [Subscription] that will give a
@@ -351,6 +343,40 @@ where
         })
     }
 
+    pub async fn subscribe_raw(
+        &self,
+        key: Key,
+        depth: usize,
+    ) -> Result<RawSubscription, IoClosed>
+    {
+        let cancel_fut = self.stopper.wait_stopped();
+        let operate_fut = self.subscribe_inner_raw(key, depth);
+        select! {
+            _ = cancel_fut => Err(IoClosed),
+            res = operate_fut => res,
+        }
+    }
+
+    /// Inner function version of [Self::subscribe]
+    async fn subscribe_inner_raw(
+        &self,
+        key: Key,
+        depth: usize,
+    ) -> Result<RawSubscription, IoClosed>
+    {
+        let (tx, rx) = tokio::sync::mpsc::channel(depth);
+        self.subber
+            .send(SubInfo {
+                key,
+                tx,
+            })
+            .await
+            .map_err(|_| IoClosed)?;
+        Ok(RawSubscription {
+            rx,
+        })
+    }
+
     /// Permanently close the connection to the client
     ///
     /// All other HostClients sharing the connection (e.g. created by cloning
@@ -370,6 +396,20 @@ where
     /// Wait for the host client to be closed
     pub async fn wait_closed(&self) {
         self.stopper.wait_stopped().await;
+    }
+}
+
+pub struct RawSubscription {
+    rx: Receiver<RpcFrame>,
+}
+
+impl RawSubscription
+{
+    /// Await a message for the given subscription.
+    ///
+    /// Returns [None]` if the subscription was closed
+    pub async fn recv(&mut self) -> Option<RpcFrame> {
+        self.rx.recv().await
     }
 }
 

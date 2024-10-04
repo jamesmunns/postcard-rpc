@@ -323,7 +323,7 @@ pub struct WireHeader {
 /// Changing **anything** about *either* of the path or the schema will produce
 /// a drastically different `Key` value.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash, Schema)]
 pub struct Key([u8; 8]);
 
 impl core::fmt::Debug for Key {
@@ -373,6 +373,17 @@ impl Key {
         }
 
         true
+    }
+}
+
+#[cfg(all(feature = "hashv2", feature = "use-std"))]
+mod key_owned {
+    use super::*;
+    use postcard::experimental::schema::OwnedNamedType;
+    impl Key {
+        pub fn for_owned_schema_path(path: &str, nt: &OwnedNamedType) -> Key {
+            Key(crate::hash::fnv1a64_owned::hash_ty_path_owned(path, nt))
+        }
     }
 }
 
