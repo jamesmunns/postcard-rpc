@@ -384,10 +384,12 @@ pub mod fnv1a64 {
 
 #[cfg(all(feature = "hashv2", feature = "use-std"))]
 pub mod fnv1a64_owned {
-    use postcard::experimental::schema::{OwnedNamedType, OwnedNamedValue, OwnedNamedVariant, OwnedSdmTy};
+    use postcard::experimental::schema::{
+        OwnedNamedType, OwnedNamedValue, OwnedNamedVariant, OwnedSdmTy,
+    };
 
-    use super::*;
     use super::fnv1a64::*;
+    use super::*;
 
     pub fn hash_ty_path_owned(path: &str, nt: &OwnedNamedType) -> [u8; 8] {
         let state = hash_update_str(Fnv1a64Hasher::BASIS, path);

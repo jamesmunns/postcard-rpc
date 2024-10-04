@@ -343,12 +343,7 @@ where
         })
     }
 
-    pub async fn subscribe_raw(
-        &self,
-        key: Key,
-        depth: usize,
-    ) -> Result<RawSubscription, IoClosed>
-    {
+    pub async fn subscribe_raw(&self, key: Key, depth: usize) -> Result<RawSubscription, IoClosed> {
         let cancel_fut = self.stopper.wait_stopped();
         let operate_fut = self.subscribe_inner_raw(key, depth);
         select! {
@@ -362,19 +357,13 @@ where
         &self,
         key: Key,
         depth: usize,
-    ) -> Result<RawSubscription, IoClosed>
-    {
+    ) -> Result<RawSubscription, IoClosed> {
         let (tx, rx) = tokio::sync::mpsc::channel(depth);
         self.subber
-            .send(SubInfo {
-                key,
-                tx,
-            })
+            .send(SubInfo { key, tx })
             .await
             .map_err(|_| IoClosed)?;
-        Ok(RawSubscription {
-            rx,
-        })
+        Ok(RawSubscription { rx })
     }
 
     /// Permanently close the connection to the client
@@ -403,8 +392,7 @@ pub struct RawSubscription {
     rx: Receiver<RpcFrame>,
 }
 
-impl RawSubscription
-{
+impl RawSubscription {
     /// Await a message for the given subscription.
     ///
     /// Returns [None]` if the subscription was closed

@@ -1,9 +1,9 @@
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_usb_driver::{Driver, Endpoint, EndpointIn};
+use futures_util::FutureExt;
 use postcard::experimental::schema::Schema;
 use serde::Serialize;
 use static_cell::StaticCell;
-use futures_util::FutureExt;
 
 use crate::Key;
 
@@ -27,7 +27,12 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         ep_in: D::EndpointIn,
     ) -> Self {
         let max_log_len = actual_varint_max_len(tx_buf.len());
-        let x = sc.init(Mutex::new(SenderInner { ep_in, tx_buf, log_seq: 0, max_log_len }));
+        let x = sc.init(Mutex::new(SenderInner {
+            ep_in,
+            tx_buf,
+            log_seq: 0,
+            max_log_len,
+        }));
         Sender { inner: x }
     }
 
@@ -39,7 +44,12 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         E::Response: Serialize + Schema,
     {
         let mut inner = self.inner.lock().await;
-        let SenderInner { ep_in, tx_buf, log_seq: _, max_log_len: _ } = &mut *inner;
+        let SenderInner {
+            ep_in,
+            tx_buf,
+            log_seq: _,
+            max_log_len: _,
+        } = &mut *inner;
         if let Ok(used) = crate::headered::to_slice_keyed(seq_no, E::RESP_KEY, resp, tx_buf) {
             send_all::<D>(ep_in, used, true).await
         } else {
@@ -57,7 +67,12 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         T: Serialize + Schema,
     {
         let mut inner = self.inner.lock().await;
-        let SenderInner { ep_in, tx_buf, log_seq: _, max_log_len: _ } = &mut *inner;
+        let SenderInner {
+            ep_in,
+            tx_buf,
+            log_seq: _,
+            max_log_len: _,
+        } = &mut *inner;
         if let Ok(used) = crate::headered::to_slice_keyed(seq_no, key, resp, tx_buf) {
             send_all::<D>(ep_in, used, true).await
         } else {
@@ -73,7 +88,12 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         T::Message: Serialize + Schema,
     {
         let mut inner = self.inner.lock().await;
-        let SenderInner { ep_in, tx_buf, log_seq: _, max_log_len: _ } = &mut *inner;
+        let SenderInner {
+            ep_in,
+            tx_buf,
+            log_seq: _,
+            max_log_len: _,
+        } = &mut *inner;
 
         if let Ok(used) = crate::headered::to_slice_keyed(seq_no, T::TOPIC_KEY, msg, tx_buf) {
             send_all::<D>(ep_in, used, true).await
@@ -84,27 +104,42 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
 
     pub async fn str_publish<'a, T>(&self, s: &'a str)
     where
-        T: crate::Topic<Message = [u8]>
+        T: crate::Topic<Message = [u8]>,
     {
         let mut inner = self.inner.lock().await;
-        let SenderInner { ep_in, tx_buf, log_seq, max_log_len: _ } = &mut *inner;
+        let SenderInner {
+            ep_in,
+            tx_buf,
+            log_seq,
+            max_log_len: _,
+        } = &mut *inner;
         let seq_no = *log_seq;
         *log_seq = log_seq.wrapping_add(1);
-        if let Ok(used) = crate::headered::to_slice_keyed(seq_no, T::TOPIC_KEY, s.as_bytes(), tx_buf) {
+        if let Ok(used) =
+            crate::headered::to_slice_keyed(seq_no, T::TOPIC_KEY, s.as_bytes(), tx_buf)
+        {
             let _ = send_all::<D>(ep_in, used, false).await;
         }
     }
 
     pub async fn fmt_publish<'a, T>(&self, args: core::fmt::Arguments<'a>)
     where
-        T: crate::Topic<Message = [u8]>
+        T: crate::Topic<Message = [u8]>,
     {
         let mut inner = self.inner.lock().await;
-        let SenderInner { ep_in, tx_buf, log_seq, max_log_len } = &mut *inner;
+        let SenderInner {
+            ep_in,
+            tx_buf,
+            log_seq,
+            max_log_len,
+        } = &mut *inner;
         let ttl_len = tx_buf.len();
 
         // First, populate the header
-        let hdr = crate::WireHeader { key: T::TOPIC_KEY, seq_no: *log_seq };
+        let hdr = crate::WireHeader {
+            key: T::TOPIC_KEY,
+            seq_no: *log_seq,
+        };
         *log_seq = log_seq.wrapping_add(1);
         let Ok(hdr_used) = postcard::to_slice(&hdr, tx_buf) else {
             return;
@@ -268,7 +303,6 @@ fn varint_usize(n: usize, out: &mut [u8; varint_max::<usize>()]) -> &mut [u8] {
     debug_assert_eq!(value, 0);
     &mut out[..]
 }
-
 
 fn actual_varint_max_len(largest: usize) -> usize {
     if largest < (2 << 7) {
