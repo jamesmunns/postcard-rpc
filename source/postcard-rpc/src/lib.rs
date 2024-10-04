@@ -323,7 +323,7 @@ pub struct WireHeader {
 /// Changing **anything** about *either* of the path or the schema will produce
 /// a drastically different `Key` value.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash, Schema)]
 pub struct Key([u8; 8]);
 
 impl core::fmt::Debug for Key {
@@ -376,6 +376,17 @@ impl Key {
     }
 }
 
+#[cfg(all(feature = "hashv2", feature = "use-std"))]
+mod key_owned {
+    use super::*;
+    use postcard::experimental::schema::OwnedNamedType;
+    impl Key {
+        pub fn for_owned_schema_path(path: &str, nt: &OwnedNamedType) -> Key {
+            Key(crate::hash::fnv1a64_owned::hash_ty_path_owned(path, nt))
+        }
+    }
+}
+
 /// A marker trait denoting a single endpoint
 ///
 /// Typically used with the [endpoint] macro.
@@ -401,7 +412,7 @@ pub trait Endpoint {
 /// Typically used with the [topic] macro.
 pub trait Topic {
     /// The type of the Message (unidirectional)
-    type Message: Schema;
+    type Message: Schema + ?Sized;
     /// The path associated with this Topic
     const PATH: &'static str;
     /// The unique [Key] identifying the Message
@@ -439,4 +450,10 @@ pub mod standard_icd {
         UnknownKey([u8; 8]),
         FailedToSpawn,
     }
+
+    #[cfg(not(feature = "use-std"))]
+    crate::topic!(Logging, [u8], "logs/formatted");
+
+    #[cfg(feature = "use-std")]
+    crate::topic!(Logging, Vec<u8>, "logs/formatted");
 }
