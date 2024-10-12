@@ -182,6 +182,7 @@ pub mod fnv1a64 {
                 }
                 state
             }
+            SdmTy::Schema => hash_update(state, &[23]),
         }
     }
 
@@ -358,6 +359,7 @@ pub mod fnv1a64 {
                 }
                 state
             }
+            SdmTy::Schema => hash_update(state, &[0xB3]),
         }
     }
 
@@ -528,6 +530,7 @@ pub mod fnv1a64_owned {
                 }
                 state
             }
+            OwnedSdmTy::Schema => hash_update(state, &[0xB3]),
         }
     }
 
