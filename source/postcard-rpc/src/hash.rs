@@ -8,7 +8,7 @@
 //!
 //! [was noted]: https://doc.rust-lang.org/stable/std/hash/trait.Hash.html#portability
 
-use postcard::experimental::schema::{NamedType, NamedValue, NamedVariant, Schema, SdmTy, Varint};
+use postcard_schema::{Schema, schema::{NamedType, NamedValue, NamedVariant, DataModelType}};
 
 pub struct Fnv1a64Hasher {
     state: u64,
@@ -48,6 +48,8 @@ impl Default for Fnv1a64Hasher {
 
 #[cfg(not(feature = "hashv2"))]
 pub mod fnv1a64 {
+    use postcard_schema::schema::DataModelVariant;
+
     use super::*;
 
     pub const fn hash_ty_path<T: Schema + ?Sized>(path: &str) -> [u8; 8] {
@@ -71,7 +73,7 @@ pub mod fnv1a64 {
         hash_update(state, s.as_bytes())
     }
 
-    const fn hash_sdm_type(state: u64, sdmty: &'static SdmTy) -> u64 {
+    const fn hash_sdm_type(state: u64, sdmty: &'static DataModelType) -> u64 {
         // The actual values we use here don't matter that much (as far as I know),
         // as long as the values for each variant are unique. I am unsure of the
         // implications of doing a TON of single byte calls to `update`, it may be
@@ -81,49 +83,39 @@ pub mod fnv1a64 {
         // As of initial implementation, I'm mostly concerned with "does it work",
         // as hashing is typically only done on startup.
         match sdmty {
-            SdmTy::Bool => hash_update(state, &[0]),
-            SdmTy::I8 => hash_update(state, &[1]),
-            SdmTy::U8 => hash_update(state, &[2]),
-            SdmTy::Varint(v) => {
-                let state = hash_update(state, &[3]);
-                match v {
-                    Varint::I16 => hash_update(state, &[0]),
-                    Varint::I32 => hash_update(state, &[1]),
-                    Varint::I64 => hash_update(state, &[2]),
-                    Varint::I128 => hash_update(state, &[3]),
-                    Varint::U16 => hash_update(state, &[4]),
-                    Varint::U32 => hash_update(state, &[5]),
-                    Varint::U64 => hash_update(state, &[6]),
-                    Varint::U128 => hash_update(state, &[7]),
-                    Varint::Usize => hash_update(state, &[8]),
-                    Varint::Isize => hash_update(state, &[9]),
-                }
-            }
-            SdmTy::F32 => hash_update(state, &[4]),
-            SdmTy::F64 => hash_update(state, &[5]),
-            SdmTy::Char => hash_update(state, &[6]),
-            SdmTy::String => hash_update(state, &[7]),
-            SdmTy::ByteArray => hash_update(state, &[8]),
-            SdmTy::Option(nt) => {
+            DataModelType::Bool => hash_update(state, &[0]),
+            DataModelType::I8 => hash_update(state, &[1]),
+            DataModelType::U8 => hash_update(state, &[2]),
+            DataModelType::I16 => hash_update(state, &[0]),
+            DataModelType::I32 => hash_update(state, &[1]),
+            DataModelType::I64 => hash_update(state, &[2]),
+            DataModelType::I128 => hash_update(state, &[3]),
+            DataModelType::U16 => hash_update(state, &[4]),
+            DataModelType::U32 => hash_update(state, &[5]),
+            DataModelType::U64 => hash_update(state, &[6]),
+            DataModelType::U128 => hash_update(state, &[7]),
+            DataModelType::Usize => hash_update(state, &[8]),
+            DataModelType::Isize => hash_update(state, &[9]),
+            DataModelType::F32 => hash_update(state, &[4]),
+            DataModelType::F64 => hash_update(state, &[5]),
+            DataModelType::Char => hash_update(state, &[6]),
+            DataModelType::String => hash_update(state, &[7]),
+            DataModelType::ByteArray => hash_update(state, &[8]),
+            DataModelType::Option(nt) => {
                 let state = hash_update(state, &[9]);
                 hash_named_type(state, nt)
             }
-            SdmTy::Unit => hash_update(state, &[10]),
-            SdmTy::UnitStruct => hash_update(state, &[11]),
-            SdmTy::UnitVariant => hash_update(state, &[12]),
-            SdmTy::NewtypeStruct(nt) => {
+            DataModelType::Unit => hash_update(state, &[10]),
+            DataModelType::UnitStruct => hash_update(state, &[11]),
+            DataModelType::NewtypeStruct(nt) => {
                 let state = hash_update(state, &[13]);
                 hash_named_type(state, nt)
             }
-            SdmTy::NewtypeVariant(nt) => {
-                let state = hash_update(state, &[14]);
-                hash_named_type(state, nt)
-            }
-            SdmTy::Seq(nt) => {
+            DataModelType::Seq(nt) => {
                 let state = hash_update(state, &[15]);
                 hash_named_type(state, nt)
             }
-            SdmTy::Tuple(nts) => {
+            DataModelType::Tuple(nts) => {
                 let mut state = hash_update(state, &[16]);
                 let mut idx = 0;
                 while idx < nts.len() {
@@ -132,7 +124,7 @@ pub mod fnv1a64 {
                 }
                 state
             }
-            SdmTy::TupleStruct(nts) => {
+            DataModelType::TupleStruct(nts) => {
                 let mut state = hash_update(state, &[17]);
                 let mut idx = 0;
                 while idx < nts.len() {
@@ -141,21 +133,12 @@ pub mod fnv1a64 {
                 }
                 state
             }
-            SdmTy::TupleVariant(nts) => {
-                let mut state = hash_update(state, &[18]);
-                let mut idx = 0;
-                while idx < nts.len() {
-                    state = hash_named_type(state, nts[idx]);
-                    idx += 1;
-                }
-                state
-            }
-            SdmTy::Map { key, val } => {
+            DataModelType::Map { key, val } => {
                 let state = hash_update(state, &[19]);
                 let state = hash_named_type(state, key);
                 hash_named_type(state, val)
             }
-            SdmTy::Struct(nvs) => {
+            DataModelType::Struct(nvs) => {
                 let mut state = hash_update(state, &[20]);
                 let mut idx = 0;
                 while idx < nvs.len() {
@@ -164,16 +147,7 @@ pub mod fnv1a64 {
                 }
                 state
             }
-            SdmTy::StructVariant(nvs) => {
-                let mut state = hash_update(state, &[21]);
-                let mut idx = 0;
-                while idx < nvs.len() {
-                    state = hash_named_value(state, nvs[idx]);
-                    idx += 1;
-                }
-                state
-            }
-            SdmTy::Enum(nvs) => {
+            DataModelType::Enum(nvs) => {
                 let mut state = hash_update(state, &[22]);
                 let mut idx = 0;
                 while idx < nvs.len() {
@@ -182,7 +156,7 @@ pub mod fnv1a64 {
                 }
                 state
             }
-            SdmTy::Schema => hash_update(state, &[23]),
+            DataModelType::Schema => hash_update(state, &[23]),
         }
     }
 
@@ -193,7 +167,31 @@ pub mod fnv1a64 {
 
     const fn hash_named_variant(state: u64, nt: &NamedVariant) -> u64 {
         let state = hash_update(state, nt.name.as_bytes());
-        hash_sdm_type(state, nt.ty)
+        match nt.ty {
+            DataModelVariant::UnitVariant => hash_update(state, &[12]),
+            DataModelVariant::NewtypeVariant(nt) => {
+                let state = hash_update(state, &[14]);
+                hash_named_type(state, nt)
+            }
+            DataModelVariant::TupleVariant(nts) => {
+                let mut state = hash_update(state, &[18]);
+                let mut idx = 0;
+                while idx < nts.len() {
+                    state = hash_named_type(state, nts[idx]);
+                    idx += 1;
+                }
+                state
+            }
+            DataModelVariant::StructVariant(nvs) => {
+                let mut state = hash_update(state, &[21]);
+                let mut idx = 0;
+                while idx < nvs.len() {
+                    state = hash_named_value(state, nvs[idx]);
+                    idx += 1;
+                }
+                state
+            }
+        }
     }
 
     const fn hash_named_value(state: u64, nt: &NamedValue) -> u64 {
@@ -227,7 +225,7 @@ pub mod fnv1a64 {
         hash_update(state, s.as_bytes())
     }
 
-    const fn hash_sdm_type(state: u64, sdmty: &'static SdmTy) -> u64 {
+    const fn hash_sdm_type(state: u64, sdmty: &'static DataModelType) -> u64 {
         // The actual values we use here don't matter that much (as far as I know),
         // as long as the values for each variant are unique. I am unsure of the
         // implications of doing a TON of single byte calls to `update`, it may be
@@ -258,49 +256,44 @@ pub mod fnv1a64 {
         //     0x53, 0xF1, 0x17, 0x2F, 0x29, 0x59,
         // ];
         match sdmty {
-            SdmTy::Bool => hash_update(state, &[0x11]),
-            SdmTy::I8 => hash_update(state, &[0xC5]),
-            SdmTy::U8 => hash_update(state, &[0x3D]),
-            SdmTy::Varint(v) => {
-                let state = hash_update(state, &[0x95]);
-                match v {
-                    Varint::I16 => hash_update(state, &[0x1D]),
-                    Varint::I32 => hash_update(state, &[0x0D]),
-                    Varint::I64 => hash_update(state, &[0x0B]),
-                    Varint::I128 => hash_update(state, &[0x02]),
-                    Varint::U16 => hash_update(state, &[0x83]),
-                    Varint::U32 => hash_update(state, &[0xD3]),
-                    Varint::U64 => hash_update(state, &[0x13]),
-                    Varint::U128 => hash_update(state, &[0x8B]),
-                    Varint::Usize => hash_update(state, &[0x6B]),
-                    Varint::Isize => hash_update(state, &[0xAD]),
-                }
-            }
-            SdmTy::F32 => hash_update(state, &[0xEF]),
-            SdmTy::F64 => hash_update(state, &[0x71]),
-            SdmTy::Char => hash_update(state, &[0xC1]),
-            SdmTy::String => hash_update(state, &[0x25]),
-            SdmTy::ByteArray => hash_update(state, &[0x65]),
-            SdmTy::Option(nt) => {
+            DataModelType::Bool => hash_update(state, &[0x11]),
+            DataModelType::I8 => hash_update(state, &[0xC5]),
+            DataModelType::U8 => hash_update(state, &[0x3D]),
+            DataModelType::I16 => hash_update(state, &[0x1D]),
+            DataModelType::I32 => hash_update(state, &[0x0D]),
+            DataModelType::I64 => hash_update(state, &[0x0B]),
+            DataModelType::I128 => hash_update(state, &[0x02]),
+            DataModelType::U16 => hash_update(state, &[0x83]),
+            DataModelType::U32 => hash_update(state, &[0xD3]),
+            DataModelType::U64 => hash_update(state, &[0x13]),
+            DataModelType::U128 => hash_update(state, &[0x8B]),
+            DataModelType::Usize => hash_update(state, &[0x6B]),
+            DataModelType::Isize => hash_update(state, &[0xAD]),
+            DataModelType::F32 => hash_update(state, &[0xEF]),
+            DataModelType::F64 => hash_update(state, &[0x71]),
+            DataModelType::Char => hash_update(state, &[0xC1]),
+            DataModelType::String => hash_update(state, &[0x25]),
+            DataModelType::ByteArray => hash_update(state, &[0x65]),
+            DataModelType::Option(nt) => {
                 let state = hash_update(state, &[0x6D]);
                 hash_named_type(state, nt)
             }
-            SdmTy::Unit => hash_update(state, &[0x47]),
-            SdmTy::UnitStruct => hash_update(state, &[0xBF]),
-            SdmTy::UnitVariant => hash_update(state, &[0xB5]),
-            SdmTy::NewtypeStruct(nt) => {
+            DataModelType::Unit => hash_update(state, &[0x47]),
+            DataModelType::UnitStruct => hash_update(state, &[0xBF]),
+            DataModelType::UnitVariant => hash_update(state, &[0xB5]),
+            DataModelType::NewtypeStruct(nt) => {
                 let state = hash_update(state, &[0x9D]);
                 hash_named_type(state, nt)
             }
-            SdmTy::NewtypeVariant(nt) => {
+            DataModelType::NewtypeVariant(nt) => {
                 let state = hash_update(state, &[0xDF]);
                 hash_named_type(state, nt)
             }
-            SdmTy::Seq(nt) => {
+            DataModelType::Seq(nt) => {
                 let state = hash_update(state, &[0x03]);
                 hash_named_type(state, nt)
             }
-            SdmTy::Tuple(nts) => {
+            DataModelType::Tuple(nts) => {
                 let mut state = hash_update(state, &[0xA7]);
                 let mut idx = 0;
                 while idx < nts.len() {
@@ -309,7 +302,7 @@ pub mod fnv1a64 {
                 }
                 state
             }
-            SdmTy::TupleStruct(nts) => {
+            DataModelType::TupleStruct(nts) => {
                 let mut state = hash_update(state, &[0x05]);
                 let mut idx = 0;
                 while idx < nts.len() {
@@ -318,7 +311,7 @@ pub mod fnv1a64 {
                 }
                 state
             }
-            SdmTy::TupleVariant(nts) => {
+            DataModelType::TupleVariant(nts) => {
                 let mut state = hash_update(state, &[0xC7]);
                 let mut idx = 0;
                 while idx < nts.len() {
@@ -327,12 +320,12 @@ pub mod fnv1a64 {
                 }
                 state
             }
-            SdmTy::Map { key, val } => {
+            DataModelType::Map { key, val } => {
                 let state = hash_update(state, &[0x4F]);
                 let state = hash_named_type(state, key);
                 hash_named_type(state, val)
             }
-            SdmTy::Struct(nvs) => {
+            DataModelType::Struct(nvs) => {
                 let mut state = hash_update(state, &[0x7F]);
                 let mut idx = 0;
                 while idx < nvs.len() {
@@ -341,7 +334,7 @@ pub mod fnv1a64 {
                 }
                 state
             }
-            SdmTy::StructVariant(nvs) => {
+            DataModelType::StructVariant(nvs) => {
                 let mut state = hash_update(state, &[0x67]);
                 let mut idx = 0;
                 while idx < nvs.len() {
@@ -350,7 +343,7 @@ pub mod fnv1a64 {
                 }
                 state
             }
-            SdmTy::Enum(nvs) => {
+            DataModelType::Enum(nvs) => {
                 let mut state = hash_update(state, &[0xE9]);
                 let mut idx = 0;
                 while idx < nvs.len() {
@@ -359,7 +352,7 @@ pub mod fnv1a64 {
                 }
                 state
             }
-            SdmTy::Schema => hash_update(state, &[0xB3]),
+            DataModelType::Schema => hash_update(state, &[0xB3]),
         }
     }
 
@@ -386,8 +379,8 @@ pub mod fnv1a64 {
 
 #[cfg(all(feature = "hashv2", feature = "use-std"))]
 pub mod fnv1a64_owned {
-    use postcard::experimental::schema::{
-        OwnedNamedType, OwnedNamedValue, OwnedNamedVariant, OwnedSdmTy,
+    use postcard_schema::schema::{
+        OwnedNamedType, OwnedNamedValue, OwnedNamedVariant, OwnedDataModelType,
     };
 
     use super::fnv1a64::*;
@@ -398,7 +391,7 @@ pub mod fnv1a64_owned {
         hash_named_type_owned(state, nt).to_le_bytes()
     }
 
-    fn hash_sdm_type_owned(state: u64, sdmty: &OwnedSdmTy) -> u64 {
+    fn hash_sdm_type_owned(state: u64, sdmty: &OwnedDataModelType) -> u64 {
         // The actual values we use here don't matter that much (as far as I know),
         // as long as the values for each variant are unique. I am unsure of the
         // implications of doing a TON of single byte calls to `update`, it may be
@@ -429,10 +422,10 @@ pub mod fnv1a64_owned {
         //     0x53, 0xF1, 0x17, 0x2F, 0x29, 0x59,
         // ];
         match sdmty {
-            OwnedSdmTy::Bool => hash_update(state, &[0x11]),
-            OwnedSdmTy::I8 => hash_update(state, &[0xC5]),
-            OwnedSdmTy::U8 => hash_update(state, &[0x3D]),
-            OwnedSdmTy::Varint(v) => {
+            OwnedDataModelType::Bool => hash_update(state, &[0x11]),
+            OwnedDataModelType::I8 => hash_update(state, &[0xC5]),
+            OwnedDataModelType::U8 => hash_update(state, &[0x3D]),
+            OwnedDataModelType::Varint(v) => {
                 let state = hash_update(state, &[0x95]);
                 match v {
                     Varint::I16 => hash_update(state, &[0x1D]),
@@ -447,31 +440,31 @@ pub mod fnv1a64_owned {
                     Varint::Isize => hash_update(state, &[0xAD]),
                 }
             }
-            OwnedSdmTy::F32 => hash_update(state, &[0xEF]),
-            OwnedSdmTy::F64 => hash_update(state, &[0x71]),
-            OwnedSdmTy::Char => hash_update(state, &[0xC1]),
-            OwnedSdmTy::String => hash_update(state, &[0x25]),
-            OwnedSdmTy::ByteArray => hash_update(state, &[0x65]),
-            OwnedSdmTy::Option(nt) => {
+            OwnedDataModelType::F32 => hash_update(state, &[0xEF]),
+            OwnedDataModelType::F64 => hash_update(state, &[0x71]),
+            OwnedDataModelType::Char => hash_update(state, &[0xC1]),
+            OwnedDataModelType::String => hash_update(state, &[0x25]),
+            OwnedDataModelType::ByteArray => hash_update(state, &[0x65]),
+            OwnedDataModelType::Option(nt) => {
                 let state = hash_update(state, &[0x6D]);
                 hash_named_type_owned(state, nt)
             }
-            OwnedSdmTy::Unit => hash_update(state, &[0x47]),
-            OwnedSdmTy::UnitStruct => hash_update(state, &[0xBF]),
-            OwnedSdmTy::UnitVariant => hash_update(state, &[0xB5]),
-            OwnedSdmTy::NewtypeStruct(nt) => {
+            OwnedDataModelType::Unit => hash_update(state, &[0x47]),
+            OwnedDataModelType::UnitStruct => hash_update(state, &[0xBF]),
+            OwnedDataModelType::UnitVariant => hash_update(state, &[0xB5]),
+            OwnedDataModelType::NewtypeStruct(nt) => {
                 let state = hash_update(state, &[0x9D]);
                 hash_named_type_owned(state, nt)
             }
-            OwnedSdmTy::NewtypeVariant(nt) => {
+            OwnedDataModelType::NewtypeVariant(nt) => {
                 let state = hash_update(state, &[0xDF]);
                 hash_named_type_owned(state, nt)
             }
-            OwnedSdmTy::Seq(nt) => {
+            OwnedDataModelType::Seq(nt) => {
                 let state = hash_update(state, &[0x03]);
                 hash_named_type_owned(state, nt)
             }
-            OwnedSdmTy::Tuple(nts) => {
+            OwnedDataModelType::Tuple(nts) => {
                 let mut state = hash_update(state, &[0xA7]);
                 let mut idx = 0;
                 while idx < nts.len() {
@@ -480,7 +473,7 @@ pub mod fnv1a64_owned {
                 }
                 state
             }
-            OwnedSdmTy::TupleStruct(nts) => {
+            OwnedDataModelType::TupleStruct(nts) => {
                 let mut state = hash_update(state, &[0x05]);
                 let mut idx = 0;
                 while idx < nts.len() {
@@ -489,7 +482,7 @@ pub mod fnv1a64_owned {
                 }
                 state
             }
-            OwnedSdmTy::TupleVariant(nts) => {
+            OwnedDataModelType::TupleVariant(nts) => {
                 let mut state = hash_update(state, &[0xC7]);
                 let mut idx = 0;
                 while idx < nts.len() {
@@ -498,12 +491,12 @@ pub mod fnv1a64_owned {
                 }
                 state
             }
-            OwnedSdmTy::Map { key, val } => {
+            OwnedDataModelType::Map { key, val } => {
                 let state = hash_update(state, &[0x4F]);
                 let state = hash_named_type_owned(state, key);
                 hash_named_type_owned(state, val)
             }
-            OwnedSdmTy::Struct(nvs) => {
+            OwnedDataModelType::Struct(nvs) => {
                 let mut state = hash_update(state, &[0x7F]);
                 let mut idx = 0;
                 while idx < nvs.len() {
@@ -512,7 +505,7 @@ pub mod fnv1a64_owned {
                 }
                 state
             }
-            OwnedSdmTy::StructVariant(nvs) => {
+            OwnedDataModelType::StructVariant(nvs) => {
                 let mut state = hash_update(state, &[0x67]);
                 let mut idx = 0;
                 while idx < nvs.len() {
@@ -521,7 +514,7 @@ pub mod fnv1a64_owned {
                 }
                 state
             }
-            OwnedSdmTy::Enum(nvs) => {
+            OwnedDataModelType::Enum(nvs) => {
                 let mut state = hash_update(state, &[0xE9]);
                 let mut idx = 0;
                 while idx < nvs.len() {
@@ -530,7 +523,7 @@ pub mod fnv1a64_owned {
                 }
                 state
             }
-            OwnedSdmTy::Schema => hash_update(state, &[0xB3]),
+            OwnedDataModelType::Schema => hash_update(state, &[0xB3]),
         }
     }
 

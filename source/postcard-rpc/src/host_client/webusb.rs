@@ -1,5 +1,5 @@
 use gloo::utils::format::JsValueSerdeExt;
-use postcard::experimental::schema::Schema;
+use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use tracing::info;

@@ -4,7 +4,7 @@ use nusb::{
     transfer::{Queue, RequestBuffer, TransferError},
     DeviceInfo,
 };
-use postcard::experimental::schema::Schema;
+use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
 
 use crate::host_client::{HostClient, WireRx, WireSpawn, WireTx};
@@ -49,7 +49,7 @@ where
     /// ```rust,no_run
     /// use postcard_rpc::host_client::HostClient;
     /// use serde::{Serialize, Deserialize};
-    /// use postcard::experimental::schema::Schema;
+    /// use postcard_schema::Schema;
     ///
     /// /// A "wire error" type your server can use to respond to any
     /// /// kind of request, for example if deserializing a request fails
@@ -109,7 +109,7 @@ where
     /// ```rust,no_run
     /// use postcard_rpc::host_client::HostClient;
     /// use serde::{Serialize, Deserialize};
-    /// use postcard::experimental::schema::Schema;
+    /// use postcard_schema::Schema;
     ///
     /// /// A "wire error" type your server can use to respond to any
     /// /// kind of request, for example if deserializing a request fails

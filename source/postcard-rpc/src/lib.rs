@@ -40,7 +40,7 @@
 //! # fn main() {}
 //!
 //! use serde::{Serialize, Deserialize};
-//! use postcard::experimental::schema::Schema;
+//! use postcard_schema::Schema;
 //!
 //! #[derive(Serialize, Deserialize, Schema)]
 //! pub struct Alpha {
@@ -85,7 +85,7 @@
 //!
 //! ```rust
 //! # use serde::{Serialize, Deserialize};
-//! # use postcard::experimental::schema::Schema;
+//! # use postcard_schema::Schema;
 //! #
 //! # #[derive(Serialize, Deserialize, Schema)]
 //! # pub struct Alpha {
@@ -135,7 +135,7 @@
 //!
 //! ```rust
 //! # use serde::{Serialize, Deserialize};
-//! # use postcard::experimental::schema::Schema;
+//! # use postcard_schema::Schema;
 //! #
 //! # #[derive(Serialize, Deserialize, Schema)]
 //! # pub struct Delta(pub [u8; 32]);
@@ -175,7 +175,7 @@
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
 use headered::extract_header_from_bytes;
-use postcard::experimental::schema::Schema;
+use postcard_schema::Schema;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "cobs")]
@@ -379,7 +379,7 @@ impl Key {
 #[cfg(all(feature = "hashv2", feature = "use-std"))]
 mod key_owned {
     use super::*;
-    use postcard::experimental::schema::OwnedNamedType;
+    use postcard_schema::schema::OwnedNamedType;
     impl Key {
         pub fn for_owned_schema_path(path: &str, nt: &OwnedNamedType) -> Key {
             Key(crate::hash::fnv1a64_owned::hash_ty_path_owned(path, nt))
@@ -424,7 +424,7 @@ pub trait Topic {
 /// This is used by [`define_dispatch!()`] as well.
 pub mod standard_icd {
     use crate::Key;
-    use postcard::experimental::schema::Schema;
+    use postcard_schema::Schema;
     use serde::{Deserialize, Serialize};
 
     pub const ERROR_KEY: Key = Key::for_path::<WireError>(ERROR_PATH);

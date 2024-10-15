@@ -28,8 +28,9 @@ features = [
 cobs = { version = "0.2.3", optional = true, default-features = false }
 defmt = { version = "0.3.5", optional = true }
 heapless = "0.8.0"
-postcard = { version = "1.0.8", features = ["experimental-derive"] }
+postcard = { version = "1.0.8" }
 serde = { version = "1.0.192", default-features = false, features = ["derive"] }
+postcard-schema = { version = "0.1.0", features = ["derive"] }
 
 #
 # std-only features
@@ -146,11 +147,12 @@ features = ["std"]
 
 [features]
 default = []
-test-utils = ["use-std"]
+test-utils = ["use-std", "postcard-schema/use-std"]
 use-std = [
     "dep:maitake-sync",
     "dep:tokio",
     "postcard/use-std",
+    "postcard-schema/use-std",
     "dep:thiserror",
     "dep:tracing",
     "dep:trait-variant",
@@ -207,6 +209,3 @@ hashv2 = []
 # that feature when `--all-features` is set. This feature is considered unstable
 # and should not be relied upon.
 _docs-fix = ["dep:ssmarshal"]
-
-[patch.crates-io]
-postcard = { git = "https://github.com/jamesmunns/postcard", rev = "dbb730afa00d7a556ce02cb3ae1d984832d6c798" }

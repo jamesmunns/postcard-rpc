@@ -2,10 +2,11 @@
 
 use crate::{Key, WireHeader};
 use postcard::{
-    experimental::schema::Schema,
     ser_flavors::{Cobs, Flavor as SerFlavor, Slice},
     Serializer,
 };
+use postcard_schema::Schema;
+
 use serde::Serialize;
 
 struct Headered<B: SerFlavor> {

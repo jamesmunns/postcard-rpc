@@ -16,7 +16,7 @@ use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,
 };
-use postcard::experimental::schema::Schema;
+use postcard_schema::Schema;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{
     select,

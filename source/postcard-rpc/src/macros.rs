@@ -4,7 +4,7 @@
 /// [Endpoint][crate::Endpoint] trait.
 ///
 /// ```rust
-/// # use postcard::experimental::schema::Schema;
+/// # use postcard_schema::Schema;
 /// # use serde::{Serialize, Deserialize};
 /// use postcard_rpc::endpoint;
 ///
@@ -51,7 +51,7 @@ macro_rules! endpoint {
 /// [Topic][crate::Topic] trait.
 ///
 /// ```rust
-/// # use postcard::experimental::schema::Schema;
+/// # use postcard_schema::Schema;
 /// # use serde::{Serialize, Deserialize};
 /// use postcard_rpc::topic;
 ///

@@ -13,6 +13,10 @@ features = [
     "raw-nusb",
 ]
 
+[dependencies.postcard-schema]
+version = "0.1"
+features = ["derive"]
+
 [dependencies.tokio]
 version = "1.37.0"
 features = [

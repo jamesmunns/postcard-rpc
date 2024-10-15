@@ -1,7 +1,7 @@
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_usb_driver::{Driver, Endpoint, EndpointIn};
 use futures_util::FutureExt;
-use postcard::experimental::schema::Schema;
+use postcard_schema::Schema;
 use serde::Serialize;
 use static_cell::StaticCell;
 

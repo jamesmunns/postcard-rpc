@@ -1,6 +1,6 @@
 #![no_std]
 
-use postcard::experimental::schema::Schema;
+use postcard_schema::Schema;
 use postcard_rpc::{endpoint, topic};
 use serde::{Deserialize, Serialize};
 
