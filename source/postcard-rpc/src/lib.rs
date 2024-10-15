@@ -376,10 +376,10 @@ impl Key {
     }
 }
 
-#[cfg(all(feature = "hashv2", feature = "use-std"))]
+#[cfg(feature = "use-std")]
 mod key_owned {
     use super::*;
-    use postcard_schema::schema::OwnedNamedType;
+    use postcard_schema::schema::owned::OwnedNamedType;
     impl Key {
         pub fn for_owned_schema_path(path: &str, nt: &OwnedNamedType) -> Key {
             Key(crate::hash::fnv1a64_owned::hash_ty_path_owned(path, nt))
