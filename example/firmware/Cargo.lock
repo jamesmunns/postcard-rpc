@@ -1152,7 +1152,7 @@ dependencies = [
 
 [[package]]
 name = "postcard-rpc"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "embassy-executor 0.5.0",
  "embassy-sync",

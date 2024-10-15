@@ -1,6 +1,6 @@
 [package]
 name = "postcard-rpc"
-version = "0.7.0"
+version = "0.8.0"
 authors = ["James Munns <james@onevariable.com>"]
 edition = "2021"
 repository = "https://github.com/jamesmunns/postcard-rpc"
