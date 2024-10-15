@@ -2,7 +2,7 @@
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use maitake_sync::WaitQueue;
-use postcard::experimental::schema::Schema;
+use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
 use tokio::{
     select,

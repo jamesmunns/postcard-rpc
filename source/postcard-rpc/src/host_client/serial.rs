@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, future::Future};
 
 use cobs::encode_vec;
-use postcard::experimental::schema::Schema;
+use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
@@ -32,7 +32,7 @@ where
     /// ```rust,no_run
     /// use postcard_rpc::host_client::HostClient;
     /// use serde::{Serialize, Deserialize};
-    /// use postcard::experimental::schema::Schema;
+    /// use postcard_schema::Schema;
     ///
     /// /// A "wire error" type your server can use to respond to any
     /// /// kind of request, for example if deserializing a request fails

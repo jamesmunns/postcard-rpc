@@ -4,7 +4,7 @@
 /// [Endpoint][crate::Endpoint] trait.
 ///
 /// ```rust
-/// # use postcard::experimental::schema::Schema;
+/// # use postcard_schema::Schema;
 /// # use serde::{Serialize, Deserialize};
 /// use postcard_rpc::endpoint;
 ///
@@ -51,7 +51,7 @@ macro_rules! endpoint {
 /// [Topic][crate::Topic] trait.
 ///
 /// ```rust
-/// # use postcard::experimental::schema::Schema;
+/// # use postcard_schema::Schema;
 /// # use serde::{Serialize, Deserialize};
 /// use postcard_rpc::topic;
 ///
@@ -82,4 +82,18 @@ macro_rules! topic {
             const TOPIC_KEY: $crate::Key = $crate::Key::for_path::<$msg>($path);
         }
     };
+}
+
+#[cfg(feature = "embassy-usb-0_3-server")]
+#[macro_export]
+macro_rules! sender_log {
+    ($sender:ident, $($arg:tt)*) => {
+        $sender.fmt_publish::<$crate::standard_icd::Logging>(format_args!($($arg)*))
+    };
+    ($sender:ident, $s:expr) => {
+        $sender.str_publish::<$crate::standard_icd::Logging>($s)
+    };
+    ($($arg:tt)*) => {
+        compile_error!("You must pass the sender to `sender_log`!");
+    }
 }

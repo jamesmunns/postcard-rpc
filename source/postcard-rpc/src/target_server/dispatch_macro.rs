@@ -3,7 +3,7 @@
 /// ```rust
 /// # use postcard_rpc::target_server::dispatch_macro::fake::*;
 /// # use postcard_rpc::{endpoint, target_server::{sender::Sender, SpawnContext}, WireHeader, define_dispatch};
-/// # use postcard::experimental::schema::Schema;
+/// # use postcard_schema::Schema;
 /// # use embassy_usb_driver::{Bus, ControlPipe, EndpointIn, EndpointOut};
 /// # use serde::{Deserialize, Serialize};
 ///

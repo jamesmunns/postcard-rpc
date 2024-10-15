@@ -40,7 +40,7 @@
 //! # fn main() {}
 //!
 //! use serde::{Serialize, Deserialize};
-//! use postcard::experimental::schema::Schema;
+//! use postcard_schema::Schema;
 //!
 //! #[derive(Serialize, Deserialize, Schema)]
 //! pub struct Alpha {
@@ -85,7 +85,7 @@
 //!
 //! ```rust
 //! # use serde::{Serialize, Deserialize};
-//! # use postcard::experimental::schema::Schema;
+//! # use postcard_schema::Schema;
 //! #
 //! # #[derive(Serialize, Deserialize, Schema)]
 //! # pub struct Alpha {
@@ -135,7 +135,7 @@
 //!
 //! ```rust
 //! # use serde::{Serialize, Deserialize};
-//! # use postcard::experimental::schema::Schema;
+//! # use postcard_schema::Schema;
 //! #
 //! # #[derive(Serialize, Deserialize, Schema)]
 //! # pub struct Delta(pub [u8; 32]);
@@ -175,7 +175,7 @@
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
 use headered::extract_header_from_bytes;
-use postcard::experimental::schema::Schema;
+use postcard_schema::Schema;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "cobs")]
@@ -323,7 +323,7 @@ pub struct WireHeader {
 /// Changing **anything** about *either* of the path or the schema will produce
 /// a drastically different `Key` value.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash, Schema)]
 pub struct Key([u8; 8]);
 
 impl core::fmt::Debug for Key {
@@ -376,6 +376,17 @@ impl Key {
     }
 }
 
+#[cfg(feature = "use-std")]
+mod key_owned {
+    use super::*;
+    use postcard_schema::schema::owned::OwnedNamedType;
+    impl Key {
+        pub fn for_owned_schema_path(path: &str, nt: &OwnedNamedType) -> Key {
+            Key(crate::hash::fnv1a64_owned::hash_ty_path_owned(path, nt))
+        }
+    }
+}
+
 /// A marker trait denoting a single endpoint
 ///
 /// Typically used with the [endpoint] macro.
@@ -401,7 +412,7 @@ pub trait Endpoint {
 /// Typically used with the [topic] macro.
 pub trait Topic {
     /// The type of the Message (unidirectional)
-    type Message: Schema;
+    type Message: Schema + ?Sized;
     /// The path associated with this Topic
     const PATH: &'static str;
     /// The unique [Key] identifying the Message
@@ -413,7 +424,7 @@ pub trait Topic {
 /// This is used by [`define_dispatch!()`] as well.
 pub mod standard_icd {
     use crate::Key;
-    use postcard::experimental::schema::Schema;
+    use postcard_schema::Schema;
     use serde::{Deserialize, Serialize};
 
     pub const ERROR_KEY: Key = Key::for_path::<WireError>(ERROR_PATH);
@@ -439,4 +450,10 @@ pub mod standard_icd {
         UnknownKey([u8; 8]),
         FailedToSpawn,
     }
+
+    #[cfg(not(feature = "use-std"))]
+    crate::topic!(Logging, [u8], "logs/formatted");
+
+    #[cfg(feature = "use-std")]
+    crate::topic!(Logging, Vec<u8>, "logs/formatted");
 }

@@ -1,5 +1,5 @@
 use gloo::utils::format::JsValueSerdeExt;
-use postcard::experimental::schema::Schema;
+use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use tracing::info;
@@ -141,13 +141,14 @@ impl WebUsbWire {
 impl WireTx for WebUsbWire {
     type Error = Error;
 
-    async fn send(&mut self, mut data: Vec<u8>) -> Result<(), Self::Error> {
+    async fn send(&mut self, data: Vec<u8>) -> Result<(), Self::Error> {
         tracing::trace!("send…");
+        let data: js_sys::Uint8Array = data.as_slice().into();
         // TODO for reasons unknown, web-sys wants mutable access to the send buffer.
         // tracking issue: https://github.com/rustwasm/wasm-bindgen/issues/3963
         JsFuture::from(
             self.device
-                .transfer_out_with_u8_array(self.ep_out, &mut data),
+                .transfer_out_with_u8_array(self.ep_out, &data)?,
         )
         .await?;
         Ok(())

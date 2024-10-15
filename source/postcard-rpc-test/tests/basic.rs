@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::Duration};
 
-use postcard::experimental::schema::Schema;
+use postcard_schema::Schema;
 use postcard_rpc::test_utils::local_setup;
 use postcard_rpc::{
     endpoint, headered::to_stdvec_keyed, topic, Dispatch, Endpoint, Key, Topic, WireHeader,

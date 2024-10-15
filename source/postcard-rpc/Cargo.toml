@@ -1,6 +1,6 @@
 [package]
 name = "postcard-rpc"
-version = "0.7.0"
+version = "0.8.0"
 authors = ["James Munns <james@onevariable.com>"]
 edition = "2021"
 repository = "https://github.com/jamesmunns/postcard-rpc"
@@ -27,8 +27,9 @@ features = [
 cobs = { version = "0.2.3", optional = true, default-features = false }
 defmt = { version = "0.3.5", optional = true }
 heapless = "0.8.0"
-postcard = { version = "1.0.8", features = ["experimental-derive"] }
+postcard = { version = "1.0.8" }
 serde = { version = "1.0.192", default-features = false, features = ["derive"] }
+postcard-schema = { version = "0.1.0", features = ["derive"] }
 
 #
 # std-only features
@@ -126,6 +127,11 @@ optional = true
 version = "0.5"
 optional = true
 
+[dependencies.futures-util]
+version = "0.3"
+optional = true
+default-features = false
+
 [dev-dependencies]
 postcard-rpc = { path = "../postcard-rpc", features = ["test-utils"] }
 
@@ -140,11 +146,12 @@ features = ["std"]
 
 [features]
 default = []
-test-utils = ["use-std"]
+test-utils = ["use-std", "postcard-schema/use-std"]
 use-std = [
     "dep:maitake-sync",
     "dep:tokio",
     "postcard/use-std",
+    "postcard-schema/use-std",
     "dep:thiserror",
     "dep:tracing",
     "dep:trait-variant",
@@ -189,6 +196,7 @@ embassy-usb-0_3-server = [
     "dep:static_cell",
     "dep:embassy-usb-driver",
     "dep:embassy-executor",
+    "dep:futures-util",
 ]
 
 # NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal
