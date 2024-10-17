@@ -195,6 +195,8 @@ pub mod target_server;
 
 mod macros;
 
+pub mod server2;
+
 /// Error type for [Dispatch]
 #[derive(Debug, PartialEq)]
 pub enum Error<E> {

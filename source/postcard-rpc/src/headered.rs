@@ -9,12 +9,12 @@ use postcard_schema::Schema;
 
 use serde::Serialize;
 
-struct Headered<B: SerFlavor> {
+pub(crate) struct Headered<B: SerFlavor> {
     flavor: B,
 }
 
 impl<B: SerFlavor> Headered<B> {
-    fn try_new_keyed(b: B, seq_no: u32, key: Key) -> Result<Self, postcard::Error> {
+    pub(crate) fn try_new_keyed(b: B, seq_no: u32, key: Key) -> Result<Self, postcard::Error> {
         let mut serializer = Serializer { output: b };
         let hdr = WireHeader { key, seq_no };
         hdr.serialize(&mut serializer)?;

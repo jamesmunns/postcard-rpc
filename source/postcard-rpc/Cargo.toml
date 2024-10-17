@@ -145,7 +145,7 @@ features = ["std"]
 
 
 [features]
-default = []
+default = ["embassy-usb-0_3-server"]
 test-utils = ["use-std", "postcard-schema/use-std"]
 use-std = [
     "dep:maitake-sync",
@@ -155,6 +155,7 @@ use-std = [
     "dep:thiserror",
     "dep:tracing",
     "dep:trait-variant",
+    "dep:ssmarshal",
 ]
 
 # Cobs Serial support.
