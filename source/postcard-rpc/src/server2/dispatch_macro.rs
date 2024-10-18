@@ -62,7 +62,9 @@ macro_rules! define_dispatch2 {
             let reply = $handler($context, $header.clone(), $req);
             if $outputter.reply::<$endpoint>($header.seq_no, &reply).await.is_err() {
                 let err = $crate::standard_icd::WireError::SerFailed;
-                $outputter.error($header.seq_no, err).await;
+                $outputter.error($header.seq_no, err).await
+            } else {
+                Ok(())
             }
         }
     };
@@ -72,7 +74,9 @@ macro_rules! define_dispatch2 {
             let reply = $handler($context, $header.clone(), $req).await;
             if $outputter.reply::<$endpoint>($header.seq_no, &reply).await.is_err() {
                 let err = $crate::standard_icd::WireError::SerFailed;
-                $outputter.error($header.seq_no, err).await;
+                $outputter.error($header.seq_no, err).await
+            } else {
+                Ok(())
             }
         }
     };
@@ -82,7 +86,9 @@ macro_rules! define_dispatch2 {
             let context = $crate::target_server::SpawnContext::spawn_ctxt($context);
             if $spawn_fn($spawner, $handler(context, $header.clone(), $req, $outputter.clone())).is_err() {
                 let err = $crate::standard_icd::WireError::FailedToSpawn;
-                $outputter.error($header.seq_no, err).await;
+                $outputter.error($header.seq_no, err).await
+            } else {
+                Ok(())
             }
         }
     };
@@ -135,7 +141,7 @@ macro_rules! define_dispatch2 {
                 tx: &$crate::server2::Outputter<Self::Tx>,
                 hdr: &$crate::WireHeader,
                 body: &[u8],
-            ) -> Result<(), ()> {
+            ) -> Result<(), <Self::Tx as WireTx>::Error> {
                 const _REQ_KEYS_MUST_BE_UNIQUE: () = {
                     let keys = [$(<$endpoint as $crate::Endpoint>::REQ_KEY),*];
 
@@ -162,8 +168,7 @@ macro_rules! define_dispatch2 {
                             // Can we deserialize the request?
                             let Ok(req) = postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
                                 let err = $crate::standard_icd::WireError::DeserFailed;
-                                tx.error(hdr.seq_no, err).await;
-                                return Ok(());
+                                return tx.error(hdr.seq_no, err).await;
                             };
 
                             // Store some items as named bindings, so we can use `ident` in the
@@ -176,15 +181,13 @@ macro_rules! define_dispatch2 {
                             let spawninfo = &dispatch.spawn;
 
                             // This will expand to the right "flavor" of handler
-                            define_dispatch2!(@arm $flavor ($endpoint) $handler context hdr req tx $spawner spawninfo);
-                            Ok(())
+                            define_dispatch2!(@arm $flavor ($endpoint) $handler context hdr req tx $spawner spawninfo)
                         }
                     )*
                     other => {
                         // huh! We have no idea what this key is supposed to be!
                         let err = $crate::standard_icd::WireError::UnknownKey(other.to_bytes());
-                        tx.error(hdr.seq_no, err).await;
-                        return Ok(());
+                        tx.error(hdr.seq_no, err).await
                     },
                 }
             }

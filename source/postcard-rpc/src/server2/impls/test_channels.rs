@@ -30,6 +30,10 @@ pub fn new_channel_server(bound: usize, buf: usize) -> NewChannelServer {
     }
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// TX
+//////////////////////////////////////////////////////////////////////////////
+
 #[derive(Clone)]
 pub struct ChannelWireTx {
     tx: mpsc::Sender<Vec<u8>>,
@@ -64,21 +68,6 @@ impl WireTx for ChannelWireTx {
 }
 
 #[derive(Debug)]
-pub enum ChannelWireRxError {
-    ChannelClosed,
-    MessageTooLarge,
-}
-
-impl AsWireRxErrorKind for ChannelWireRxError {
-    fn as_kind(&self) -> WireRxErrorKind {
-        match self {
-            ChannelWireRxError::ChannelClosed => WireRxErrorKind::ConnectionClosed,
-            ChannelWireRxError::MessageTooLarge => WireRxErrorKind::ReceivedMessageTooLarge,
-        }
-    }
-}
-
-#[derive(Debug)]
 pub enum ChannelWireTxError {
     ChannelClosed,
 }
@@ -90,6 +79,10 @@ impl AsWireTxErrorKind for ChannelWireTxError {
         }
     }
 }
+
+//////////////////////////////////////////////////////////////////////////////
+// RX
+//////////////////////////////////////////////////////////////////////////////
 
 pub struct ChannelWireRx {
     rx: mpsc::Receiver<Vec<u8>>,
@@ -110,6 +103,25 @@ impl WireRx for ChannelWireRx {
     }
 }
 
+#[derive(Debug)]
+pub enum ChannelWireRxError {
+    ChannelClosed,
+    MessageTooLarge,
+}
+
+impl AsWireRxErrorKind for ChannelWireRxError {
+    fn as_kind(&self) -> WireRxErrorKind {
+        match self {
+            ChannelWireRxError::ChannelClosed => WireRxErrorKind::ConnectionClosed,
+            ChannelWireRxError::MessageTooLarge => WireRxErrorKind::ReceivedMessageTooLarge,
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// SPAWN
+//////////////////////////////////////////////////////////////////////////////
+
 // todo: just use a standard tokio impl?
 #[derive(Clone)]
 pub struct ChannelWireSpawn {}
@@ -124,12 +136,13 @@ impl WireSpawn for ChannelWireSpawn {
     }
 }
 
-pub fn tokio_spawn<Sp, F>(_sp: &Sp, fut: F)
+pub fn tokio_spawn<Sp, F>(_sp: &Sp, fut: F) -> Result<(), Sp::Error>
 where
     Sp: WireSpawn<Error = Infallible, Info = ()>,
     F: Future<Output = ()> + 'static + Send,
 {
     tokio::task::spawn(fut);
+    Ok(())
 }
 
 #[cfg(test)]

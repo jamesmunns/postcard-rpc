@@ -157,7 +157,9 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         for b in len_field.iter_mut() {
             *b = 0x80;
         }
-        len_field.last_mut().map(|b| *b = 0x00);
+        if let Some(b) = len_field.last_mut() {
+            *b = 0x00;
+        }
 
         // Then, do the formatting
         let body_len = body.len();
@@ -185,7 +187,9 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Sender<M, D> {
         let mut len_bytes = [0u8; varint_max::<usize>()];
         let len_used = varint_usize(used, &mut len_bytes);
         if len_used.len() != len_field.len() {
-            len_used.last_mut().map(|b| *b = *b | 0x80);
+            if let Some(b) = len_used.last_mut() {
+                *b |= 0x80;
+            }
         }
         len_field[..len_used.len()].copy_from_slice(len_used);
 

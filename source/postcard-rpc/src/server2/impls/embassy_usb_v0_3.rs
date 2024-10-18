@@ -1,40 +1,39 @@
+use embassy_executor::{SpawnError, SpawnToken, Spawner};
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
-use embassy_usb_driver::{Driver, Endpoint, EndpointIn};
+use embassy_usb_driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use futures_util::FutureExt;
 use postcard::ser_flavors::Slice;
-use postcard_schema::Schema;
 use serde::Serialize;
-use static_cell::StaticCell;
 
-use crate::{headered::Headered, Key};
+use crate::{
+    headered::Headered,
+    server2::{WireRx, WireRxErrorKind, WireSpawn, WireTx, WireTxErrorKind},
+};
 
-use crate::server2::{WireTx, WireTxErrorKind};
+//////////////////////////////////////////////////////////////////////////////
+// TX
+//////////////////////////////////////////////////////////////////////////////
 
-/// This is the interface for sending information to the client.
-///
-/// This is normally used by postcard-rpc itself, as well as for cases where
-/// you have to manually send data, like publishing on a topic or delayed
-/// replies (e.g. when spawning a task).
-#[derive(Copy)]
-pub struct Sender<M: RawMutex + 'static, D: Driver<'static> + 'static> {
-    inner: &'static Mutex<M, SenderInner<D>>,
+/// Implementation detail, holding the endpoint and scratch buffer used for sending
+pub struct EUsbWireTxInner<D: Driver<'static>> {
+    ep_in: D::EndpointIn,
+    _log_seq: u32,
+    tx_buf: &'static mut [u8],
+    _max_log_len: usize,
 }
 
-impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Clone for Sender<M, D> {
+#[derive(Copy)]
+pub struct EUsbWireTx<M: RawMutex + 'static, D: Driver<'static> + 'static> {
+    inner: &'static Mutex<M, EUsbWireTxInner<D>>,
+}
+
+impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Clone for EUsbWireTx<M, D> {
     fn clone(&self) -> Self {
-        Sender { inner: self.inner }
+        EUsbWireTx { inner: self.inner }
     }
 }
 
-/// Implementation detail, holding the endpoint and scratch buffer used for sending
-pub struct SenderInner<D: Driver<'static>> {
-    ep_in: D::EndpointIn,
-    log_seq: u32,
-    tx_buf: &'static mut [u8],
-    max_log_len: usize,
-}
-
-impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for Sender<M, D> {
+impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<M, D> {
     type Error = WireTxErrorKind;
 
     async fn send<T: Serialize + ?Sized>(
@@ -44,14 +43,14 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for Sender<M, D
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.lock().await;
 
-        let SenderInner {
+        let EUsbWireTxInner {
             ep_in,
-            log_seq,
+            _log_seq: _,
             tx_buf,
-            max_log_len,
-        }: &mut SenderInner<D> = &mut inner;
+            _max_log_len: _,
+        }: &mut EUsbWireTxInner<D> = &mut inner;
 
-        let flavor = Headered::try_new_keyed(Slice::new(*tx_buf), hdr.seq_no, hdr.key)
+        let flavor = Headered::try_new_keyed(Slice::new(tx_buf), hdr.seq_no, hdr.key)
             .map_err(|_| WireTxErrorKind::Other)?;
         let res = postcard::serialize_with_flavor(msg, flavor);
 
@@ -64,13 +63,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for Sender<M, D
 
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error> {
         let mut inner = self.inner.lock().await;
-        let SenderInner {
-            ep_in,
-            log_seq,
-            tx_buf,
-            max_log_len,
-        }: &mut SenderInner<D> = &mut inner;
-        send_all::<D>(ep_in, buf).await
+        send_all::<D>(&mut inner.ep_in, buf).await
     }
 }
 
@@ -102,4 +95,82 @@ where
     }
 
     Ok(())
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// RX
+//////////////////////////////////////////////////////////////////////////////
+
+pub struct EUsbWireRx<D: Driver<'static>> {
+    ep_out: D::EndpointOut,
+}
+
+impl<D: Driver<'static>> WireRx for EUsbWireRx<D> {
+    type Error = WireRxErrorKind;
+
+    async fn receive<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a mut [u8], Self::Error> {
+        let buflen = buf.len();
+        let mut window = &mut buf[..];
+        while !window.is_empty() {
+            let n = match self.ep_out.read(window).await {
+                Ok(n) => n,
+                Err(EndpointError::BufferOverflow) => {
+                    return Err(WireRxErrorKind::ReceivedMessageTooLarge)
+                }
+                Err(EndpointError::Disabled) => return Err(WireRxErrorKind::ConnectionClosed),
+            };
+
+            let (_now, later) = window.split_at_mut(n);
+            window = later;
+            if n != 64 {
+                // We now have a full frame! Great!
+                let wlen = window.len();
+                let len = buflen - wlen;
+                let frame = &mut buf[..len];
+
+                return Ok(frame);
+            }
+        }
+
+        // If we got here, we've run out of space. That's disappointing. Accumulate to the
+        // end of this packet
+        loop {
+            match self.ep_out.read(buf).await {
+                Ok(64) => {}
+                Ok(_) => return Err(WireRxErrorKind::ReceivedMessageTooLarge),
+                Err(EndpointError::BufferOverflow) => {
+                    return Err(WireRxErrorKind::ReceivedMessageTooLarge)
+                }
+                Err(EndpointError::Disabled) => return Err(WireRxErrorKind::ConnectionClosed),
+            };
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// SPAWN
+//////////////////////////////////////////////////////////////////////////////
+
+// todo: just use a standard tokio impl?
+#[derive(Clone)]
+pub struct EUsbWireSpawn {
+    spawner: Spawner,
+}
+
+impl WireSpawn for EUsbWireSpawn {
+    type Error = SpawnError;
+
+    type Info = Spawner;
+
+    fn info(&self) -> &Self::Info {
+        &self.spawner
+    }
+}
+
+pub fn embassy_spawn<Sp, S>(sp: &Sp, tok: SpawnToken<S>) -> Result<(), Sp::Error>
+where
+    Sp: WireSpawn<Error = SpawnError, Info = Spawner>,
+{
+    let info = sp.info();
+    info.spawn(tok)
 }

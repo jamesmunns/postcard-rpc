@@ -132,11 +132,13 @@ impl<Tx: WireTx> Outputter<Tx> {
     }
 
     /// Send a single error message
-    pub async fn error(&self, seq_no: u32, error: crate::standard_icd::WireError) {
-        // If we get an error while sending an error, welp there's not much we can do
-        let _ = self
-            .reply_keyed(seq_no, crate::standard_icd::ERROR_KEY, &error)
-            .await;
+    pub async fn error(
+        &self,
+        seq_no: u32,
+        error: crate::standard_icd::WireError,
+    ) -> Result<(), Tx::Error> {
+        self.reply_keyed(seq_no, crate::standard_icd::ERROR_KEY, &error)
+            .await
     }
 }
 
@@ -196,9 +198,13 @@ where
                 continue;
             };
             let fut = d.handle(tx, &hdr, body);
-            let Ok(y) = fut.await else {
-                continue;
-            };
+            if let Err(e) = fut.await {
+                let kind = e.as_kind();
+                match kind {
+                    WireTxErrorKind::ConnectionClosed => return ServerError::TxFatal(e),
+                    WireTxErrorKind::Other => {}
+                }
+            }
         }
     }
 }
@@ -214,7 +220,7 @@ pub trait Dispatch2 {
         tx: &Outputter<Self::Tx>,
         hdr: &WireHeader,
         body: &[u8],
-    ) -> Result<(), ()>;
+    ) -> Result<(), <Self::Tx as WireTx>::Error>;
 }
 
 //////////////////////////////////////////////////////////////////////////////
