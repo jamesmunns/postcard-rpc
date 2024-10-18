@@ -146,11 +146,7 @@ impl WireTx for WebUsbWire {
         let data: js_sys::Uint8Array = data.as_slice().into();
         // TODO for reasons unknown, web-sys wants mutable access to the send buffer.
         // tracking issue: https://github.com/rustwasm/wasm-bindgen/issues/3963
-        JsFuture::from(
-            self.device
-                .transfer_out_with_u8_array(self.ep_out, &data)?,
-        )
-        .await?;
+        JsFuture::from(self.device.transfer_out_with_u8_array(self.ep_out, &data)?).await?;
         Ok(())
     }
 }

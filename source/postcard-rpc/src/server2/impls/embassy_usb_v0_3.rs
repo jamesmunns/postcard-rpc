@@ -37,12 +37,22 @@ pub struct SenderInner<D: Driver<'static>> {
 impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for Sender<M, D> {
     type Error = WireTxErrorKind;
 
-    async fn send<T: Serialize + ?Sized>(&self, hdr: crate::WireHeader, msg: &T) -> Result<(), Self::Error> {
+    async fn send<T: Serialize + ?Sized>(
+        &self,
+        hdr: crate::WireHeader,
+        msg: &T,
+    ) -> Result<(), Self::Error> {
         let mut inner = self.inner.lock().await;
 
-        let SenderInner { ep_in, log_seq, tx_buf, max_log_len }: &mut SenderInner<D> = &mut inner;
+        let SenderInner {
+            ep_in,
+            log_seq,
+            tx_buf,
+            max_log_len,
+        }: &mut SenderInner<D> = &mut inner;
 
-        let flavor = Headered::try_new_keyed(Slice::new(*tx_buf), hdr.seq_no, hdr.key).map_err(|_| WireTxErrorKind::Other)?;
+        let flavor = Headered::try_new_keyed(Slice::new(*tx_buf), hdr.seq_no, hdr.key)
+            .map_err(|_| WireTxErrorKind::Other)?;
         let res = postcard::serialize_with_flavor(msg, flavor);
 
         if let Ok(used) = res {
@@ -54,16 +64,18 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for Sender<M, D
 
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error> {
         let mut inner = self.inner.lock().await;
-        let SenderInner { ep_in, log_seq, tx_buf, max_log_len }: &mut SenderInner<D> = &mut inner;
+        let SenderInner {
+            ep_in,
+            log_seq,
+            tx_buf,
+            max_log_len,
+        }: &mut SenderInner<D> = &mut inner;
         send_all::<D>(ep_in, buf).await
     }
 }
 
 #[inline]
-async fn send_all<D>(
-    ep_in: &mut D::EndpointIn,
-    out: &[u8],
-) -> Result<(), WireTxErrorKind>
+async fn send_all<D>(ep_in: &mut D::EndpointIn, out: &[u8]) -> Result<(), WireTxErrorKind>
 where
     D: Driver<'static>,
 {

@@ -2,7 +2,10 @@
 
 use core::{convert::Infallible, future::Future};
 
-use crate::server2::{AsWireRxErrorKind, AsWireTxErrorKind, Server, WireRx, WireRxErrorKind, WireSpawn, WireTx, WireTxErrorKind};
+use crate::server2::{
+    AsWireRxErrorKind, AsWireTxErrorKind, Server, WireRx, WireRxErrorKind, WireSpawn, WireTx,
+    WireTxErrorKind,
+};
 use tokio::sync::mpsc;
 
 pub struct NewChannelServer {
@@ -15,12 +18,8 @@ pub fn new_channel_server(bound: usize, buf: usize) -> NewChannelServer {
     let (client_tx, server_rx) = mpsc::channel(bound);
     let (server_tx, client_rx) = mpsc::channel(bound);
 
-    let cwrx = ChannelWireRx {
-        rx: server_rx,
-    };
-    let cwtx = ChannelWireTx {
-        tx: server_tx,
-    };
+    let cwrx = ChannelWireRx { rx: server_rx };
+    let cwtx = ChannelWireTx { tx: server_tx };
     let buf = vec![0; buf];
     let server = Server::new(&cwtx, cwrx, buf.into_boxed_slice());
 
@@ -47,13 +46,19 @@ impl WireTx for ChannelWireTx {
         let mut hdr_ser = postcard::to_stdvec(&hdr).unwrap();
         let bdy_ser = postcard::to_stdvec(msg).unwrap();
         hdr_ser.extend_from_slice(&bdy_ser);
-        self.tx.send(hdr_ser).await.map_err(|_| ChannelWireTxError::ChannelClosed)?;
+        self.tx
+            .send(hdr_ser)
+            .await
+            .map_err(|_| ChannelWireTxError::ChannelClosed)?;
         Ok(())
     }
 
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error> {
         let buf = buf.to_vec();
-        self.tx.send(buf).await.map_err(|_| ChannelWireTxError::ChannelClosed)?;
+        self.tx
+            .send(buf)
+            .await
+            .map_err(|_| ChannelWireTxError::ChannelClosed)?;
         Ok(())
     }
 }
@@ -97,7 +102,9 @@ impl WireRx for ChannelWireRx {
         // todo: some kind of receive_owned?
         let msg = self.rx.recv().await;
         let msg = msg.ok_or(ChannelWireRxError::ChannelClosed)?;
-        let out = buf.get_mut(..msg.len()).ok_or(ChannelWireRxError::MessageTooLarge)?;
+        let out = buf
+            .get_mut(..msg.len())
+            .ok_or(ChannelWireRxError::MessageTooLarge)?;
         out.copy_from_slice(&msg);
         Ok(out)
     }
@@ -135,7 +142,10 @@ mod test {
     use postcard_schema::Schema;
     use serde::{Deserialize, Serialize};
 
-    use crate::{define_dispatch2, endpoint, headered::extract_header_from_bytes, target_server::SpawnContext, Endpoint, WireHeader};
+    use crate::{
+        define_dispatch2, endpoint, headered::extract_header_from_bytes,
+        target_server::SpawnContext, Endpoint, WireHeader,
+    };
 
     use super::*;
 
@@ -174,7 +184,9 @@ mod test {
         type SpawnCtxt = TestSpawnContext;
 
         fn spawn_ctxt(&mut self) -> Self::SpawnCtxt {
-            TestSpawnContext { ctr: self.ctr.clone() }
+            TestSpawnContext {
+                ctr: self.ctr.clone(),
+            }
         }
     }
 
@@ -199,14 +211,27 @@ mod test {
 
     #[tokio::test]
     async fn smoke() {
-        let NewChannelServer { mut server, client_tx, mut client_rx } = new_channel_server(16, 1024);
-        let dispatcher = SingleDispatcher::new(TestContext { ctr: Arc::new(AtomicUsize::new(0)) }, ChannelWireSpawn {  });
+        let NewChannelServer {
+            mut server,
+            client_tx,
+            mut client_rx,
+        } = new_channel_server(16, 1024);
+        let dispatcher = SingleDispatcher::new(
+            TestContext {
+                ctr: Arc::new(AtomicUsize::new(0)),
+            },
+            ChannelWireSpawn {},
+        );
         tokio::task::spawn(async move {
             server.run(dispatcher).await;
         });
 
         // manually build request
-        let mut msg = postcard::to_stdvec(&WireHeader { key: AlphaEndpoint::REQ_KEY, seq_no: 123 }).unwrap();
+        let mut msg = postcard::to_stdvec(&WireHeader {
+            key: AlphaEndpoint::REQ_KEY,
+            seq_no: 123,
+        })
+        .unwrap();
         let body = postcard::to_stdvec(&AReq(42)).unwrap();
         msg.extend_from_slice(&body);
         client_tx.send(msg).await.unwrap();

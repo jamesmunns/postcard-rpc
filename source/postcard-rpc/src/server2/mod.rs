@@ -155,7 +155,6 @@ where
     buf: Buf,
 }
 
-
 pub enum ServerError<Tx, Rx>
 where
     Tx: WireTx,
@@ -203,7 +202,6 @@ where
         }
     }
 }
-
 
 //////////////////////////////////////////////////////////////////////////////
 // DISPATCH TRAIT
