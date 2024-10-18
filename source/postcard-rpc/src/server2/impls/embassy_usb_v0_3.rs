@@ -8,7 +8,7 @@ use static_cell::StaticCell;
 
 use crate::{headered::Headered, Key};
 
-use super::WireTx;
+use crate::server2::{WireTx, WireTxErrorKind};
 
 /// This is the interface for sending information to the client.
 ///
@@ -35,20 +35,20 @@ pub struct SenderInner<D: Driver<'static>> {
 }
 
 impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for Sender<M, D> {
-    type Error = ();
+    type Error = WireTxErrorKind;
 
     async fn send<T: Serialize + ?Sized>(&self, hdr: crate::WireHeader, msg: &T) -> Result<(), Self::Error> {
         let mut inner = self.inner.lock().await;
 
         let SenderInner { ep_in, log_seq, tx_buf, max_log_len }: &mut SenderInner<D> = &mut inner;
 
-        let flavor = Headered::try_new_keyed(Slice::new(*tx_buf), hdr.seq_no, hdr.key).map_err(drop)?;
+        let flavor = Headered::try_new_keyed(Slice::new(*tx_buf), hdr.seq_no, hdr.key).map_err(|_| WireTxErrorKind::Other)?;
         let res = postcard::serialize_with_flavor(msg, flavor);
 
         if let Ok(used) = res {
             send_all::<D>(ep_in, used).await
         } else {
-            Err(())
+            Err(WireTxErrorKind::Other)
         }
     }
 
@@ -63,7 +63,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for Sender<M, D
 async fn send_all<D>(
     ep_in: &mut D::EndpointIn,
     out: &[u8],
-) -> Result<(), ()>
+) -> Result<(), WireTxErrorKind>
 where
     D: Driver<'static>,
 {
@@ -79,14 +79,14 @@ where
     // be 0 < len <= 64.
     for ch in out.chunks(64) {
         if ep_in.write(ch).await.is_err() {
-            return Err(());
+            return Err(WireTxErrorKind::ConnectionClosed);
         }
     }
     // If the total we sent was a multiple of 64, send an
     // empty message to "flush" the transaction. We already checked
     // above that the len != 0.
     if (out.len() & (64 - 1)) == 0 && ep_in.write(&[]).await.is_err() {
-        return Err(());
+        return Err(WireTxErrorKind::ConnectionClosed);
     }
 
     Ok(())
