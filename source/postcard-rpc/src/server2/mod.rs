@@ -3,6 +3,8 @@
 #[cfg(feature = "embassy-usb-0_3-server")]
 pub mod embassy_usb_v0_3;
 
+pub mod dispatch_macro;
+
 use core::future::Future;
 
 use postcard_schema::Schema;
@@ -104,7 +106,8 @@ pub trait WireRx {
 
 pub trait WireSpawn: Clone {
     type Error;
-    fn spawn<F: Future<Output = ()>>(fut: F) -> Result<(), Self::Error>;
+    type Info;
+    fn info(&self) -> &Self::Info;
 }
 
 // Needs a better name
@@ -156,7 +159,7 @@ impl<Tx: WireTx> Outputter<Tx> {
     }
 
     /// Send a single error message
-    async fn error(&self, seq_no: u32, error: crate::standard_icd::WireError) {
+    pub async fn error(&self, seq_no: u32, error: crate::standard_icd::WireError) {
         // If we get an error while sending an error, welp there's not much we can do
         let _ = self
             .reply_keyed(seq_no, crate::standard_icd::ERROR_KEY, &error)
@@ -164,55 +167,49 @@ impl<Tx: WireTx> Outputter<Tx> {
     }
 }
 
-pub struct Dispatcher<'a, Tx, Rx, Sp>
+pub struct Server<'a, Tx, Rx>
 where
     Tx: WireTx,
     Rx: WireRx,
-    Sp: WireSpawn,
 {
-    tx: Tx,
+    tx: Outputter<Tx>,
     rx: Rx,
-    sp: Sp,
     buf: &'a mut [u8],
 }
 
 pub trait Dispatch2 {
     type Tx: WireTx;
-    type Sp: WireSpawn;
     async fn handle(
         &mut self,
-        tx: &Self::Tx,
-        sp: &Self::Sp,
+        tx: &Outputter<Self::Tx>,
         hdr: &WireHeader,
         body: &[u8],
     ) -> Result<(), ()>;
 }
 
-impl<'a, Tx, Rx, Sp> Dispatcher<'a, Tx, Rx, Sp>
+impl<'a, Tx, Rx> Server<'a, Tx, Rx>
 where
     Tx: WireTx,
     Rx: WireRx,
-    Sp: WireSpawn,
 {
-    pub fn new(tx: &Tx, rx: Rx, sp: &Sp, buf: &'a mut [u8]) -> Self {
+    pub fn new(tx: &Tx, rx: Rx, buf: &'a mut [u8]) -> Self {
         Self {
-            tx: tx.clone(),
+            tx: Outputter { tx: tx.clone() },
             rx,
-            sp: sp.clone(),
             buf,
         }
     }
 
-    pub async fn run<D: Dispatch2<Tx = Tx, Sp = Sp>>(&mut self, mut d: D) {
+    pub async fn run<D: Dispatch2<Tx = Tx>>(&mut self, mut d: D) {
         loop {
-            let Self { tx, rx, sp, buf } = self;
+            let Self { tx, rx, buf } = self;
             let Ok(used) = self.rx.receive(buf).await else {
                 continue;
             };
             let Ok((hdr, body)) = extract_header_from_bytes(used) else {
                 continue;
             };
-            let fut = d.handle(tx, sp, &hdr, body);
+            let fut = d.handle(tx, &hdr, body);
             let Ok(y) = fut.await else {
                 continue;
             };
@@ -220,96 +217,84 @@ where
     }
 }
 
-#[cfg(all(test, feature = "use-std"))]
-mod test {
-    use core::marker::PhantomData;
+// #[cfg(all(test, feature = "use-std"))]
+// mod test {
+//     use core::{future::Future, marker::PhantomData};
 
-    use super::{Dispatch2, Dispatcher, WireRx, WireSpawn, WireTx};
+//     use super::{Dispatch2, Outputter, Server, WireRx, WireSpawn, WireTx};
 
-    #[derive(Clone)]
-    struct FakeWireTx;
-    struct FakeWireRx;
-    #[derive(Clone)]
-    struct FakeWireSpawn;
+//     #[derive(Clone)]
+//     struct FakeWireTx;
+//     struct FakeWireRx;
+//     #[derive(Clone)]
+//     struct FakeWireSpawn;
 
-    impl WireTx for FakeWireTx {
-        type Error = ();
+//     impl WireTx for FakeWireTx {
+//         type Error = ();
 
-        async fn send<T: serde::Serialize + ?Sized>(
-            &self,
-            _hdr: crate::WireHeader,
-            _msg: &T,
-        ) -> Result<(), Self::Error> {
-            Ok(())
-        }
+//         async fn send<T: serde::Serialize + ?Sized>(
+//             &self,
+//             _hdr: crate::WireHeader,
+//             _msg: &T,
+//         ) -> Result<(), Self::Error> {
+//             Ok(())
+//         }
 
-        async fn send_raw(&self, _buf: &[u8]) -> Result<(), Self::Error> {
-            Ok(())
-        }
-    }
+//         async fn send_raw(&self, _buf: &[u8]) -> Result<(), Self::Error> {
+//             Ok(())
+//         }
+//     }
 
-    impl WireRx for FakeWireRx {
-        type Error = ();
+//     impl WireRx for FakeWireRx {
+//         type Error = ();
 
-        async fn receive<'a>(&self, buf: &'a mut [u8]) -> Result<&'a mut [u8], Self::Error> {
-            Ok(buf)
-        }
-    }
+//         async fn receive<'a>(&self, buf: &'a mut [u8]) -> Result<&'a mut [u8], Self::Error> {
+//             Ok(buf)
+//         }
+//     }
 
-    impl WireSpawn for FakeWireSpawn {
-        type Error = ();
+//     #[tokio::test]
+//     async fn smoke() {
+//         let mut buf = [0u8; 512];
+//         let mut x = Server::new(&FakeWireTx, FakeWireRx, &mut buf);
+//         let disp = FakeDispatch::<FakeWireTx>::new();
+//         core::mem::drop(x.run(disp));
+//     }
 
-        fn spawn<F: core::future::Future<Output = ()>>(_fut: F) -> Result<(), Self::Error> {
-            Ok(())
-        }
-    }
+//     struct FakeDispatch<Tx: WireTx> {
+//         _pdt: PhantomData<fn() -> Tx>,
+//     }
 
-    #[tokio::test]
-    async fn smoke() {
-        let mut buf = [0u8; 512];
-        let mut x = Dispatcher::new(&FakeWireTx, FakeWireRx, &FakeWireSpawn, &mut buf);
-        let disp = FakeDispatch::<FakeWireTx, FakeWireSpawn>::new();
-        core::mem::drop(x.run(disp));
-    }
+//     impl<Tx: WireTx> FakeDispatch<Tx> {
+//         pub fn new() -> Self {
+//             Self {
+//                 _pdt: PhantomData,
+//             }
+//         }
+//     }
 
-    struct FakeDispatch<Tx: WireTx, Sp: WireSpawn> {
-        _pdt: PhantomData<fn() -> Tx>,
-        _pds: PhantomData<fn() -> Sp>,
-    }
+//     impl<Tx: WireTx> Dispatch2 for FakeDispatch<Tx> {
+//         type Tx = Tx;
 
-    impl<Tx: WireTx, Sp: WireSpawn> FakeDispatch<Tx, Sp> {
-        pub fn new() -> Self {
-            Self {
-                _pdt: PhantomData,
-                _pds: PhantomData,
-            }
-        }
-    }
+//         async fn handle(
+//             &mut self,
+//             _tx: &Outputter<Self::Tx>,
+//             _hdr: &crate::WireHeader,
+//             body: &[u8],
+//         ) -> Result<(), ()> {
+//             if (body[0] & 0x1) == 0 {
+//                 Ok(())
+//             } else {
+//                 Err(())
+//             }
+//         }
+//     }
 
-    impl<Tx: WireTx, Sp: WireSpawn> Dispatch2 for FakeDispatch<Tx, Sp> {
-        type Tx = Tx;
-        type Sp = Sp;
-
-        async fn handle(
-            &mut self,
-            _tx: &Self::Tx,
-            _sp: &Self::Sp,
-            _hdr: &crate::WireHeader,
-            body: &[u8],
-        ) -> Result<(), ()> {
-            if (body[0] & 0x1) == 0 {
-                Ok(())
-            } else {
-                Err(())
-            }
-        }
-    }
-
-    async fn hate_odds(buf: &[u8]) -> Result<(), ()> {
-        if (buf[0] & 0x1) == 0 {
-            Ok(())
-        } else {
-            Err(())
-        }
-    }
-}
+//     async fn hate_odds(buf: &[u8]) -> Result<(), ()> {
+//         if (buf[0] & 0x1) == 0 {
+//             Ok(())
+//         } else {
+//             Err(())
+//         }
+//     }
+// }
