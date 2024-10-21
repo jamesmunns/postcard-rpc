@@ -413,7 +413,7 @@ impl Key1 {
 impl Key2 {
     pub const fn from_key4(value: Key4) -> Self {
         let [a, b, c, d] = value.0;
-        Self([a ^ b,  c ^ d])
+        Self([a ^ b, c ^ d])
     }
 
     pub const fn from_key8(value: Key) -> Self {
@@ -470,7 +470,6 @@ impl From<Key> for Key4 {
         Self::from_key8(value)
     }
 }
-
 
 /// A marker trait denoting a single endpoint
 ///

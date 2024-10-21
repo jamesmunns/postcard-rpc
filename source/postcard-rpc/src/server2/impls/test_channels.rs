@@ -159,7 +159,10 @@ where
 mod test {
     #![allow(dead_code)]
 
-    use core::{sync::atomic::{AtomicUsize, Ordering}, time::Duration};
+    use core::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
+    };
     use std::{sync::Arc, time::Instant};
 
     use postcard_schema::Schema;
@@ -167,7 +170,10 @@ mod test {
     use tokio::task::yield_now;
 
     use crate::{
-        define_dispatch2, endpoints, headered::extract_header_from_bytes, server2::{Sender, SpawnContext}, topics, Endpoint, Topic, WireHeader
+        define_dispatch2, endpoints,
+        headered::extract_header_from_bytes,
+        server2::{Sender, SpawnContext},
+        topics, Endpoint, Topic, WireHeader,
     };
 
     use super::*;
@@ -238,7 +244,7 @@ mod test {
 
     // TODO: How to do module path concat?
     use crate::server2::impls::test_channels::dispatch_impl::{
-        spawn_fn, WireTxImpl, WireSpawnImpl, Settings, new_server,
+        new_server, spawn_fn, Settings, WireSpawnImpl, WireTxImpl,
     };
 
     define_dispatch2! {
@@ -310,7 +316,9 @@ mod test {
         out: Sender<ChannelWireTx>,
     ) {
         context.ctr.fetch_add(1, Ordering::Relaxed);
-        let _ = out.reply::<BetaEndpoint>(header.seq_no, &BResp(body.0.into())).await;
+        let _ = out
+            .reply::<BetaEndpoint>(header.seq_no, &BResp(body.0.into()))
+            .await;
     }
 
     #[tokio::test]
@@ -324,12 +332,19 @@ mod test {
         let topic_ctr = Arc::new(AtomicUsize::new(0));
 
         let app = SingleDispatcher::new(
-            TestContext { ctr: Arc::new(AtomicUsize::new(0)), topic_ctr: topic_ctr.clone() },
+            TestContext {
+                ctr: Arc::new(AtomicUsize::new(0)),
+                topic_ctr: topic_ctr.clone(),
+            },
             ChannelWireSpawn {},
         );
         let mut server = new_server(
             app,
-            Settings { tx: cwtx, rx: cwrx, buf: 1024 },
+            Settings {
+                tx: cwtx,
+                rx: cwrx,
+                buf: 1024,
+            },
         );
         tokio::task::spawn(async move {
             server.run().await;

@@ -95,9 +95,7 @@ pub struct Sender<Tx: WireTx> {
 
 impl<Tx: WireTx> Sender<Tx> {
     pub fn new(tx: Tx) -> Self {
-        Self {
-            tx,
-        }
+        Self { tx }
     }
 
     /// Send a reply for the given endpoint
@@ -196,7 +194,12 @@ where
 
     pub async fn run(&mut self) -> ServerError<Tx, Rx> {
         loop {
-            let Self { tx, rx, buf, dis: d } = self;
+            let Self {
+                tx,
+                rx,
+                buf,
+                dis: d,
+            } = self;
             let used = match rx.receive(buf).await {
                 Ok(u) => u,
                 Err(e) => {
@@ -315,7 +318,7 @@ pub const fn min_key_needed<const N: usize>(keys: &[Key; N]) -> usize {
 
         while i < keys.len() {
             let [a, b, c, d, e, f, g, h] = keys[i].0;
-            keys4[i] = u32::from_le_bytes([a ^ b,  c ^ d, e ^ f, g ^ h]);
+            keys4[i] = u32::from_le_bytes([a ^ b, c ^ d, e ^ f, g ^ h]);
             i += 1;
         }
 
@@ -368,8 +371,6 @@ pub const fn min_key_needed<const N: usize>(keys: &[Key; N]) -> usize {
 
     panic!("Collision requiring more than 8 bytes!");
 }
-
-
 
 #[cfg(test)]
 mod test {

@@ -15,7 +15,10 @@ pub mod dispatch_impl {
     pub const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
     use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
-    use embassy_usb::{msos::{self, windows_version}, Builder, Config, UsbDevice};
+    use embassy_usb::{
+        msos::{self, windows_version},
+        Builder, Config, UsbDevice,
+    };
     use embassy_usb_driver::Driver;
     use static_cell::{ConstStaticCell, StaticCell};
 
@@ -258,9 +261,7 @@ pub struct EUsbWireSpawn {
 
 impl From<Spawner> for EUsbWireSpawn {
     fn from(value: Spawner) -> Self {
-        Self {
-            spawner: value
-        }
+        Self { spawner: value }
     }
 }
 
