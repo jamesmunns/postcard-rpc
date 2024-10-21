@@ -1748,6 +1748,7 @@ dependencies = [
  "fixed-macro",
  "lis3dh-async",
  "panic-probe",
+ "paste",
  "pio",
  "pio-proc",
  "portable-atomic",

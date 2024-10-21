@@ -408,6 +408,10 @@ impl Key1 {
         let [a, b, c, d, e, f, g, h] = value.0;
         Self(a ^ b ^ c ^ d ^ e ^ f ^ g ^ h)
     }
+
+    pub const fn to_bytes(&self) -> u8 {
+        self.0
+    }
 }
 
 impl Key2 {
@@ -420,12 +424,20 @@ impl Key2 {
         let [a, b, c, d, e, f, g, h] = value.0;
         Self([a ^ b ^ c ^ d, e ^ f ^ g ^ h])
     }
+
+    pub const fn to_bytes(&self) -> [u8; 2] {
+        self.0
+    }
 }
 
 impl Key4 {
     pub const fn from_key8(value: Key) -> Self {
         let [a, b, c, d, e, f, g, h] = value.0;
         Self([a ^ b, c ^ d, e ^ f, g ^ h])
+    }
+
+    pub const fn to_bytes(&self) -> [u8; 4] {
+        self.0
     }
 }
 

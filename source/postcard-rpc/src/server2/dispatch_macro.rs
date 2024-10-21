@@ -140,11 +140,11 @@ macro_rules! define_dispatch2 {
                 body: &[u8],
             ) -> Result<(), <Self::Tx as $crate::server2::WireTx>::Error> {
                 let key = hdr.key;
-                let keyb = <$key_ty>::from_key8(key).0;
+                let keyb = <$key_ty>::from_key8(key).to_bytes();
                 use consts::*;
                 match keyb {
                     $(
-                        paste::paste! { [<$endpoint:upper _KEY $n>] } => {
+                        ::paste::paste! { [<$endpoint:upper _KEY $n>] } => {
                             // Can we deserialize the request?
                             let Ok(req) = postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
                                 let err = $crate::standard_icd::WireError::DeserFailed;
@@ -165,7 +165,7 @@ macro_rules! define_dispatch2 {
                         }
                     )*
                     $(
-                        paste::paste! { [<$topic_in:upper _KEY $n>] } => {
+                        ::paste::paste! { [<$topic_in:upper _KEY $n>] } => {
                             // Can we deserialize the request?
                             let Ok(msg) = postcard::from_bytes::<<$topic_in as $crate::Topic>::Message>(body) else {
                                 // This is a topic, not much to be done
@@ -255,43 +255,43 @@ macro_rules! define_dispatch2 {
         mod consts {
             use super::*;
             $(
-                paste::paste! {
-                    pub const [<$endpoint:upper _KEY1>]: u8 = $crate::Key1::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).0;
+                ::paste::paste! {
+                    pub const [<$endpoint:upper _KEY1>]: u8 = $crate::Key1::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).to_bytes();
                 }
             )*
             $(
-                paste::paste! {
-                    pub const [<$topic_in:upper _KEY1>]: u8 = $crate::Key1::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).0;
+                ::paste::paste! {
+                    pub const [<$topic_in:upper _KEY1>]: u8 = $crate::Key1::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).to_bytes();
                 }
             )*
             $(
-                paste::paste! {
-                    pub const [<$endpoint:upper _KEY2>]: [u8; 2] = $crate::Key2::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).0;
+                ::paste::paste! {
+                    pub const [<$endpoint:upper _KEY2>]: [u8; 2] = $crate::Key2::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).to_bytes();
                 }
             )*
             $(
-                paste::paste! {
-                    pub const [<$topic_in:upper _KEY2>]: [u8; 2] = $crate::Key2::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).0;
+                ::paste::paste! {
+                    pub const [<$topic_in:upper _KEY2>]: [u8; 2] = $crate::Key2::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).to_bytes();
                 }
             )*
             $(
-                paste::paste! {
-                    pub const [<$endpoint:upper _KEY4>]: [u8; 4] = $crate::Key4::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).0;
+                ::paste::paste! {
+                    pub const [<$endpoint:upper _KEY4>]: [u8; 4] = $crate::Key4::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).to_bytes();
                 }
             )*
             $(
-                paste::paste! {
-                    pub const [<$topic_in:upper _KEY4>]: [u8; 4] = $crate::Key4::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).0;
+                ::paste::paste! {
+                    pub const [<$topic_in:upper _KEY4>]: [u8; 4] = $crate::Key4::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).to_bytes();
                 }
             )*
             $(
-                paste::paste! {
-                    pub const [<$endpoint:upper _KEY8>]: [u8; 8] = <$endpoint as $crate::Endpoint>::REQ_KEY.0;
+                ::paste::paste! {
+                    pub const [<$endpoint:upper _KEY8>]: [u8; 8] = <$endpoint as $crate::Endpoint>::REQ_KEY.to_bytes();
                 }
             )*
             $(
-                paste::paste! {
-                    pub const [<$topic_in:upper _KEY8>]: [u8; 8] = <$topic_in as $crate::Topic>::TOPIC_KEY.0;
+                ::paste::paste! {
+                    pub const [<$topic_in:upper _KEY8>]: [u8; 8] = <$topic_in as $crate::Topic>::TOPIC_KEY.to_bytes();
                 }
             )*
         }
