@@ -146,7 +146,10 @@ features = ["std"]
 
 
 [features]
-default = []
+default = [
+    "test-utils",
+    # "embassy-usb-0_3-server",
+]
 test-utils = ["use-std", "postcard-schema/use-std"]
 use-std = [
     "dep:maitake-sync",

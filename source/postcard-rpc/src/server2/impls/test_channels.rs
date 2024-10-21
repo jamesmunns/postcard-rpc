@@ -3,10 +3,14 @@
 use core::{convert::Infallible, future::Future};
 
 use crate::server2::{
-    AsWireRxErrorKind, AsWireTxErrorKind, Server, WireRx, WireRxErrorKind, WireSpawn, WireTx,
+    AsWireRxErrorKind, AsWireTxErrorKind, WireRx, WireRxErrorKind, WireSpawn, WireTx,
     WireTxErrorKind,
 };
 use tokio::sync::mpsc;
+
+//////////////////////////////////////////////////////////////////////////////
+// DISPATCH IMPL
+//////////////////////////////////////////////////////////////////////////////
 
 pub mod dispatch_impl {
     pub struct Settings {
@@ -27,7 +31,6 @@ pub mod dispatch_impl {
     pub fn new_server<D>(
         dispatch: D,
         settings: Settings,
-        spawn: WireSpawnImpl,
     ) -> crate::server2::Server<WireTxImpl, WireRxImpl, WireRxBuf, D>
     where
         D: Dispatch2<Tx = WireTxImpl>,
@@ -36,28 +39,6 @@ pub mod dispatch_impl {
         Server::new(&settings.tx, settings.rx, buf.into_boxed_slice(), dispatch)
     }
 }
-
-// pub struct NewChannelServer {
-//     pub server: Server<ChannelWireTx, ChannelWireRx, Box<[u8]>>,
-//     pub client_tx: mpsc::Sender<Vec<u8>>,
-//     pub client_rx: mpsc::Receiver<Vec<u8>>,
-// }
-
-// pub fn new_channel_server(bound: usize, buf: usize) -> NewChannelServer {
-//     let (client_tx, server_rx) = mpsc::channel(bound);
-//     let (server_tx, client_rx) = mpsc::channel(bound);
-
-//     let cwrx = ChannelWireRx { rx: server_rx };
-//     let cwtx = ChannelWireTx { tx: server_tx };
-//     let buf = vec![0; buf];
-//     let server = Server::new(&cwtx, cwrx, buf.into_boxed_slice());
-
-//     NewChannelServer {
-//         server,
-//         client_tx,
-//         client_rx,
-//     }
-// }
 
 //////////////////////////////////////////////////////////////////////////////
 // TX
@@ -174,20 +155,20 @@ where
     Ok(())
 }
 
-// #[cfg(test)]
-pub mod test {
+#[cfg(test)]
+mod test {
     #![allow(dead_code)]
 
-    use core::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use core::{sync::atomic::{AtomicUsize, Ordering}, time::Duration};
+    use std::{sync::Arc, time::Instant};
 
     use dispatch_impl::Settings;
     use postcard_schema::Schema;
     use serde::{Deserialize, Serialize};
+    use tokio::task::yield_now;
 
     use crate::{
-        define_dispatch2, endpoint, headered::extract_header_from_bytes, server2::SpawnContext,
-        Endpoint, WireHeader,
+        define_dispatch2, endpoints, headered::extract_header_from_bytes, server2::{Outputter, SpawnContext}, topics, Endpoint, Topic, WireHeader
     };
 
     use super::*;
@@ -197,9 +178,9 @@ pub mod test {
     #[derive(Serialize, Deserialize, Schema)]
     pub struct AResp(pub u8);
     #[derive(Serialize, Deserialize, Schema)]
-    pub struct BReq;
+    pub struct BReq(pub u16);
     #[derive(Serialize, Deserialize, Schema)]
-    pub struct BResp;
+    pub struct BResp(pub u32);
     #[derive(Serialize, Deserialize, Schema)]
     pub struct GReq;
     #[derive(Serialize, Deserialize, Schema)]
@@ -212,15 +193,37 @@ pub mod test {
     pub struct EReq;
     #[derive(Serialize, Deserialize, Schema)]
     pub struct EResp;
+    #[derive(Serialize, Deserialize, Schema)]
+    pub struct ZMsg(pub i16);
 
-    endpoint!(AlphaEndpoint, AReq, AResp, "alpha");
-    endpoint!(BetaEndpoint, BReq, BResp, "beta");
-    endpoint!(GammaEndpoint, GReq, GResp, "gamma");
-    endpoint!(DeltaEndpoint, DReq, DResp, "delta");
-    endpoint!(EpsilonEndpoint, EReq, EResp, "epsilon");
+    endpoints! {
+        list = ENDPOINT_LIST;
+        | EndpointTy        | RequestTy     | ResponseTy    | Path              |
+        | ----------        | ---------     | ----------    | ----              |
+        | AlphaEndpoint     | AReq          | AResp         | "alpha"           |
+        | BetaEndpoint      | BReq          | BResp         | "beta"            |
+        | GammaEndpoint     | GReq          | GResp         | "gamma"           |
+        | DeltaEndpoint     | DReq          | DResp         | "delta"           |
+        | EpsilonEndpoint   | EReq          | EResp         | "epsilon"         |
+    }
+
+    topics! {
+        list = TOPICS_IN_LIST;
+        | TopicTy           | MessageTy     | Path              |
+        | ----------        | ---------     | ----              |
+        | ZetaTopic1        | ZMsg          | "zeta1"           |
+        | ZetaTopic2        | ZMsg          | "zeta2"           |
+        | ZetaTopic3        | ZMsg          | "zeta3"           |
+    }
 
     pub struct TestContext {
         pub ctr: Arc<AtomicUsize>,
+        pub topic_ctr: Arc<AtomicUsize>,
+    }
+
+    pub struct TestSpawnContext {
+        pub ctr: Arc<AtomicUsize>,
+        pub topic_ctr: Arc<AtomicUsize>,
     }
 
     impl SpawnContext for TestContext {
@@ -229,13 +232,12 @@ pub mod test {
         fn spawn_ctxt(&mut self) -> Self::SpawnCtxt {
             TestSpawnContext {
                 ctr: self.ctr.clone(),
+                topic_ctr: self.topic_ctr.clone(),
             }
         }
     }
 
-    pub struct TestSpawnContext {
-        pub ctr: Arc<AtomicUsize>,
-    }
+    // TODO: How to do module path concat?
     use crate::server2::impls::test_channels as app_interface;
 
     define_dispatch2! {
@@ -243,7 +245,50 @@ pub mod test {
         // TODO: How to do module path concat?
         interface: app_interface;
         context: TestContext;
-        AlphaEndpoint => async test_alpha_handler,
+        endpoints: {
+            list: ENDPOINT_LIST;
+
+            | EndpointTy        | kind      | handler               |
+            | ----------        | ----      | -------               |
+            | AlphaEndpoint     | async     | test_alpha_handler    |
+            | BetaEndpoint      | spawn     | test_beta_handler     |
+        };
+        topics_in: {
+            list: TOPICS_IN_LIST;
+
+            | TopicTy           | kind      | handler               |
+            | ----------        | ----      | -------               |
+            | ZetaTopic1        | blocking  | test_zeta_blocking    |
+            | ZetaTopic2        | async     | test_zeta_async       |
+            | ZetaTopic3        | spawn     | test_zeta_spawn       |
+        };
+    }
+
+    fn test_zeta_blocking(
+        context: &mut TestContext,
+        _header: WireHeader,
+        _body: ZMsg,
+        _out: &Outputter<ChannelWireTx>,
+    ) {
+        context.topic_ctr.fetch_add(1, Ordering::Relaxed);
+    }
+
+    async fn test_zeta_async(
+        context: &mut TestContext,
+        _header: WireHeader,
+        _body: ZMsg,
+        _out: &Outputter<ChannelWireTx>,
+    ) {
+        context.topic_ctr.fetch_add(1, Ordering::Relaxed);
+    }
+
+    async fn test_zeta_spawn(
+        context: TestSpawnContext,
+        _header: WireHeader,
+        _body: ZMsg,
+        _out: Outputter<ChannelWireTx>,
+    ) {
+        context.topic_ctr.fetch_add(1, Ordering::Relaxed);
     }
 
     async fn test_alpha_handler(
@@ -255,22 +300,28 @@ pub mod test {
         AResp(body.0)
     }
 
+    async fn test_beta_handler(
+        context: TestSpawnContext,
+        header: WireHeader,
+        body: BReq,
+        out: Outputter<ChannelWireTx>,
+    ) {
+        context.ctr.fetch_add(1, Ordering::Relaxed);
+        let _ = out.reply::<BetaEndpoint>(header.seq_no, &BResp(body.0.into())).await;
+    }
+
     #[tokio::test]
     async fn smoke() {
-        // let NewChannelServer {
-        //     mut server,
-        //     client_tx,
-        //     mut client_rx,
-        // } = new_channel_server(16, 1024);
-
         let (client_tx, server_rx) = mpsc::channel(16);
         let (server_tx, mut client_rx) = mpsc::channel(16);
 
         let cwrx = ChannelWireRx { rx: server_rx };
         let cwtx = ChannelWireTx { tx: server_tx };
 
+        let topic_ctr = Arc::new(AtomicUsize::new(0));
+
         let mut server = SingleDispatcher::new_server(
-            TestContext { ctr: Arc::new(AtomicUsize::new(0)) },
+            TestContext { ctr: Arc::new(AtomicUsize::new(0)), topic_ctr: topic_ctr.clone() },
             Settings { tx: cwtx, rx: cwrx, buf: 1024 },
             ChannelWireSpawn {},
         );
@@ -278,7 +329,7 @@ pub mod test {
             server.run().await;
         });
 
-        // manually build request
+        // manually build request - Alpha
         let mut msg = postcard::to_stdvec(&WireHeader {
             key: AlphaEndpoint::REQ_KEY,
             seq_no: 123,
@@ -295,12 +346,98 @@ pub mod test {
         assert_eq!(resp.0, 42);
         assert_eq!(hdr.key, AlphaEndpoint::RESP_KEY);
         assert_eq!(hdr.seq_no, 123);
-    }
-}
 
-trait App {
-    type Settings: Default;
-    type Context;
-    fn settings() -> Self::Settings;
-    fn new(settings: Self::Settings, context: Self::Context) -> Self;
+        // manually build request - Beta
+        let mut msg = postcard::to_stdvec(&WireHeader {
+            key: BetaEndpoint::REQ_KEY,
+            seq_no: 234,
+        })
+        .unwrap();
+        let body = postcard::to_stdvec(&BReq(1000)).unwrap();
+        msg.extend_from_slice(&body);
+        client_tx.send(msg).await.unwrap();
+        let resp = client_rx.recv().await.unwrap();
+
+        // manually extract response
+        let (hdr, body) = extract_header_from_bytes(&resp).unwrap();
+        let resp = postcard::from_bytes::<<BetaEndpoint as Endpoint>::Response>(body).unwrap();
+        assert_eq!(resp.0, 1000);
+        assert_eq!(hdr.key, BetaEndpoint::RESP_KEY);
+        assert_eq!(hdr.seq_no, 234);
+
+        // blocking topic handler
+        for i in 0..3 {
+            let mut msg = postcard::to_stdvec(&WireHeader {
+                key: ZetaTopic1::TOPIC_KEY,
+                seq_no: i,
+            })
+            .unwrap();
+            let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
+            msg.extend_from_slice(&body);
+            client_tx.send(msg).await.unwrap();
+
+            let start = Instant::now();
+            let mut good = false;
+            while start.elapsed() < Duration::from_millis(100) {
+                let ct = topic_ctr.load(Ordering::Relaxed);
+                if ct == (i + 1) as usize {
+                    good = true;
+                    break;
+                } else {
+                    yield_now().await
+                }
+            }
+            assert!(good);
+        }
+
+        // async topic handler
+        for i in 0..3 {
+            let mut msg = postcard::to_stdvec(&WireHeader {
+                key: ZetaTopic2::TOPIC_KEY,
+                seq_no: i,
+            })
+            .unwrap();
+            let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
+            msg.extend_from_slice(&body);
+            client_tx.send(msg).await.unwrap();
+
+            let start = Instant::now();
+            let mut good = false;
+            while start.elapsed() < Duration::from_millis(100) {
+                let ct = topic_ctr.load(Ordering::Relaxed);
+                if ct == (i + 4) as usize {
+                    good = true;
+                    break;
+                } else {
+                    yield_now().await
+                }
+            }
+            assert!(good);
+        }
+
+        // spawn topic handler
+        for i in 0..3 {
+            let mut msg = postcard::to_stdvec(&WireHeader {
+                key: ZetaTopic3::TOPIC_KEY,
+                seq_no: i,
+            })
+            .unwrap();
+            let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
+            msg.extend_from_slice(&body);
+            client_tx.send(msg).await.unwrap();
+
+            let start = Instant::now();
+            let mut good = false;
+            while start.elapsed() < Duration::from_millis(100) {
+                let ct = topic_ctr.load(Ordering::Relaxed);
+                if ct == (i + 7) as usize {
+                    good = true;
+                    break;
+                } else {
+                    yield_now().await
+                }
+            }
+            assert!(good);
+        }
+    }
 }
