@@ -146,15 +146,17 @@ impl<Tx: WireTx> Outputter<Tx> {
 // SERVER
 //////////////////////////////////////////////////////////////////////////////
 
-pub struct Server<Tx, Rx, Buf>
+pub struct Server<Tx, Rx, Buf, D>
 where
     Tx: WireTx,
     Rx: WireRx,
     Buf: DerefMut<Target = [u8]>,
+    D: Dispatch2<Tx = Tx>,
 {
     tx: Outputter<Tx>,
     rx: Rx,
     buf: Buf,
+    dis: D,
 }
 
 pub enum ServerError<Tx, Rx>
@@ -166,23 +168,25 @@ where
     RxFatal(Rx::Error),
 }
 
-impl<Tx, Rx, Buf> Server<Tx, Rx, Buf>
+impl<Tx, Rx, Buf, D> Server<Tx, Rx, Buf, D>
 where
     Tx: WireTx,
     Rx: WireRx,
     Buf: DerefMut<Target = [u8]>,
+    D: Dispatch2<Tx = Tx>,
 {
-    pub fn new(tx: &Tx, rx: Rx, buf: Buf) -> Self {
+    pub fn new(tx: &Tx, rx: Rx, buf: Buf, dis: D) -> Self {
         Self {
             tx: Outputter { tx: tx.clone() },
             rx,
             buf,
+            dis,
         }
     }
 
-    pub async fn run<D: Dispatch2<Tx = Tx>>(&mut self, mut d: D) -> ServerError<Tx, Rx> {
+    pub async fn run(&mut self) -> ServerError<Tx, Rx> {
         loop {
-            let Self { tx, rx, buf } = self;
+            let Self { tx, rx, buf, dis: d } = self;
             let used = match rx.receive(buf).await {
                 Ok(u) => u,
                 Err(e) => {
@@ -221,6 +225,18 @@ pub trait Dispatch2 {
         hdr: &WireHeader,
         body: &[u8],
     ) -> Result<(), <Self::Tx as WireTx>::Error>;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// SPAWNCONTEXT TRAIT
+//////////////////////////////////////////////////////////////////////////////
+
+/// A conversion trait for taking the Context and making a SpawnContext
+///
+/// This is necessary if you use the `spawn` variant of `define_dispatch!`.
+pub trait SpawnContext {
+    type SpawnCtxt: 'static;
+    fn spawn_ctxt(&mut self) -> Self::SpawnCtxt;
 }
 
 //////////////////////////////////////////////////////////////////////////////

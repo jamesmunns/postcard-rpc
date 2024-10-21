@@ -8,27 +8,56 @@ use crate::server2::{
 };
 use tokio::sync::mpsc;
 
-pub struct NewChannelServer {
-    pub server: Server<ChannelWireTx, ChannelWireRx, Box<[u8]>>,
-    pub client_tx: mpsc::Sender<Vec<u8>>,
-    pub client_rx: mpsc::Receiver<Vec<u8>>,
-}
+pub mod dispatch_impl {
+    pub struct Settings {
+        pub tx: WireTxImpl,
+        pub rx: WireRxImpl,
+        pub buf: usize,
+    }
 
-pub fn new_channel_server(bound: usize, buf: usize) -> NewChannelServer {
-    let (client_tx, server_rx) = mpsc::channel(bound);
-    let (server_tx, client_rx) = mpsc::channel(bound);
+    pub type WireTxImpl = super::ChannelWireTx;
+    pub type WireRxImpl = super::ChannelWireRx;
+    pub type WireSpawnImpl = super::ChannelWireSpawn;
+    pub type WireRxBuf = Box<[u8]>;
 
-    let cwrx = ChannelWireRx { rx: server_rx };
-    let cwtx = ChannelWireTx { tx: server_tx };
-    let buf = vec![0; buf];
-    let server = Server::new(&cwtx, cwrx, buf.into_boxed_slice());
+    use crate::server2::{Dispatch2, Server};
 
-    NewChannelServer {
-        server,
-        client_tx,
-        client_rx,
+    pub use super::tokio_spawn as spawn_fn;
+
+    pub fn new_server<D>(
+        dispatch: D,
+        settings: Settings,
+        spawn: WireSpawnImpl,
+    ) -> crate::server2::Server<WireTxImpl, WireRxImpl, WireRxBuf, D>
+    where
+        D: Dispatch2<Tx = WireTxImpl>,
+    {
+        let buf = vec![0; settings.buf];
+        Server::new(&settings.tx, settings.rx, buf.into_boxed_slice(), dispatch)
     }
 }
+
+// pub struct NewChannelServer {
+//     pub server: Server<ChannelWireTx, ChannelWireRx, Box<[u8]>>,
+//     pub client_tx: mpsc::Sender<Vec<u8>>,
+//     pub client_rx: mpsc::Receiver<Vec<u8>>,
+// }
+
+// pub fn new_channel_server(bound: usize, buf: usize) -> NewChannelServer {
+//     let (client_tx, server_rx) = mpsc::channel(bound);
+//     let (server_tx, client_rx) = mpsc::channel(bound);
+
+//     let cwrx = ChannelWireRx { rx: server_rx };
+//     let cwtx = ChannelWireTx { tx: server_tx };
+//     let buf = vec![0; buf];
+//     let server = Server::new(&cwtx, cwrx, buf.into_boxed_slice());
+
+//     NewChannelServer {
+//         server,
+//         client_tx,
+//         client_rx,
+//     }
+// }
 
 //////////////////////////////////////////////////////////////////////////////
 // TX
@@ -145,19 +174,20 @@ where
     Ok(())
 }
 
-#[cfg(test)]
-mod test {
+// #[cfg(test)]
+pub mod test {
     #![allow(dead_code)]
 
     use core::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
+    use dispatch_impl::Settings;
     use postcard_schema::Schema;
     use serde::{Deserialize, Serialize};
 
     use crate::{
-        define_dispatch2, endpoint, headered::extract_header_from_bytes,
-        target_server::SpawnContext, Endpoint, WireHeader,
+        define_dispatch2, endpoint, headered::extract_header_from_bytes, server2::SpawnContext,
+        Endpoint, WireHeader,
     };
 
     use super::*;
@@ -206,10 +236,13 @@ mod test {
     pub struct TestSpawnContext {
         pub ctr: Arc<AtomicUsize>,
     }
+    use crate::server2::impls::test_channels as app_interface;
 
     define_dispatch2! {
-        dispatcher: SingleDispatcher<WireTx = ChannelWireTx, WireSpawn = ChannelWireSpawn, Context = TestContext>;
-        spawn_fn: embassy_spawn;
+        app: SingleDispatcher;
+        // TODO: How to do module path concat?
+        interface: app_interface;
+        context: TestContext;
         AlphaEndpoint => async test_alpha_handler,
     }
 
@@ -224,19 +257,25 @@ mod test {
 
     #[tokio::test]
     async fn smoke() {
-        let NewChannelServer {
-            mut server,
-            client_tx,
-            mut client_rx,
-        } = new_channel_server(16, 1024);
-        let dispatcher = SingleDispatcher::new(
-            TestContext {
-                ctr: Arc::new(AtomicUsize::new(0)),
-            },
+        // let NewChannelServer {
+        //     mut server,
+        //     client_tx,
+        //     mut client_rx,
+        // } = new_channel_server(16, 1024);
+
+        let (client_tx, server_rx) = mpsc::channel(16);
+        let (server_tx, mut client_rx) = mpsc::channel(16);
+
+        let cwrx = ChannelWireRx { rx: server_rx };
+        let cwtx = ChannelWireTx { tx: server_tx };
+
+        let mut server = SingleDispatcher::new_server(
+            TestContext { ctr: Arc::new(AtomicUsize::new(0)) },
+            Settings { tx: cwtx, rx: cwrx, buf: 1024 },
             ChannelWireSpawn {},
         );
         tokio::task::spawn(async move {
-            server.run(dispatcher).await;
+            server.run().await;
         });
 
         // manually build request
@@ -257,4 +296,11 @@ mod test {
         assert_eq!(hdr.key, AlphaEndpoint::RESP_KEY);
         assert_eq!(hdr.seq_no, 123);
     }
+}
+
+trait App {
+    type Settings: Default;
+    type Context;
+    fn settings() -> Self::Settings;
+    fn new(settings: Self::Settings, context: Self::Context) -> Self;
 }

@@ -175,7 +175,7 @@
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
 use headered::extract_header_from_bytes;
-use postcard_schema::Schema;
+use postcard_schema::{schema::NamedType, Schema};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "cobs")]
@@ -458,4 +458,22 @@ pub mod standard_icd {
 
     #[cfg(feature = "use-std")]
     crate::topic!(Logging, Vec<u8>, "logs/formatted");
+}
+
+pub struct DeviceMap {
+    pub types: &'static [&'static NamedType],
+    pub endpoints: &'static [(&'static str, Key, Key)],
+    pub topics: &'static [(&'static str, Key)],
+}
+
+#[derive(Debug)]
+pub struct EndpointMap {
+    pub types: &'static [&'static NamedType],
+    pub endpoints: &'static [(&'static str, Key, Key)],
+}
+
+#[derive(Debug)]
+pub struct TopicMap {
+    pub types: &'static [&'static NamedType],
+    pub topics: &'static [(&'static str, Key)],
 }

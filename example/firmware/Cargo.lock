@@ -1160,6 +1160,7 @@ dependencies = [
  "embassy-usb-driver",
  "futures-util",
  "heapless 0.8.0",
+ "paste",
  "postcard",
  "postcard-schema",
  "serde",

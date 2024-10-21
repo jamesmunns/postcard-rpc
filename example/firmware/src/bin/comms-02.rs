@@ -16,11 +16,21 @@ use embassy_usb::UsbDevice;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use lis3dh_async::{Lis3dh, Lis3dhSPI};
 use portable_atomic::{AtomicBool, Ordering};
+// use postcard_rpc::{
+//     define_dispatch,
+//     target_server::{
+//         buffers::AllBuffers, configure_usb, example_config, rpc_dispatch, sender::Sender,
+//         SpawnContext,
+//     },
+//     WireHeader,
+// };
+use postcard_rpc::{server2::Server, target_server::{
+    buffers::AllBuffers, configure_usb, example_config, SpawnContext
+}};
 use postcard_rpc::{
-    define_dispatch,
-    target_server::{
-        buffers::AllBuffers, configure_usb, example_config, rpc_dispatch, sender::Sender,
-        SpawnContext,
+    define_dispatch2,
+    server2::{
+        impls::embassy_usb_v0_3::{EUsbWireSpawn, EUsbWireTx},
     },
     WireHeader,
 };
@@ -61,17 +71,18 @@ impl SpawnContext for Context {
     }
 }
 
-define_dispatch! {
+define_dispatch2! {
     dispatcher: Dispatcher<
-        Mutex = ThreadModeRawMutex,
-        Driver = usb::Driver<'static, USB>,
-        Context = Context,
+        WireTx = EUsbWireTx<ThreadModeRawMutex,
+        usb::Driver<'static, USB>>,
+        WireSpawn = EUsbWireSpawn, Context = Context
     >;
+    spawn_fn: embassy_spawn;
     PingEndpoint => blocking ping_handler,
     GetUniqueIdEndpoint => blocking unique_id_handler,
     SetSingleLedEndpoint => async set_led_handler,
     SetAllLedEndpoint => async set_all_led_handler,
-    StartAccelerationEndpoint => spawn accelerometer_handler,
+    // StartAccelerationEndpoint => spawn accelerometer_handler,
     StopAccelerationEndpoint => blocking accelerometer_stop_handler,
 }
 
@@ -111,19 +122,28 @@ async fn main(spawner: Spawner) {
     config.product = Some("ov-twin");
     let buffers = ALL_BUFFERS.take();
     let (device, ep_in, ep_out) = configure_usb(driver, &mut buffers.usb_device, config);
-    let dispatch = Dispatcher::new(
-        &mut buffers.tx_buf,
-        ep_in,
-        Context {
-            unique_id,
-            ws2812,
-            ws2812_state: [BLACK; 24],
-            accel: accel_ref,
-        },
-    );
 
-    spawner.must_spawn(dispatch_task(ep_out, dispatch, &mut buffers.rx_buf));
-    spawner.must_spawn(usb_task(device));
+
+
+    /*
+        JAMES YOU NEED TO FIGURE OUT HOW WE MAKE THE CONSTRUCTORS AND STUFF WORK
+    */
+    // Server::new(tx, rx, buf)
+
+
+    // let dispatch = Dispatcher::new(
+    //     &mut buffers.tx_buf,
+    //     ep_in,
+    //     Context {
+    //         unique_id,
+    //         ws2812,
+    //         ws2812_state: [BLACK; 24],
+    //         accel: accel_ref,
+    //     },
+    // );
+
+    // spawner.must_spawn(dispatch_task(ep_out, dispatch, &mut buffers.rx_buf));
+    // spawner.must_spawn(usb_task(device));
 }
 
 /// This actually runs the dispatcher
@@ -133,7 +153,7 @@ async fn dispatch_task(
     dispatch: Dispatcher,
     rx_buf: &'static mut [u8],
 ) {
-    rpc_dispatch(ep_out, dispatch, rx_buf).await;
+    // rpc_dispatch(ep_out, dispatch, rx_buf).await;
 }
 
 /// This handles the low level USB management
@@ -189,45 +209,45 @@ async fn set_all_led_handler(context: &mut Context, header: WireHeader, rqst: [R
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
-#[embassy_executor::task]
-async fn accelerometer_handler(
-    context: SpawnCtx,
-    header: WireHeader,
-    rqst: StartAccel,
-    sender: Sender<ThreadModeRawMutex, usb::Driver<'static, USB>>,
-) {
-    let mut accel = context.accel.lock().await;
-    if sender
-        .reply::<StartAccelerationEndpoint>(header.seq_no, &())
-        .await
-        .is_err()
-    {
-        defmt::error!("Failed to reply, stopping accel");
-        return;
-    }
+// #[embassy_executor::task]
+// async fn accelerometer_handler(
+//     context: SpawnCtx,
+//     header: WireHeader,
+//     rqst: StartAccel,
+//     sender: Sender<ThreadModeRawMutex, usb::Driver<'static, USB>>,
+// ) {
+//     let mut accel = context.accel.lock().await;
+//     if sender
+//         .reply::<StartAccelerationEndpoint>(header.seq_no, &())
+//         .await
+//         .is_err()
+//     {
+//         defmt::error!("Failed to reply, stopping accel");
+//         return;
+//     }
 
-    defmt::unwrap!(accel.set_range(lis3dh_async::Range::G8).await.map_err(drop));
+//     defmt::unwrap!(accel.set_range(lis3dh_async::Range::G8).await.map_err(drop));
 
-    let mut ticker = Ticker::every(Duration::from_millis(rqst.interval_ms.into()));
-    let mut seq = 0;
-    while !STOP.load(Ordering::Acquire) {
-        ticker.next().await;
-        let acc = defmt::unwrap!(accel.accel_raw().await.map_err(drop));
-        defmt::println!("ACC: {=i16},{=i16},{=i16}", acc.x, acc.y, acc.z);
-        let msg = Acceleration {
-            x: acc.x,
-            y: acc.y,
-            z: acc.z,
-        };
-        if sender.publish::<AccelTopic>(seq, &msg).await.is_err() {
-            defmt::error!("Send error!");
-            break;
-        }
-        seq = seq.wrapping_add(1);
-    }
-    defmt::info!("Stopping!");
-    STOP.store(false, Ordering::Release);
-}
+//     let mut ticker = Ticker::every(Duration::from_millis(rqst.interval_ms.into()));
+//     let mut seq = 0;
+//     while !STOP.load(Ordering::Acquire) {
+//         ticker.next().await;
+//         let acc = defmt::unwrap!(accel.accel_raw().await.map_err(drop));
+//         defmt::println!("ACC: {=i16},{=i16},{=i16}", acc.x, acc.y, acc.z);
+//         let msg = Acceleration {
+//             x: acc.x,
+//             y: acc.y,
+//             z: acc.z,
+//         };
+//         if sender.publish::<AccelTopic>(seq, &msg).await.is_err() {
+//             defmt::error!("Send error!");
+//             break;
+//         }
+//         seq = seq.wrapping_add(1);
+//     }
+//     defmt::info!("Stopping!");
+//     STOP.store(false, Ordering::Release);
+// }
 
 fn accelerometer_stop_handler(context: &mut Context, header: WireHeader, _rqst: ()) -> bool {
     info!("accel_stop: seq - {=u32}", header.seq_no);
