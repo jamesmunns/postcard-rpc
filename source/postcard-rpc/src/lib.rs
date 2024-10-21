@@ -389,6 +389,83 @@ mod key_owned {
     }
 }
 
+pub struct Key4(pub [u8; 4]);
+pub struct Key2(pub [u8; 2]);
+pub struct Key1(pub u8);
+
+impl Key1 {
+    pub const fn from_key2(value: Key2) -> Self {
+        let [a, b] = value.0;
+        Self(a ^ b)
+    }
+
+    pub const fn from_key4(value: Key4) -> Self {
+        let [a, b, c, d] = value.0;
+        Self(a ^ b ^ c ^ d)
+    }
+
+    pub const fn from_key8(value: Key) -> Self {
+        let [a, b, c, d, e, f, g, h] = value.0;
+        Self(a ^ b ^ c ^ d ^ e ^ f ^ g ^ h)
+    }
+}
+
+impl Key2 {
+    pub const fn from_key4(value: Key4) -> Self {
+        let [a, b, c, d] = value.0;
+        Self([a ^ b,  c ^ d])
+    }
+
+    pub const fn from_key8(value: Key) -> Self {
+        let [a, b, c, d, e, f, g, h] = value.0;
+        Self([a ^ b ^ c ^ d, e ^ f ^ g ^ h])
+    }
+}
+
+impl Key4 {
+    pub const fn from_key8(value: Key) -> Self {
+        let [a, b, c, d, e, f, g, h] = value.0;
+        Self([a ^ b, c ^ d, e ^ f, g ^ h])
+    }
+}
+
+impl From<Key2> for Key1 {
+    fn from(value: Key2) -> Self {
+        Self::from_key2(value)
+    }
+}
+
+impl From<Key4> for Key1 {
+    fn from(value: Key4) -> Self {
+        Self::from_key4(value)
+    }
+}
+
+impl From<Key> for Key1 {
+    fn from(value: Key) -> Self {
+        Self::from_key8(value)
+    }
+}
+
+impl From<Key4> for Key2 {
+    fn from(value: Key4) -> Self {
+        Self::from_key4(value)
+    }
+}
+
+impl From<Key> for Key2 {
+    fn from(value: Key) -> Self {
+        Self::from_key8(value)
+    }
+}
+
+impl From<Key> for Key4 {
+    fn from(value: Key) -> Self {
+        Self::from_key8(value)
+    }
+}
+
+
 /// A marker trait denoting a single endpoint
 ///
 /// Typically used with the [endpoint] macro.

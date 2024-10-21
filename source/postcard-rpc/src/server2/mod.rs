@@ -9,7 +9,7 @@ use core::ops::DerefMut;
 use postcard_schema::Schema;
 use serde::Serialize;
 
-use crate::{headered::extract_header_from_bytes, Key, WireHeader};
+use crate::{headered::extract_header_from_bytes, EndpointMap, Key, WireHeader};
 
 //////////////////////////////////////////////////////////////////////////////
 // TX
@@ -247,6 +247,169 @@ pub trait Dispatch2 {
 pub trait SpawnContext {
     type SpawnCtxt: 'static;
     fn spawn_ctxt(&mut self) -> Self::SpawnCtxt;
+}
+
+pub const fn min_key_needed<const N: usize>(keys: &[Key; N]) -> usize {
+    // Can we do it in one?
+    {
+        let mut keys1 = [0u8; N];
+        let mut i = 0;
+
+        while i < keys.len() {
+            let [a, b, c, d, e, f, g, h] = keys[i].0;
+            keys1[i] = a ^ b ^ c ^ d ^ e ^ f ^ g ^ h;
+            i += 1;
+        }
+
+        let mut good = true;
+        i = 0;
+
+        while i < keys.len() {
+            let mut j = i + 1;
+            while good && j < keys.len() {
+                good &= keys1[i] != keys1[j];
+                j += 1;
+            }
+
+            i += 1;
+        }
+
+        if good {
+            return 1;
+        }
+    }
+
+    // How about two?
+    {
+        let mut keys2 = [0u16; N];
+        let mut i = 0;
+
+        while i < keys.len() {
+            let [a, b, c, d, e, f, g, h] = keys[i].0;
+            keys2[i] = u16::from_le_bytes([a ^ b ^ c ^ d, e ^ f ^ g ^ h]);
+            i += 1;
+        }
+
+        let mut good = true;
+        i = 0;
+
+        while i < keys.len() {
+            let mut j = i + 1;
+            while good && j < keys.len() {
+                good &= keys2[i] != keys2[j];
+                j += 1;
+            }
+
+            i += 1;
+        }
+
+        if good {
+            return 2;
+        }
+    }
+
+    // How about four?
+    {
+        let mut keys4 = [0u32; N];
+        let mut i = 0;
+
+        while i < keys.len() {
+            let [a, b, c, d, e, f, g, h] = keys[i].0;
+            keys4[i] = u32::from_le_bytes([a ^ b,  c ^ d, e ^ f, g ^ h]);
+            i += 1;
+        }
+
+        let mut good = true;
+        i = 0;
+
+        while i < keys.len() {
+            let mut j = i + 1;
+            while good && j < keys.len() {
+                good &= keys4[i] != keys4[j];
+                j += 1;
+            }
+
+            i += 1;
+        }
+
+        if good {
+            return 4;
+        }
+    }
+
+    // How about eight?
+    {
+        let mut keys8 = [0u64; N];
+        let mut i = 0;
+
+        while i < keys.len() {
+            let [a, b, c, d, e, f, g, h] = keys[i].0;
+            keys8[i] = u64::from_le_bytes([a, b, c, d, e, f, g, h]);
+            i += 1;
+        }
+
+        let mut good = true;
+        i = 0;
+
+        while i < keys.len() {
+            let mut j = i + 1;
+            while good && j < keys.len() {
+                good &= keys8[i] != keys8[j];
+                j += 1;
+            }
+
+            i += 1;
+        }
+
+        if good {
+            return 8;
+        }
+    }
+
+    panic!("Collision requiring more than 8 bytes!");
+}
+
+
+
+#[cfg(test)]
+mod test {
+    use crate::{server2::min_key_needed, Key};
+
+    #[test]
+    fn min_test_1() {
+        const MIN: usize = min_key_needed(&[
+            unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) },
+            unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]) },
+        ]);
+        assert_eq!(1, MIN);
+    }
+
+    #[test]
+    fn min_test_2() {
+        const MIN: usize = min_key_needed(&[
+            unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) },
+            unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01]) },
+        ]);
+        assert_eq!(2, MIN);
+    }
+
+    #[test]
+    fn min_test_4() {
+        const MIN: usize = min_key_needed(&[
+            unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) },
+            unsafe { Key::from_bytes([0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01]) },
+        ]);
+        assert_eq!(4, MIN);
+    }
+
+    #[test]
+    fn min_test_8() {
+        const MIN: usize = min_key_needed(&[
+            unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) },
+            unsafe { Key::from_bytes([0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]) },
+        ]);
+        assert_eq!(8, MIN);
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////

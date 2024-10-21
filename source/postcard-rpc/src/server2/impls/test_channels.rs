@@ -167,7 +167,7 @@ mod test {
     use tokio::task::yield_now;
 
     use crate::{
-        define_dispatch2, endpoints, headered::extract_header_from_bytes, server2::{Outputter, SpawnContext}, topics, Endpoint, Topic, WireHeader
+        define_dispatch2, endpoints, headered::extract_header_from_bytes, server2::{Sender, SpawnContext}, topics, Endpoint, Topic, WireHeader
     };
 
     use super::*;
@@ -271,7 +271,7 @@ mod test {
         context: &mut TestContext,
         _header: WireHeader,
         _body: ZMsg,
-        _out: &Outputter<ChannelWireTx>,
+        _out: &Sender<ChannelWireTx>,
     ) {
         context.topic_ctr.fetch_add(1, Ordering::Relaxed);
     }
@@ -280,7 +280,7 @@ mod test {
         context: &mut TestContext,
         _header: WireHeader,
         _body: ZMsg,
-        _out: &Outputter<ChannelWireTx>,
+        _out: &Sender<ChannelWireTx>,
     ) {
         context.topic_ctr.fetch_add(1, Ordering::Relaxed);
     }
@@ -289,7 +289,7 @@ mod test {
         context: TestSpawnContext,
         _header: WireHeader,
         _body: ZMsg,
-        _out: Outputter<ChannelWireTx>,
+        _out: Sender<ChannelWireTx>,
     ) {
         context.topic_ctr.fetch_add(1, Ordering::Relaxed);
     }
@@ -307,7 +307,7 @@ mod test {
         context: TestSpawnContext,
         header: WireHeader,
         body: BReq,
-        out: Outputter<ChannelWireTx>,
+        out: Sender<ChannelWireTx>,
     ) {
         context.ctr.fetch_add(1, Ordering::Relaxed);
         let _ = out.reply::<BetaEndpoint>(header.seq_no, &BResp(body.0.into())).await;
