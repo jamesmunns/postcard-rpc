@@ -114,8 +114,12 @@ macro_rules! define_dispatch2 {
     (
         // dispatcher: $name:ident<WireTx = $wire_tx:ty, WireSpawn = $wire_spawn:ty, Context = $context:ty>;
         app: $app_name:ident;
-        interface: $intfc_path:tt;
+
+        spawn_fn: $spawn_fn:ident;
+        tx_impl: $tx_impl:ty;
+        spawn_impl: $spawn_impl:ty;
         context: $context_ty:ty;
+
         endpoints: {
             list: $endpoint_list:ident;
 
@@ -135,16 +139,16 @@ macro_rules! define_dispatch2 {
         /// `postcard-rpc::define_dispatch2!()` macro.
         pub struct $app_name {
             pub context: $context_ty,
-            pub spawn: $intfc_path::dispatch_impl::WireSpawnImpl,
+            pub spawn: $spawn_impl,
             pub endpoint_list: &'static $crate::EndpointMap,
             pub topic_in_list: &'static $crate::TopicMap,
         }
 
         impl $app_name {
             /// Create a new instance of the dispatcher
-            fn new_me(
+            fn new(
                 context: $context_ty,
-                spawn: $intfc_path::dispatch_impl::WireSpawnImpl,
+                spawn: $spawn_impl,
             ) -> Self {
                 $app_name {
                     context,
@@ -153,31 +157,15 @@ macro_rules! define_dispatch2 {
                     topic_in_list: &$topic_in_list,
                 }
             }
-
-            pub fn new_server(
-                context: $context_ty,
-                settings: $intfc_path::dispatch_impl::Settings,
-                spawn: $intfc_path::dispatch_impl::WireSpawnImpl,
-            ) -> $crate::server2::Server<
-                $intfc_path::dispatch_impl::WireTxImpl,
-                $intfc_path::dispatch_impl::WireRxImpl,
-                $intfc_path::dispatch_impl::WireRxBuf,
-                $app_name
-            > {
-                let dispatch = Self::new_me(context, spawn);
-                let server = $intfc_path::dispatch_impl::new_server(dispatch, settings);
-                server
-            }
-
         }
 
         impl $crate::server2::Dispatch2 for $app_name {
-            type Tx = $intfc_path::dispatch_impl::WireTxImpl;
+            type Tx = $tx_impl;
 
             /// Handle dispatching of a single frame
             async fn handle(
                 &mut self,
-                tx: &$crate::server2::Outputter<Self::Tx>,
+                tx: &$crate::server2::Sender<Self::Tx>,
                 hdr: &$crate::WireHeader,
                 body: &[u8],
             ) -> Result<(), <Self::Tx as $crate::server2::WireTx>::Error> {
@@ -225,7 +213,7 @@ macro_rules! define_dispatch2 {
                             let spawninfo = &dispatch.spawn;
 
                             // This will expand to the right "flavor" of handler
-                            define_dispatch2!(@ep_arm $ep_flavor ($endpoint) $ep_handler context hdr req tx ($intfc_path::dispatch_impl::spawn_fn) spawninfo)
+                            define_dispatch2!(@ep_arm $ep_flavor ($endpoint) $ep_handler context hdr req tx ($spawn_fn) spawninfo)
                         }
                     )*
                     $(
@@ -246,7 +234,7 @@ macro_rules! define_dispatch2 {
                             let spawninfo = &dispatch.spawn;
 
                             // (@tp_arm async $handler:ident $context:ident $header:ident $req:ident $outputter:ident)
-                            define_dispatch2!(@tp_arm $tp_flavor $tp_handler context hdr msg tx ($intfc_path::dispatch_impl::spawn_fn) spawninfo);
+                            define_dispatch2!(@tp_arm $tp_flavor $tp_handler context hdr msg tx ($spawn_fn) spawninfo);
                             Ok(())
                         }
                     )*

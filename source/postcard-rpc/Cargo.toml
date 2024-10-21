@@ -125,7 +125,7 @@ version = "2.1"
 optional = true
 
 [dependencies.embassy-executor]
-version = "0.5"
+version = "0.6"
 optional = true
 
 [dependencies.futures-util]
@@ -147,7 +147,7 @@ features = ["std"]
 
 [features]
 default = [
-    "test-utils",
+    # "test-utils",
     # "embassy-usb-0_3-server",
 ]
 test-utils = ["use-std", "postcard-schema/use-std"]

@@ -12,35 +12,100 @@ use crate::{
 
 // pub fn eusb_wire_tx<D: Driver<'static>>(ep_in: D::EndpointIn, tx_buf: &'static mut [u8]) ->
 pub mod dispatch_impl {
-    use embassy_sync::blocking_mutex::raw::RawMutex;
-    use embassy_usb_driver::Driver;
-    use crate::server2::{Dispatch2, Server};
+    pub const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
-    pub struct Settings<D: Driver<'static>> {
-        driver: D,
-    }
+    use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
+    use embassy_usb::{msos::{self, windows_version}, Builder, Config, UsbDevice};
+    use embassy_usb_driver::Driver;
+    use static_cell::{ConstStaticCell, StaticCell};
 
     pub type WireTxImpl<M, D> = super::EUsbWireTx<M, D>;
     pub type WireRxImpl<D> = super::EUsbWireRx<D>;
     pub type WireSpawnImpl = super::EUsbWireSpawn;
-    // pub type WireRxImpl<D: Driver<'static>> = super::ChannelWireRx;
-    // pub type WireSpawnImpl<D: Driver<'static>> = super::ChannelWireSpawn;
     pub type WireRxBuf = &'static mut [u8];
 
     pub use super::embassy_spawn as spawn_fn;
+    use super::{EUsbWireRx, EUsbWireTx, EUsbWireTxInner, UsbDeviceBuffers};
 
-    pub fn new_server<M, Dis, Dri>(
-        dispatch: Dis,
-        settings: Settings<Dri>,
-    ) -> crate::server2::Server<WireTxImpl<M, Dri>, WireRxImpl<Dri>, WireRxBuf, Dis>
-    where
+    pub struct WireStorage<
         M: RawMutex + 'static,
-        Dis: Dispatch2<Tx = WireTxImpl<M, Dri>>,
-        Dri: Driver<'static>,
+        D: Driver<'static> + 'static,
+        const CONFIG: usize = 256,
+        const BOS: usize = 256,
+        const CONTROL: usize = 64,
+        const MSOS: usize = 256,
+    > {
+        bufs_usb: ConstStaticCell<UsbDeviceBuffers<CONFIG, BOS, CONTROL, CONFIG>>,
+        cell: StaticCell<Mutex<M, EUsbWireTxInner<D>>>,
+    }
+
+    impl<
+            M: RawMutex + 'static,
+            D: Driver<'static> + 'static,
+            const CONFIG: usize,
+            const BOS: usize,
+            const CONTROL: usize,
+            const MSOS: usize,
+        > WireStorage<M, D, CONFIG, BOS, CONTROL, MSOS>
     {
-        todo!()
-    //     let buf = vec![0; settings.buf];
-    //     Server::new(&settings.tx, settings.rx, buf.into_boxed_slice(), dispatch)
+        pub const fn new() -> Self {
+            Self {
+                bufs_usb: ConstStaticCell::new(UsbDeviceBuffers::new()),
+                cell: StaticCell::new(),
+            }
+        }
+
+        pub fn init(
+            &'static self,
+            driver: D,
+            config: Config<'static>,
+            tx_buf: &'static mut [u8],
+        ) -> (UsbDevice<'static, D>, WireTxImpl<M, D>, WireRxImpl<D>) {
+            let bufs = self.bufs_usb.take();
+
+            let mut builder = Builder::new(
+                driver,
+                config,
+                &mut bufs.config_descriptor,
+                &mut bufs.bos_descriptor,
+                &mut bufs.msos_descriptor,
+                &mut bufs.control_buf,
+            );
+
+            // Add the Microsoft OS Descriptor (MSOS/MOD) descriptor.
+            // We tell Windows that this entire device is compatible with the "WINUSB" feature,
+            // which causes it to use the built-in WinUSB driver automatically, which in turn
+            // can be used by libusb/rusb software without needing a custom driver or INF file.
+            // In principle you might want to call msos_feature() just on a specific function,
+            // if your device also has other functions that still use standard class drivers.
+            builder.msos_descriptor(windows_version::WIN8_1, 0);
+            builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+            builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+                "DeviceInterfaceGUIDs",
+                msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+            ));
+
+            // Add a vendor-specific function (class 0xFF), and corresponding interface,
+            // that uses our custom handler.
+            let mut function = builder.function(0xFF, 0, 0);
+            let mut interface = function.interface();
+            let mut alt = interface.alt_setting(0xFF, 0, 0, None);
+            let ep_out = alt.endpoint_bulk_out(64);
+            let ep_in = alt.endpoint_bulk_in(64);
+            drop(function);
+
+            let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
+                ep_in,
+                _log_seq: 0,
+                tx_buf,
+                _max_log_len: 0,
+            }));
+
+            // Build the builder.
+            let usb = builder.build();
+
+            (usb, EUsbWireTx { inner: wtx }, EUsbWireRx { ep_out })
+        }
     }
 }
 
@@ -188,7 +253,15 @@ impl<D: Driver<'static>> WireRx for EUsbWireRx<D> {
 // todo: just use a standard tokio impl?
 #[derive(Clone)]
 pub struct EUsbWireSpawn {
-    spawner: Spawner,
+    pub spawner: Spawner,
+}
+
+impl From<Spawner> for EUsbWireSpawn {
+    fn from(value: Spawner) -> Self {
+        Self {
+            spawner: value
+        }
+    }
 }
 
 impl WireSpawn for EUsbWireSpawn {
@@ -201,12 +274,55 @@ impl WireSpawn for EUsbWireSpawn {
     }
 }
 
-pub fn embassy_spawn<Sp, S>(sp: &Sp, tok: SpawnToken<S>) -> Result<(), Sp::Error>
+pub fn embassy_spawn<Sp, S: Sized>(sp: &Sp, tok: SpawnToken<S>) -> Result<(), Sp::Error>
 where
     Sp: WireSpawn<Error = SpawnError, Info = Spawner>,
 {
     let info = sp.info();
     info.spawn(tok)
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// OTHER
+//////////////////////////////////////////////////////////////////////////////
+
+pub struct UsbDeviceBuffers<
+    const CONFIG: usize = 256,
+    const BOS: usize = 256,
+    const CONTROL: usize = 64,
+    const MSOS: usize = 256,
+> {
+    pub config_descriptor: [u8; CONFIG],
+    pub bos_descriptor: [u8; BOS],
+    pub control_buf: [u8; CONTROL],
+    pub msos_descriptor: [u8; MSOS],
+}
+
+impl<const CONFIG: usize, const BOS: usize, const CONTROL: usize, const MSOS: usize>
+    UsbDeviceBuffers<CONFIG, BOS, CONTROL, MSOS>
+{
+    pub const fn new() -> Self {
+        Self {
+            config_descriptor: [0u8; CONFIG],
+            bos_descriptor: [0u8; BOS],
+            msos_descriptor: [0u8; MSOS],
+            control_buf: [0u8; CONTROL],
+        }
+    }
+}
+
+pub struct PacketBuffers<const TX: usize = 1024, const RX: usize = 1024> {
+    pub tx_buf: [u8; TX],
+    pub rx_buf: [u8; RX],
+}
+
+impl<const TX: usize, const RX: usize> PacketBuffers<TX, RX> {
+    pub const fn new() -> Self {
+        Self {
+            tx_buf: [0u8; TX],
+            rx_buf: [0u8; RX],
+        }
+    }
 }
 
 /// This is a basic example that everything compiles. It is intended to exercise the macro above,
@@ -215,7 +331,11 @@ where
 #[allow(dead_code)]
 #[cfg(feature = "test-utils")]
 pub mod fake {
-    use crate::{define_dispatch2, endpoints, server2::SpawnContext, topics};
+    use crate::{
+        define_dispatch2, endpoints,
+        server2::{Sender, SpawnContext},
+        topics,
+    };
     #[allow(unused_imports)]
     use crate::{endpoint, target_server::sender::Sender, Schema, WireHeader};
     use embassy_usb_driver::{Bus, ControlPipe, EndpointIn, EndpointOut};
@@ -442,13 +562,17 @@ pub mod fake {
     }
 
     // TODO: How to do module path concat?
-    use crate::server2::impls::embassy_usb_v0_3 as app_interface;
+    use crate::server2::impls::embassy_usb_v0_3::dispatch_impl::{
+        spawn_fn, Settings, WireRxBuf, WireRxImpl, WireSpawnImpl, WireTxImpl,
+    };
 
     define_dispatch2! {
         app: SingleDispatcher;
-        // TODO: How to do module path concat?
-        interface: app_interface;
+        spawn_fn: spawn_fn;
+        tx_impl: WireTxImpl<FakeMutex, FakeDriver>;
+        spawn_impl: WireSpawnImpl;
         context: TestContext;
+
         endpoints: {
             list: ENDPOINT_LIST;
 
@@ -501,7 +625,7 @@ pub mod fake {
         _context: TestSpawnContext,
         _header: WireHeader,
         _body: EReq,
-        _sender: Sender<FakeMutex, FakeDriver>,
+        _sender: Outputter<WireTxImpl<FakeMutex, FakeDriver>>,
     ) {
         todo!()
     }

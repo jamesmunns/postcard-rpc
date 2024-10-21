@@ -23,6 +23,10 @@ pub trait WireTx: Clone {
         msg: &T,
     ) -> Result<(), Self::Error>;
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error>;
+
+    fn sender(&self) -> Sender<Self> {
+        Sender::new(self.clone())
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -85,11 +89,17 @@ pub trait WireSpawn: Clone {
 
 // Needs a better name
 #[derive(Clone)]
-pub struct Outputter<Tx: WireTx> {
+pub struct Sender<Tx: WireTx> {
     tx: Tx,
 }
 
-impl<Tx: WireTx> Outputter<Tx> {
+impl<Tx: WireTx> Sender<Tx> {
+    pub fn new(tx: Tx) -> Self {
+        Self {
+            tx,
+        }
+    }
+
     /// Send a reply for the given endpoint
     #[inline]
     pub async fn reply<E>(&self, seq_no: u32, resp: &E::Response) -> Result<(), Tx::Error>
@@ -153,7 +163,7 @@ where
     Buf: DerefMut<Target = [u8]>,
     D: Dispatch2<Tx = Tx>,
 {
-    tx: Outputter<Tx>,
+    tx: Sender<Tx>,
     rx: Rx,
     buf: Buf,
     dis: D,
@@ -177,7 +187,7 @@ where
 {
     pub fn new(tx: &Tx, rx: Rx, buf: Buf, dis: D) -> Self {
         Self {
-            tx: Outputter { tx: tx.clone() },
+            tx: Sender { tx: tx.clone() },
             rx,
             buf,
             dis,
@@ -221,7 +231,7 @@ pub trait Dispatch2 {
     type Tx: WireTx;
     async fn handle(
         &mut self,
-        tx: &Outputter<Self::Tx>,
+        tx: &Sender<Self::Tx>,
         hdr: &WireHeader,
         body: &[u8],
     ) -> Result<(), <Self::Tx as WireTx>::Error>;

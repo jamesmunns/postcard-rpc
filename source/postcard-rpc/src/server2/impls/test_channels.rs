@@ -162,7 +162,6 @@ mod test {
     use core::{sync::atomic::{AtomicUsize, Ordering}, time::Duration};
     use std::{sync::Arc, time::Instant};
 
-    use dispatch_impl::Settings;
     use postcard_schema::Schema;
     use serde::{Deserialize, Serialize};
     use tokio::task::yield_now;
@@ -238,13 +237,17 @@ mod test {
     }
 
     // TODO: How to do module path concat?
-    use crate::server2::impls::test_channels as app_interface;
+    use crate::server2::impls::test_channels::dispatch_impl::{
+        spawn_fn, WireTxImpl, WireRxImpl, WireRxBuf, WireSpawnImpl, Settings, new_server,
+    };
 
     define_dispatch2! {
         app: SingleDispatcher;
-        // TODO: How to do module path concat?
-        interface: app_interface;
+        spawn_fn: spawn_fn;
+        tx_impl: WireTxImpl;
+        spawn_impl: WireSpawnImpl;
         context: TestContext;
+
         endpoints: {
             list: ENDPOINT_LIST;
 
@@ -320,10 +323,13 @@ mod test {
 
         let topic_ctr = Arc::new(AtomicUsize::new(0));
 
-        let mut server = SingleDispatcher::new_server(
+        let app = SingleDispatcher::new(
             TestContext { ctr: Arc::new(AtomicUsize::new(0)), topic_ctr: topic_ctr.clone() },
-            Settings { tx: cwtx, rx: cwrx, buf: 1024 },
             ChannelWireSpawn {},
+        );
+        let mut server = new_server(
+            app,
+            Settings { tx: cwtx, rx: cwrx, buf: 1024 },
         );
         tokio::task::spawn(async move {
             server.run().await;
