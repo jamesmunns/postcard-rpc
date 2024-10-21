@@ -238,7 +238,7 @@ mod test {
 
     // TODO: How to do module path concat?
     use crate::server2::impls::test_channels::dispatch_impl::{
-        spawn_fn, WireTxImpl, WireRxImpl, WireRxBuf, WireSpawnImpl, Settings, new_server,
+        spawn_fn, WireTxImpl, WireSpawnImpl, Settings, new_server,
     };
 
     define_dispatch2! {

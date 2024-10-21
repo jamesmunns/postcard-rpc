@@ -429,6 +429,12 @@ impl Key4 {
     }
 }
 
+impl Key {
+    pub const fn from_key8(value: Key) -> Self {
+        value
+    }
+}
+
 impl From<Key2> for Key1 {
     fn from(value: Key2) -> Self {
         Self::from_key2(value)

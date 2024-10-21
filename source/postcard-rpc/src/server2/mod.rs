@@ -9,7 +9,7 @@ use core::ops::DerefMut;
 use postcard_schema::Schema;
 use serde::Serialize;
 
-use crate::{headered::extract_header_from_bytes, EndpointMap, Key, WireHeader};
+use crate::{headered::extract_header_from_bytes, Key, WireHeader};
 
 //////////////////////////////////////////////////////////////////////////////
 // TX
