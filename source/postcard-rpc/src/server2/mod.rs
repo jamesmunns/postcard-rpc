@@ -9,7 +9,7 @@ use core::ops::DerefMut;
 use postcard_schema::Schema;
 use serde::Serialize;
 
-use crate::{headered::extract_header_from_bytes, Key, WireHeader};
+use crate::{header::{VarHeader, VarKey, VarSeq}, Key};
 
 //////////////////////////////////////////////////////////////////////////////
 // TX
@@ -19,7 +19,7 @@ pub trait WireTx: Clone {
     type Error: AsWireTxErrorKind;
     async fn send<T: Serialize + ?Sized>(
         &self,
-        hdr: WireHeader,
+        hdr: VarHeader,
         msg: &T,
     ) -> Result<(), Self::Error>;
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error>;
@@ -100,13 +100,14 @@ impl<Tx: WireTx> Sender<Tx> {
 
     /// Send a reply for the given endpoint
     #[inline]
-    pub async fn reply<E>(&self, seq_no: u32, resp: &E::Response) -> Result<(), Tx::Error>
+    pub async fn reply<E>(&self, seq_no: VarSeq, resp: &E::Response) -> Result<(), Tx::Error>
     where
         E: crate::Endpoint,
         E::Response: Serialize + Schema,
     {
-        let wh = WireHeader {
-            key: E::RESP_KEY,
+        // TODO: Determine "native" header size
+        let wh = VarHeader {
+            key: VarKey::Key8(E::RESP_KEY),
             seq_no,
         };
         self.tx.send::<E::Response>(wh, resp).await
@@ -117,23 +118,26 @@ impl<Tx: WireTx> Sender<Tx> {
     /// This is useful when replying with "unusual" keys, for example Error responses
     /// not tied to any specific Endpoint.
     #[inline]
-    pub async fn reply_keyed<T>(&self, seq_no: u32, key: Key, resp: &T) -> Result<(), Tx::Error>
+    pub async fn reply_keyed<T>(&self, seq_no: VarSeq, key: Key, resp: &T) -> Result<(), Tx::Error>
     where
         T: Serialize + Schema,
     {
-        let wh = WireHeader { key, seq_no };
+        let wh = VarHeader {
+            key: VarKey::Key8(key),
+            seq_no,
+        };
         self.tx.send::<T>(wh, resp).await
     }
 
     /// Publish a Topic message
     #[inline]
-    pub async fn publish<T>(&self, seq_no: u32, msg: &T::Message) -> Result<(), Tx::Error>
+    pub async fn publish<T>(&self, seq_no: VarSeq, msg: &T::Message) -> Result<(), Tx::Error>
     where
         T: crate::Topic,
         T::Message: Serialize + Schema,
     {
-        let wh = WireHeader {
-            key: T::TOPIC_KEY,
+        let wh = VarHeader {
+            key: VarKey::Key8(T::TOPIC_KEY),
             seq_no,
         };
         self.tx.send::<T::Message>(wh, msg).await
@@ -142,7 +146,7 @@ impl<Tx: WireTx> Sender<Tx> {
     /// Send a single error message
     pub async fn error(
         &self,
-        seq_no: u32,
+        seq_no: VarSeq,
         error: crate::standard_icd::WireError,
     ) -> Result<(), Tx::Error> {
         self.reply_keyed(seq_no, crate::standard_icd::ERROR_KEY, &error)
@@ -211,7 +215,7 @@ where
                     }
                 }
             };
-            let Ok((hdr, body)) = extract_header_from_bytes(used) else {
+            let Some((hdr, body)) = VarHeader::take_from_slice(used) else {
                 continue;
             };
             let fut = d.handle(tx, &hdr, body);
@@ -235,7 +239,7 @@ pub trait Dispatch2 {
     async fn handle(
         &mut self,
         tx: &Sender<Self::Tx>,
-        hdr: &WireHeader,
+        hdr: &VarHeader,
         body: &[u8],
     ) -> Result<(), <Self::Tx as WireTx>::Error>;
 }

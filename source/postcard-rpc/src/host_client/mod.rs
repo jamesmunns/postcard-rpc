@@ -23,7 +23,7 @@ use tokio::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use crate::{Endpoint, Key, Topic, WireHeader};
+use crate::{header::{VarHeader, VarKey, VarSeq}, Endpoint, Key, Topic};
 
 use self::util::Stopper;
 
@@ -37,6 +37,9 @@ mod serial;
 pub mod webusb;
 
 pub(crate) mod util;
+
+#[cfg(feature = "test-utils")]
+pub mod test_channels;
 
 /// Host Error Kind
 #[derive(Debug, PartialEq)]
@@ -226,9 +229,10 @@ where
         let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
         let msg = postcard::to_stdvec(&t).expect("Allocations should not ever fail");
         let frame = RpcFrame {
-            header: WireHeader {
-                key: E::REQ_KEY,
-                seq_no,
+            header: VarHeader {
+                key: VarKey::Key8(E::REQ_KEY),
+                // TODO: how to var?
+                seq_no: VarSeq::Seq4(seq_no),
             },
             body: msg,
         };
@@ -245,13 +249,13 @@ where
         let cancel_fut = self.stopper.wait_stopped();
 
         // TODO: Do I need something like a .subscribe method to ensure this is enqueued?
-        let ok_resp = self.ctx.map.wait(WireHeader {
+        let ok_resp = self.ctx.map.wait(VarHeader {
             seq_no: rqst.header.seq_no,
-            key: resp_key,
+            key: VarKey::Key8(resp_key),
         });
-        let err_resp = self.ctx.map.wait(WireHeader {
+        let err_resp = self.ctx.map.wait(VarHeader {
             seq_no: rqst.header.seq_no,
-            key: self.err_key,
+            key: VarKey::Key8(self.err_key),
         });
         let seq_no = rqst.header.seq_no;
         self.out.send(rqst).await.map_err(|_| HostErr::Closed)?;
@@ -260,7 +264,7 @@ where
             _c = cancel_fut => Err(HostErr::Closed),
             o = ok_resp => {
                 let resp = o?;
-                Ok(RpcFrame { header: WireHeader { key: resp_key, seq_no }, body: resp })
+                Ok(RpcFrame { header: VarHeader { key: VarKey::Key8(resp_key), seq_no }, body: resp })
             },
             e = err_resp => {
                 let resp = e?;
@@ -280,9 +284,9 @@ where
     {
         let smsg = postcard::to_stdvec(msg).expect("alloc should never fail");
         let frame = RpcFrame {
-            header: WireHeader {
-                key: T::TOPIC_KEY,
-                seq_no,
+            header: VarHeader {
+                key: VarKey::Key8(T::TOPIC_KEY),
+                seq_no: VarSeq::Seq4(seq_no),
             },
             body: smsg,
         };
@@ -459,7 +463,7 @@ pub struct WireContext {
 /// A single postcard-rpc frame
 pub struct RpcFrame {
     /// The wire header
-    pub header: WireHeader,
+    pub header: VarHeader,
     /// The serialized message payload
     pub body: Vec<u8>,
 }
@@ -467,7 +471,7 @@ pub struct RpcFrame {
 impl RpcFrame {
     /// Serialize the `RpcFrame` into a Vec of bytes
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = postcard::to_stdvec(&self.header).expect("Alloc should never fail");
+        let mut out = self.header.write_to_vec();
         out.extend_from_slice(&self.body);
         out
     }
@@ -475,7 +479,7 @@ impl RpcFrame {
 
 /// Shared context between [HostClient] and the I/O worker task
 pub struct HostContext {
-    map: WaitMap<WireHeader, Vec<u8>>,
+    map: WaitMap<VarHeader, Vec<u8>>,
     seq: AtomicU32,
 }
 

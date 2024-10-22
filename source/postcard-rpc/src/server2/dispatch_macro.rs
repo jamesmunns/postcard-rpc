@@ -136,11 +136,15 @@ macro_rules! define_dispatch2 {
             async fn handle(
                 &mut self,
                 tx: &$crate::server2::Sender<Self::Tx>,
-                hdr: &$crate::WireHeader,
+                hdr: &$crate::header::VarHeader,
                 body: &[u8],
             ) -> Result<(), <Self::Tx as $crate::server2::WireTx>::Error> {
                 let key = hdr.key;
-                let keyb = <$key_ty>::from_key8(key).to_bytes();
+                let Some(keyb) = <$key_ty>::try_from_varkey(&key) else {
+                    let err = $crate::standard_icd::WireError::KeyTooSmall;
+                    return tx.error(hdr.seq_no, err).await;
+                };
+                let keyb = keyb.to_bytes();
                 use consts::*;
                 match keyb {
                     $(
@@ -188,7 +192,7 @@ macro_rules! define_dispatch2 {
                     )*
                     _other => {
                         // huh! We have no idea what this key is supposed to be!
-                        let err = $crate::standard_icd::WireError::UnknownKey(hdr.key.to_bytes());
+                        let err = $crate::standard_icd::WireError::UnknownKey;
                         tx.error(hdr.seq_no, err).await
                     },
                 }

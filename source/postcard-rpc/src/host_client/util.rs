@@ -1,5 +1,5 @@
 // the contents of this file can probably be moved up to `mod.rs`
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
 use maitake_sync::WaitQueue;
 use postcard_schema::Schema;
@@ -14,15 +14,13 @@ use tokio::{
 use tracing::{debug, trace, warn};
 
 use crate::{
-    headered::extract_header_from_bytes,
-    host_client::{
+    header::{VarHeader, VarKey}, host_client::{
         HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext, WireRx, WireSpawn,
         WireTx,
-    },
-    Key,
+    }, Key
 };
 
-pub(crate) type Subscriptions = HashMap<Key, Sender<RpcFrame>>;
+pub(crate) type Subscriptions = Vec<(Key, Sender<RpcFrame>)>;
 
 /// A basic cancellation-token
 ///
@@ -174,7 +172,7 @@ async fn in_worker_inner<W>(
             return;
         };
 
-        let Ok((hdr, body)) = extract_header_from_bytes(&res) else {
+        let Some((hdr, body)) = VarHeader::take_from_slice(&res) else {
             warn!("Header decode error!");
             continue;
         };
@@ -188,10 +186,10 @@ async fn in_worker_inner<W>(
             let key = hdr.key;
 
             // Remove if sending fails
-            let remove_sub = if let Some(m) = subs_guard.get(&key) {
+            let remove_sub = if let Some((_h, m)) = subs_guard.iter().find(|(k, _)| VarKey::Key8(*k) == key) {
                 handled = true;
                 let frame = RpcFrame {
-                    header: hdr.clone(),
+                    header: hdr,
                     body: body.to_vec(),
                 };
                 let res = m.try_send(frame);
@@ -213,7 +211,7 @@ async fn in_worker_inner<W>(
 
             if remove_sub {
                 debug!("Dropping subscription");
-                subs_guard.remove(&key);
+                subs_guard.retain(|(k, _)| VarKey::Key8(*k) != key);
             }
         }
 
@@ -259,8 +257,17 @@ async fn sub_worker_inner(
 ) {
     while let Some(sub) = new_subs.recv().await {
         let mut sub_guard = subscriptions.lock().await;
-        if let Some(_old) = sub_guard.insert(sub.key, sub.tx) {
-            warn!("Replacing old subscription for {:?}", sub.key);
+        let k2b = sub.key.to_bytes();
+        match sub_guard.binary_search_by_key(&k2b, |(k, _)| k.to_bytes()) {
+            Ok(n) => {
+                let mut swap = (sub.key, sub.tx);
+                warn!("Replacing old subscription for {:?}", sub.key);
+                core::mem::swap(&mut swap, &mut sub_guard[n]);
+            },
+            Err(n) => {
+                // No need to replace or sort, we do this by insertion instead
+                sub_guard.insert(n, (sub.key, sub.tx));
+            },
         }
     }
 }

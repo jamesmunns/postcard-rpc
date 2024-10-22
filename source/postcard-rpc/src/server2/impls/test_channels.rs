@@ -54,10 +54,10 @@ impl WireTx for ChannelWireTx {
 
     async fn send<T: serde::Serialize + ?Sized>(
         &self,
-        hdr: crate::WireHeader,
+        hdr: crate::header::VarHeader,
         msg: &T,
     ) -> Result<(), Self::Error> {
-        let mut hdr_ser = postcard::to_stdvec(&hdr).unwrap();
+        let mut hdr_ser = hdr.write_to_vec();
         let bdy_ser = postcard::to_stdvec(msg).unwrap();
         hdr_ser.extend_from_slice(&bdy_ser);
         self.tx
@@ -170,10 +170,7 @@ mod test {
     use tokio::task::yield_now;
 
     use crate::{
-        define_dispatch2, endpoints,
-        headered::extract_header_from_bytes,
-        server2::{Sender, SpawnContext},
-        topics, Endpoint, Topic, WireHeader,
+        define_dispatch2, endpoints, header::{VarHeader, VarKey, VarSeq}, server2::{Sender, SpawnContext}, topics, Endpoint, Topic
     };
 
     use super::*;
@@ -275,7 +272,7 @@ mod test {
 
     fn test_zeta_blocking(
         context: &mut TestContext,
-        _header: WireHeader,
+        _header: VarHeader,
         _body: ZMsg,
         _out: &Sender<ChannelWireTx>,
     ) {
@@ -284,7 +281,7 @@ mod test {
 
     async fn test_zeta_async(
         context: &mut TestContext,
-        _header: WireHeader,
+        _header: VarHeader,
         _body: ZMsg,
         _out: &Sender<ChannelWireTx>,
     ) {
@@ -293,7 +290,7 @@ mod test {
 
     async fn test_zeta_spawn(
         context: TestSpawnContext,
-        _header: WireHeader,
+        _header: VarHeader,
         _body: ZMsg,
         _out: Sender<ChannelWireTx>,
     ) {
@@ -302,7 +299,7 @@ mod test {
 
     async fn test_alpha_handler(
         context: &mut TestContext,
-        _header: WireHeader,
+        _header: VarHeader,
         body: AReq,
     ) -> AResp {
         context.ctr.fetch_add(1, Ordering::Relaxed);
@@ -311,7 +308,7 @@ mod test {
 
     async fn test_beta_handler(
         context: TestSpawnContext,
-        header: WireHeader,
+        header: VarHeader,
         body: BReq,
         out: Sender<ChannelWireTx>,
     ) {
@@ -351,48 +348,46 @@ mod test {
         });
 
         // manually build request - Alpha
-        let mut msg = postcard::to_stdvec(&WireHeader {
-            key: AlphaEndpoint::REQ_KEY,
-            seq_no: 123,
-        })
-        .unwrap();
+        let mut msg = VarHeader {
+            key: VarKey::Key8(AlphaEndpoint::REQ_KEY),
+            seq_no: VarSeq::Seq4(123),
+        }.write_to_vec();
         let body = postcard::to_stdvec(&AReq(42)).unwrap();
         msg.extend_from_slice(&body);
         client_tx.send(msg).await.unwrap();
         let resp = client_rx.recv().await.unwrap();
 
         // manually extract response
-        let (hdr, body) = extract_header_from_bytes(&resp).unwrap();
+        let (hdr, body) = VarHeader::take_from_slice(&resp).unwrap();
         let resp = postcard::from_bytes::<<AlphaEndpoint as Endpoint>::Response>(body).unwrap();
         assert_eq!(resp.0, 42);
-        assert_eq!(hdr.key, AlphaEndpoint::RESP_KEY);
-        assert_eq!(hdr.seq_no, 123);
+        assert_eq!(hdr.key, VarKey::Key8(AlphaEndpoint::RESP_KEY));
+        assert_eq!(hdr.seq_no, VarSeq::Seq4(123));
 
         // manually build request - Beta
-        let mut msg = postcard::to_stdvec(&WireHeader {
-            key: BetaEndpoint::REQ_KEY,
-            seq_no: 234,
-        })
-        .unwrap();
+        let mut msg = VarHeader {
+            key: VarKey::Key8(BetaEndpoint::REQ_KEY),
+            seq_no: VarSeq::Seq4(234),
+        }.write_to_vec();
         let body = postcard::to_stdvec(&BReq(1000)).unwrap();
         msg.extend_from_slice(&body);
         client_tx.send(msg).await.unwrap();
         let resp = client_rx.recv().await.unwrap();
 
         // manually extract response
-        let (hdr, body) = extract_header_from_bytes(&resp).unwrap();
+        let (hdr, body) = VarHeader::take_from_slice(&resp).unwrap();
         let resp = postcard::from_bytes::<<BetaEndpoint as Endpoint>::Response>(body).unwrap();
         assert_eq!(resp.0, 1000);
-        assert_eq!(hdr.key, BetaEndpoint::RESP_KEY);
-        assert_eq!(hdr.seq_no, 234);
+        assert_eq!(hdr.key, VarKey::Key8(BetaEndpoint::RESP_KEY));
+        assert_eq!(hdr.seq_no, VarSeq::Seq4(234));
 
         // blocking topic handler
         for i in 0..3 {
-            let mut msg = postcard::to_stdvec(&WireHeader {
-                key: ZetaTopic1::TOPIC_KEY,
-                seq_no: i,
-            })
-            .unwrap();
+            let mut msg = VarHeader {
+                key: VarKey::Key8(ZetaTopic1::TOPIC_KEY),
+                seq_no: VarSeq::Seq4(i),
+            }.write_to_vec();
+
             let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
             msg.extend_from_slice(&body);
             client_tx.send(msg).await.unwrap();
@@ -413,11 +408,10 @@ mod test {
 
         // async topic handler
         for i in 0..3 {
-            let mut msg = postcard::to_stdvec(&WireHeader {
-                key: ZetaTopic2::TOPIC_KEY,
-                seq_no: i,
-            })
-            .unwrap();
+            let mut msg = VarHeader {
+                key: VarKey::Key8(ZetaTopic2::TOPIC_KEY),
+                seq_no: VarSeq::Seq4(i),
+            }.write_to_vec();
             let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
             msg.extend_from_slice(&body);
             client_tx.send(msg).await.unwrap();
@@ -438,11 +432,10 @@ mod test {
 
         // spawn topic handler
         for i in 0..3 {
-            let mut msg = postcard::to_stdvec(&WireHeader {
-                key: ZetaTopic3::TOPIC_KEY,
-                seq_no: i,
-            })
-            .unwrap();
+            let mut msg = VarHeader {
+                key: VarKey::Key8(ZetaTopic3::TOPIC_KEY),
+                seq_no: VarSeq::Seq4(i),
+            }.write_to_vec();
             let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
             msg.extend_from_slice(&body);
             client_tx.send(msg).await.unwrap();
@@ -460,5 +453,43 @@ mod test {
             }
             assert!(good);
         }
+    }
+
+    use crate::host_client::test_channels as client;
+    #[tokio::test]
+    async fn end_to_end() {
+        let (client_tx, server_rx) = mpsc::channel(16);
+        let (server_tx, client_rx) = mpsc::channel(16);
+
+        let cwrx = ChannelWireRx { rx: server_rx };
+        let cwtx = ChannelWireTx { tx: server_tx };
+
+        let topic_ctr = Arc::new(AtomicUsize::new(0));
+
+        let app = SingleDispatcher::new(
+            TestContext {
+                ctr: Arc::new(AtomicUsize::new(0)),
+                topic_ctr: topic_ctr.clone(),
+            },
+            ChannelWireSpawn {},
+        );
+        let mut server = new_server(
+            app,
+            Settings {
+                tx: cwtx,
+                rx: cwrx,
+                buf: 1024,
+            },
+        );
+        tokio::task::spawn(async move {
+            server.run().await;
+        });
+
+        let cli = client::new_from_channels(client_tx, client_rx);
+
+        let resp = cli.send_resp::<AlphaEndpoint>(&AReq(42)).await.unwrap();
+        assert_eq!(resp.0, 42);
+        let resp = cli.send_resp::<BetaEndpoint>(&BReq(1234)).await.unwrap();
+        assert_eq!(resp.0, 1234);
     }
 }

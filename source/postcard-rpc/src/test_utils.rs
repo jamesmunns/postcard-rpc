@@ -2,11 +2,11 @@
 
 use core::{fmt::Display, future::Future};
 
+use crate::header::{VarHeader, VarKey, VarSeq};
 use crate::host_client::util::Stopper;
 use crate::{
-    headered::extract_header_from_bytes,
     host_client::{HostClient, RpcFrame, WireRx, WireSpawn, WireTx},
-    Endpoint, Topic, WireHeader,
+    Endpoint, Topic,
 };
 use postcard_schema::Schema;
 use serde::{de::DeserializeOwned, Serialize};
@@ -33,7 +33,7 @@ pub struct LocalFakeServer {
 impl LocalFakeServer {
     pub async fn recv_from_client(&mut self) -> Result<RpcFrame, LocalError> {
         let msg = self.from_client.recv().await.ok_or(LocalError::TxClosed)?;
-        let Ok((hdr, body)) = extract_header_from_bytes(&msg) else {
+        let Some((hdr, body)) = VarHeader::take_from_slice(&msg) else {
             return Err(LocalError::BadFrame);
         };
         Ok(RpcFrame {
@@ -51,9 +51,9 @@ impl LocalFakeServer {
         E::Response: Serialize,
     {
         let frame = RpcFrame {
-            header: WireHeader {
-                key: E::RESP_KEY,
-                seq_no,
+            header: VarHeader {
+                key: VarKey::Key8(E::RESP_KEY),
+                seq_no: VarSeq::Seq4(seq_no),
             },
             body: postcard::to_stdvec(data).unwrap(),
         };
@@ -72,9 +72,9 @@ impl LocalFakeServer {
         T::Message: Serialize,
     {
         let frame = RpcFrame {
-            header: WireHeader {
-                key: T::TOPIC_KEY,
-                seq_no,
+            header: VarHeader {
+                key: VarKey::Key8(T::TOPIC_KEY),
+                seq_no: VarSeq::Seq4(seq_no),
             },
             body: postcard::to_stdvec(data).unwrap(),
         };
