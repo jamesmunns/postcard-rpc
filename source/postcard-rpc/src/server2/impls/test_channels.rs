@@ -2,12 +2,9 @@
 
 use core::{convert::Infallible, future::Future};
 
-use crate::{
-    header::VarKeyKind,
-    server2::{
-        AsWireRxErrorKind, AsWireTxErrorKind, WireRx, WireRxErrorKind, WireSpawn, WireTx,
-        WireTxErrorKind,
-    },
+use crate::server2::{
+    AsWireRxErrorKind, AsWireTxErrorKind, WireRx, WireRxErrorKind, WireSpawn, WireTx,
+    WireTxErrorKind,
 };
 use tokio::sync::mpsc;
 
@@ -20,6 +17,7 @@ pub mod dispatch_impl {
         pub tx: WireTxImpl,
         pub rx: WireRxImpl,
         pub buf: usize,
+        pub kkind: VarKeyKind,
     }
 
     pub type WireTxImpl = super::ChannelWireTx;
@@ -27,7 +25,10 @@ pub mod dispatch_impl {
     pub type WireSpawnImpl = super::ChannelWireSpawn;
     pub type WireRxBuf = Box<[u8]>;
 
-    use crate::server2::{Dispatch2, Server};
+    use crate::{
+        header::VarKeyKind,
+        server2::{Dispatch2, Server},
+    };
 
     pub use super::tokio_spawn as spawn_fn;
 
@@ -39,7 +40,13 @@ pub mod dispatch_impl {
         D: Dispatch2<Tx = WireTxImpl>,
     {
         let buf = vec![0; settings.buf];
-        Server::new(&settings.tx, settings.rx, buf.into_boxed_slice(), dispatch)
+        Server::new(
+            &settings.tx,
+            settings.rx,
+            buf.into_boxed_slice(),
+            dispatch,
+            settings.kkind,
+        )
     }
 }
 
@@ -50,7 +57,6 @@ pub mod dispatch_impl {
 #[derive(Clone)]
 pub struct ChannelWireTx {
     tx: mpsc::Sender<Vec<u8>>,
-    kkind: VarKeyKind,
 }
 
 impl WireTx for ChannelWireTx {
@@ -58,10 +64,9 @@ impl WireTx for ChannelWireTx {
 
     async fn send<T: serde::Serialize + ?Sized>(
         &self,
-        mut hdr: crate::header::VarHeader,
+        hdr: crate::header::VarHeader,
         msg: &T,
     ) -> Result<(), Self::Error> {
-        hdr.key.shrink_to(self.kkind);
         let mut hdr_ser = hdr.write_to_vec();
         let bdy_ser = postcard::to_stdvec(msg).unwrap();
         hdr_ser.extend_from_slice(&bdy_ser);
@@ -176,7 +181,7 @@ mod test {
 
     use crate::{
         define_dispatch2, endpoints,
-        header::{VarHeader, VarKey, VarSeq, VarSeqKind},
+        header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind},
         server2::{Dispatch2, Sender, SpawnContext},
         topics, Endpoint, Topic,
     };
@@ -341,17 +346,15 @@ mod test {
         );
 
         let cwrx = ChannelWireRx { rx: server_rx };
-        let cwtx = ChannelWireTx {
-            tx: server_tx,
-            kkind: app.min_key_len(),
-        };
-
+        let cwtx = ChannelWireTx { tx: server_tx };
+        let kkind = app.min_key_len();
         let mut server = new_server(
             app,
             Settings {
                 tx: cwtx,
                 rx: cwrx,
                 buf: 1024,
+                kkind,
             },
         );
         tokio::task::spawn(async move {
@@ -487,17 +490,16 @@ mod test {
         );
 
         let cwrx = ChannelWireRx { rx: server_rx };
-        let cwtx = ChannelWireTx {
-            tx: server_tx,
-            kkind: app.min_key_len(),
-        };
+        let cwtx = ChannelWireTx { tx: server_tx };
 
+        let kkind = app.min_key_len();
         let mut server = new_server(
             app,
             Settings {
                 tx: cwtx,
                 rx: cwrx,
                 buf: 1024,
+                kkind,
             },
         );
         tokio::task::spawn(async move {
@@ -527,17 +529,16 @@ mod test {
         );
 
         let cwrx = ChannelWireRx { rx: server_rx };
-        let cwtx = ChannelWireTx {
-            tx: server_tx,
-            kkind: VarKeyKind::Key8,
-        };
+        let cwtx = ChannelWireTx { tx: server_tx };
 
+        let kkind = VarKeyKind::Key8;
         let mut server = new_server(
             app,
             Settings {
                 tx: cwtx,
                 rx: cwrx,
                 buf: 1024,
+                kkind,
             },
         );
         tokio::task::spawn(async move {

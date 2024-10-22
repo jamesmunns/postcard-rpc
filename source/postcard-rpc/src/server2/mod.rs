@@ -23,10 +23,6 @@ pub trait WireTx: Clone {
     async fn send<T: Serialize + ?Sized>(&self, hdr: VarHeader, msg: &T)
         -> Result<(), Self::Error>;
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error>;
-
-    fn sender(&self) -> Sender<Self> {
-        Sender::new(self.clone())
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -84,18 +80,18 @@ pub trait WireSpawn: Clone {
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// OUTPUTTER (wrapper of WireTx)
+// SENDER (wrapper of WireTx)
 //////////////////////////////////////////////////////////////////////////////
 
-// Needs a better name
 #[derive(Clone)]
 pub struct Sender<Tx: WireTx> {
     tx: Tx,
+    kkind: VarKeyKind,
 }
 
 impl<Tx: WireTx> Sender<Tx> {
-    pub fn new(tx: Tx) -> Self {
-        Self { tx }
+    pub fn new(tx: Tx, kkind: VarKeyKind) -> Self {
+        Self { tx, kkind }
     }
 
     /// Send a reply for the given endpoint
@@ -105,11 +101,9 @@ impl<Tx: WireTx> Sender<Tx> {
         E: crate::Endpoint,
         E::Response: Serialize + Schema,
     {
-        // TODO: Determine "native" header size
-        let wh = VarHeader {
-            key: VarKey::Key8(E::RESP_KEY),
-            seq_no,
-        };
+        let mut key = VarKey::Key8(E::RESP_KEY);
+        key.shrink_to(self.kkind);
+        let wh = VarHeader { key, seq_no };
         self.tx.send::<E::Response>(wh, resp).await
     }
 
@@ -122,10 +116,9 @@ impl<Tx: WireTx> Sender<Tx> {
     where
         T: Serialize + Schema,
     {
-        let wh = VarHeader {
-            key: VarKey::Key8(key),
-            seq_no,
-        };
+        let mut key = VarKey::Key8(key);
+        key.shrink_to(self.kkind);
+        let wh = VarHeader { key, seq_no };
         self.tx.send::<T>(wh, resp).await
     }
 
@@ -136,10 +129,9 @@ impl<Tx: WireTx> Sender<Tx> {
         T: crate::Topic,
         T::Message: Serialize + Schema,
     {
-        let wh = VarHeader {
-            key: VarKey::Key8(T::TOPIC_KEY),
-            seq_no,
-        };
+        let mut key = VarKey::Key8(T::TOPIC_KEY);
+        key.shrink_to(self.kkind);
+        let wh = VarHeader { key, seq_no };
         self.tx.send::<T::Message>(wh, msg).await
     }
 
@@ -187,9 +179,12 @@ where
     Buf: DerefMut<Target = [u8]>,
     D: Dispatch2<Tx = Tx>,
 {
-    pub fn new(tx: &Tx, rx: Rx, buf: Buf, dis: D) -> Self {
+    pub fn new(tx: &Tx, rx: Rx, buf: Buf, dis: D, kkind: VarKeyKind) -> Self {
         Self {
-            tx: Sender { tx: tx.clone() },
+            tx: Sender {
+                tx: tx.clone(),
+                kkind,
+            },
             rx,
             buf,
             dis,
@@ -418,84 +413,3 @@ mod test {
         assert_eq!(8, MIN);
     }
 }
-
-//////////////////////////////////////////////////////////////////////////////
-// TODO KEY STUFF
-//////////////////////////////////////////////////////////////////////////////
-
-// pub struct Key8(pub [u8; 8]);
-// pub struct Key4(pub [u8; 4]);
-// pub struct Key2(pub [u8; 2]);
-// pub struct Key1(pub u8);
-
-// impl Key1 {
-//     const fn from_key2(value: Key2) -> Self {
-//         let [a, b] = value.0;
-//         Self(a ^ b)
-//     }
-
-//     const fn from_key4(value: Key4) -> Self {
-//         let [a, b, c, d] = value.0;
-//         Self(a ^ b ^ c ^ d)
-//     }
-
-//     const fn from_key8(value: Key8) -> Self {
-//         let [a, b, c, d, e, f, g, h] = value.0;
-//         Self(a ^ b ^ c ^ d ^ e ^ f ^ g ^ h)
-//     }
-// }
-
-// impl Key2 {
-//     const fn from_key4(value: Key4) -> Self {
-//         let [a, b, c, d] = value.0;
-//         Self([a ^ b,  c ^ d])
-//     }
-
-//     const fn from_key8(value: Key8) -> Self {
-//         let [a, b, c, d, e, f, g, h] = value.0;
-//         Self([a ^ b ^ c ^ d, e ^ f ^ g ^ h])
-//     }
-// }
-
-// impl Key4 {
-//     const fn from_key8(value: Key8) -> Self {
-//         let [a, b, c, d, e, f, g, h] = value.0;
-//         Self([a ^ b, c ^ d, e ^ f, g ^ h])
-//     }
-// }
-
-// impl From<Key2> for Key1 {
-//     fn from(value: Key2) -> Self {
-//         Self::from_key2(value)
-//     }
-// }
-
-// impl From<Key4> for Key1 {
-//     fn from(value: Key4) -> Self {
-//         Self::from_key4(value)
-//     }
-// }
-
-// impl From<Key8> for Key1 {
-//     fn from(value: Key8) -> Self {
-//         Self::from_key8(value)
-//     }
-// }
-
-// impl From<Key4> for Key2 {
-//     fn from(value: Key4) -> Self {
-//         Self::from_key4(value)
-//     }
-// }
-
-// impl From<Key8> for Key2 {
-//     fn from(value: Key8) -> Self {
-//         Self::from_key8(value)
-//     }
-// }
-
-// impl From<Key8> for Key4 {
-//     fn from(value: Key8) -> Self {
-//         Self::from_key8(value)
-//     }
-// }
