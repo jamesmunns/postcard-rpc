@@ -2,10 +2,13 @@
 
 use core::{convert::Infallible, future::Future};
 
-use crate::{header::VarKeyKind, server2::{
-    AsWireRxErrorKind, AsWireTxErrorKind, WireRx, WireRxErrorKind, WireSpawn, WireTx,
-    WireTxErrorKind,
-}};
+use crate::{
+    header::VarKeyKind,
+    server2::{
+        AsWireRxErrorKind, AsWireTxErrorKind, WireRx, WireRxErrorKind, WireSpawn, WireTx,
+        WireTxErrorKind,
+    },
+};
 use tokio::sync::mpsc;
 
 //////////////////////////////////////////////////////////////////////////////
@@ -172,7 +175,10 @@ mod test {
     use tokio::task::yield_now;
 
     use crate::{
-        define_dispatch2, endpoints, header::{VarHeader, VarKey, VarSeq, VarSeqKind}, server2::{Dispatch2, Sender, SpawnContext}, topics, Endpoint, Topic
+        define_dispatch2, endpoints,
+        header::{VarHeader, VarKey, VarSeq, VarSeqKind},
+        server2::{Dispatch2, Sender, SpawnContext},
+        topics, Endpoint, Topic,
     };
 
     use super::*;
@@ -335,9 +341,10 @@ mod test {
         );
 
         let cwrx = ChannelWireRx { rx: server_rx };
-        let cwtx = ChannelWireTx { tx: server_tx, kkind: app.min_key_len() };
-
-
+        let cwtx = ChannelWireTx {
+            tx: server_tx,
+            kkind: app.min_key_len(),
+        };
 
         let mut server = new_server(
             app,
@@ -355,7 +362,8 @@ mod test {
         let mut msg = VarHeader {
             key: VarKey::Key8(AlphaEndpoint::REQ_KEY),
             seq_no: VarSeq::Seq4(123),
-        }.write_to_vec();
+        }
+        .write_to_vec();
         let body = postcard::to_stdvec(&AReq(42)).unwrap();
         msg.extend_from_slice(&body);
         client_tx.send(msg).await.unwrap();
@@ -372,7 +380,8 @@ mod test {
         let mut msg = VarHeader {
             key: VarKey::Key8(BetaEndpoint::REQ_KEY),
             seq_no: VarSeq::Seq4(234),
-        }.write_to_vec();
+        }
+        .write_to_vec();
         let body = postcard::to_stdvec(&BReq(1000)).unwrap();
         msg.extend_from_slice(&body);
         client_tx.send(msg).await.unwrap();
@@ -390,7 +399,8 @@ mod test {
             let mut msg = VarHeader {
                 key: VarKey::Key8(ZetaTopic1::TOPIC_KEY),
                 seq_no: VarSeq::Seq4(i),
-            }.write_to_vec();
+            }
+            .write_to_vec();
 
             let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
             msg.extend_from_slice(&body);
@@ -415,7 +425,8 @@ mod test {
             let mut msg = VarHeader {
                 key: VarKey::Key8(ZetaTopic2::TOPIC_KEY),
                 seq_no: VarSeq::Seq4(i),
-            }.write_to_vec();
+            }
+            .write_to_vec();
             let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
             msg.extend_from_slice(&body);
             client_tx.send(msg).await.unwrap();
@@ -439,7 +450,8 @@ mod test {
             let mut msg = VarHeader {
                 key: VarKey::Key8(ZetaTopic3::TOPIC_KEY),
                 seq_no: VarSeq::Seq4(i),
-            }.write_to_vec();
+            }
+            .write_to_vec();
             let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
             msg.extend_from_slice(&body);
             client_tx.send(msg).await.unwrap();
@@ -475,7 +487,10 @@ mod test {
         );
 
         let cwrx = ChannelWireRx { rx: server_rx };
-        let cwtx = ChannelWireTx { tx: server_tx, kkind: app.min_key_len() };
+        let cwtx = ChannelWireTx {
+            tx: server_tx,
+            kkind: app.min_key_len(),
+        };
 
         let mut server = new_server(
             app,
@@ -512,7 +527,10 @@ mod test {
         );
 
         let cwrx = ChannelWireRx { rx: server_rx };
-        let cwtx = ChannelWireTx { tx: server_tx, kkind: VarKeyKind::Key8 };
+        let cwtx = ChannelWireTx {
+            tx: server_tx,
+            kkind: VarKeyKind::Key8,
+        };
 
         let mut server = new_server(
             app,

@@ -43,7 +43,6 @@ pub struct ChannelTx {
 }
 pub struct ChannelSpawn;
 
-
 impl WireRx for ChannelRx {
     type Error = ChannelError;
 
@@ -53,12 +52,11 @@ impl WireRx for ChannelRx {
                 #[cfg(test)]
                 println!("c<-s: {v:?}");
                 Ok(v)
-            },
+            }
             None => Err(ChannelError::RxClosed),
         }
     }
 }
-
 
 impl WireTx for ChannelTx {
     type Error = ChannelError;

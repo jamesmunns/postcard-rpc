@@ -374,7 +374,7 @@ impl Key {
     pub fn try_from_varkey(value: &VarKey) -> Option<Self> {
         match value {
             VarKey::Key8(key) => Some(*key),
-            _ => None
+            _ => None,
         }
     }
 }

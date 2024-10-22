@@ -9,7 +9,10 @@ use core::ops::DerefMut;
 use postcard_schema::Schema;
 use serde::Serialize;
 
-use crate::{header::{VarHeader, VarKey, VarKeyKind, VarSeq}, Key};
+use crate::{
+    header::{VarHeader, VarKey, VarKeyKind, VarSeq},
+    Key,
+};
 
 //////////////////////////////////////////////////////////////////////////////
 // TX
@@ -17,11 +20,8 @@ use crate::{header::{VarHeader, VarKey, VarKeyKind, VarSeq}, Key};
 
 pub trait WireTx: Clone {
     type Error: AsWireTxErrorKind;
-    async fn send<T: Serialize + ?Sized>(
-        &self,
-        hdr: VarHeader,
-        msg: &T,
-    ) -> Result<(), Self::Error>;
+    async fn send<T: Serialize + ?Sized>(&self, hdr: VarHeader, msg: &T)
+        -> Result<(), Self::Error>;
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error>;
 
     fn sender(&self) -> Sender<Self> {

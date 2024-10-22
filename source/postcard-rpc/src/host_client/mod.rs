@@ -23,7 +23,10 @@ use tokio::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use crate::{header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind}, Endpoint, Key, Topic};
+use crate::{
+    header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind},
+    Endpoint, Key, Topic,
+};
 
 use self::util::Stopper;
 

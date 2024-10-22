@@ -23,34 +23,34 @@ impl VarKey {
         match (&self, kind) {
             (VarKey::Key1(_), _) => {
                 // Nothing to shrink
-            },
+            }
             (VarKey::Key2(key2), VarKeyKind::Key1) => {
                 *self = VarKey::Key1(Key1::from_key2(*key2));
-            },
+            }
             (VarKey::Key2(_), _) => {
                 // We are already as small or smaller than the request
-            },
+            }
             (VarKey::Key4(key4), VarKeyKind::Key1) => {
                 *self = VarKey::Key1(Key1::from_key4(*key4));
-            },
+            }
             (VarKey::Key4(key4), VarKeyKind::Key2) => {
                 *self = VarKey::Key2(Key2::from_key4(*key4));
-            },
+            }
             (VarKey::Key4(_), _) => {
                 // We are already as small or smaller than the request
-            },
+            }
             (VarKey::Key8(key), VarKeyKind::Key1) => {
                 *self = VarKey::Key1(Key1::from_key8(*key));
-            },
+            }
             (VarKey::Key8(key), VarKeyKind::Key2) => {
                 *self = VarKey::Key2(Key2::from_key8(*key));
-            },
+            }
             (VarKey::Key8(key), VarKeyKind::Key4) => {
                 *self = VarKey::Key4(Key4::from_key8(*key));
-            },
+            }
             (VarKey::Key8(_), _) => {
                 // Nothing to do
-            },
+            }
         }
     }
 
@@ -163,27 +163,27 @@ impl From<u32> for VarSeq {
 impl VarSeq {
     pub fn resize(&mut self, kind: VarSeqKind) {
         match (&self, kind) {
-            (VarSeq::Seq1(_), VarSeqKind::Seq1) => {},
-            (VarSeq::Seq2(_), VarSeqKind::Seq2) => {},
-            (VarSeq::Seq4(_), VarSeqKind::Seq4) => {},
+            (VarSeq::Seq1(_), VarSeqKind::Seq1) => {}
+            (VarSeq::Seq2(_), VarSeqKind::Seq2) => {}
+            (VarSeq::Seq4(_), VarSeqKind::Seq4) => {}
             (VarSeq::Seq1(s), VarSeqKind::Seq2) => {
                 *self = VarSeq::Seq2((*s).into());
-            },
+            }
             (VarSeq::Seq1(s), VarSeqKind::Seq4) => {
                 *self = VarSeq::Seq4((*s).into());
-            },
+            }
             (VarSeq::Seq2(s), VarSeqKind::Seq1) => {
                 *self = VarSeq::Seq1((*s) as u8);
-            },
+            }
             (VarSeq::Seq2(s), VarSeqKind::Seq4) => {
                 *self = VarSeq::Seq4((*s).into());
-            },
+            }
             (VarSeq::Seq4(s), VarSeqKind::Seq1) => {
                 *self = VarSeq::Seq1((*s) as u8);
-            },
+            }
             (VarSeq::Seq4(s), VarSeqKind::Seq2) => {
                 *self = VarSeq::Seq2((*s) as u16);
-            },
+            }
         }
     }
 }

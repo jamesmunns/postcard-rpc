@@ -14,10 +14,12 @@ use tokio::{
 use tracing::{debug, trace, warn};
 
 use crate::{
-    header::{VarHeader, VarKey, VarSeqKind}, host_client::{
+    header::{VarHeader, VarKey, VarSeqKind},
+    host_client::{
         HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext, WireRx, WireSpawn,
         WireTx,
-    }, Key
+    },
+    Key,
 };
 
 pub(crate) type Subscriptions = Vec<(Key, Sender<RpcFrame>)>;
@@ -187,28 +189,29 @@ async fn in_worker_inner<W>(
             let key = hdr.key;
 
             // Remove if sending fails
-            let remove_sub = if let Some((_h, m)) = subs_guard.iter().find(|(k, _)| VarKey::Key8(*k) == key) {
-                handled = true;
-                let frame = RpcFrame {
-                    header: hdr,
-                    body: body.to_vec(),
-                };
-                let res = m.try_send(frame);
+            let remove_sub =
+                if let Some((_h, m)) = subs_guard.iter().find(|(k, _)| VarKey::Key8(*k) == key) {
+                    handled = true;
+                    let frame = RpcFrame {
+                        header: hdr,
+                        body: body.to_vec(),
+                    };
+                    let res = m.try_send(frame);
 
-                match res {
-                    Ok(()) => {
-                        trace!("Handled message via subscription");
-                        false
+                    match res {
+                        Ok(()) => {
+                            trace!("Handled message via subscription");
+                            false
+                        }
+                        Err(TrySendError::Full(_)) => {
+                            tracing::error!("Subscription channel full! Message dropped.");
+                            false
+                        }
+                        Err(TrySendError::Closed(_)) => true,
                     }
-                    Err(TrySendError::Full(_)) => {
-                        tracing::error!("Subscription channel full! Message dropped.");
-                        false
-                    }
-                    Err(TrySendError::Closed(_)) => true,
-                }
-            } else {
-                false
-            };
+                } else {
+                    false
+                };
 
             if remove_sub {
                 debug!("Dropping subscription");
@@ -264,11 +267,11 @@ async fn sub_worker_inner(
                 let mut swap = (sub.key, sub.tx);
                 warn!("Replacing old subscription for {:?}", sub.key);
                 core::mem::swap(&mut swap, &mut sub_guard[n]);
-            },
+            }
             Err(n) => {
                 // No need to replace or sort, we do this by insertion instead
                 sub_guard.insert(n, (sub.key, sub.tx));
-            },
+            }
         }
     }
 }
