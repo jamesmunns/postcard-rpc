@@ -184,7 +184,6 @@ pub mod accumulator;
 
 pub mod hash;
 pub mod header;
-pub mod headered;
 
 #[cfg(feature = "use-std")]
 pub mod host_client;
