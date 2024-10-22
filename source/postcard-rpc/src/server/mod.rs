@@ -375,7 +375,7 @@ pub const fn min_key_needed<const N: usize>(keys: &[Key; N]) -> usize {
 
 #[cfg(test)]
 mod test {
-    use crate::{server2::min_key_needed, Key};
+    use crate::{server::min_key_needed, Key};
 
     #[test]
     fn min_test_1() {

@@ -193,7 +193,7 @@ pub mod test_utils;
 
 mod macros;
 
-pub mod server2;
+pub mod server;
 
 // /// The WireHeader is appended to all messages
 // #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]

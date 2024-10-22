@@ -17,8 +17,8 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use lis3dh_async::{Lis3dh, Lis3dhSPI};
 use portable_atomic::{AtomicBool, Ordering};
 use postcard_rpc::{
-    define_dispatch2,
-    server2::{
+    define_dispatch,
+    server::{
         impls::embassy_usb_v0_3::{
             dispatch_impl::{
                 spawn_fn, WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl,
@@ -91,7 +91,7 @@ fn usb_config() -> Config<'static> {
     config
 }
 
-define_dispatch2! {
+define_dispatch! {
     app: Dispatcher;
     spawn_fn: spawn_fn;
     tx_impl: AppTx;

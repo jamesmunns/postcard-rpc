@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::{
     header::VarHeader,
-    server2::{WireRx, WireRxErrorKind, WireSpawn, WireTx, WireTxErrorKind},
+    server::{WireRx, WireRxErrorKind, WireSpawn, WireTx, WireTxErrorKind},
 };
 
 // pub fn eusb_wire_tx<D: Driver<'static>>(ep_in: D::EndpointIn, tx_buf: &'static mut [u8]) ->
@@ -332,8 +332,8 @@ impl<const TX: usize, const RX: usize> PacketBuffers<TX, RX> {
 #[cfg(feature = "test-utils")]
 pub mod fake {
     use crate::{
-        define_dispatch2, endpoints,
-        server2::{Sender, SpawnContext},
+        define_dispatch, endpoints,
+        server::{Sender, SpawnContext},
         topics,
     };
     use crate::{header::VarHeader, Schema};
@@ -561,11 +561,11 @@ pub mod fake {
     }
 
     // TODO: How to do module path concat?
-    use crate::server2::impls::embassy_usb_v0_3::dispatch_impl::{
+    use crate::server::impls::embassy_usb_v0_3::dispatch_impl::{
         spawn_fn, WireSpawnImpl, WireTxImpl,
     };
 
-    define_dispatch2! {
+    define_dispatch! {
         app: SingleDispatcher;
         spawn_fn: spawn_fn;
         tx_impl: WireTxImpl<FakeMutex, FakeDriver>;

@@ -2,7 +2,7 @@
 
 use core::{convert::Infallible, future::Future};
 
-use crate::server2::{
+use crate::server::{
     AsWireRxErrorKind, AsWireTxErrorKind, WireRx, WireRxErrorKind, WireSpawn, WireTx,
     WireTxErrorKind,
 };
@@ -27,7 +27,7 @@ pub mod dispatch_impl {
 
     use crate::{
         header::VarKeyKind,
-        server2::{Dispatch2, Server},
+        server::{Dispatch2, Server},
     };
 
     pub use super::tokio_spawn as spawn_fn;
@@ -35,7 +35,7 @@ pub mod dispatch_impl {
     pub fn new_server<D>(
         dispatch: D,
         settings: Settings,
-    ) -> crate::server2::Server<WireTxImpl, WireRxImpl, WireRxBuf, D>
+    ) -> crate::server::Server<WireTxImpl, WireRxImpl, WireRxBuf, D>
     where
         D: Dispatch2<Tx = WireTxImpl>,
     {
@@ -180,9 +180,9 @@ mod test {
     use tokio::task::yield_now;
 
     use crate::{
-        define_dispatch2, endpoints,
+        define_dispatch, endpoints,
         header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind},
-        server2::{Dispatch2, Sender, SpawnContext},
+        server::{Dispatch2, Sender, SpawnContext},
         topics, Endpoint, Topic,
     };
 
@@ -253,11 +253,11 @@ mod test {
     }
 
     // TODO: How to do module path concat?
-    use crate::server2::impls::test_channels::dispatch_impl::{
+    use crate::server::impls::test_channels::dispatch_impl::{
         new_server, spawn_fn, Settings, WireSpawnImpl, WireTxImpl,
     };
 
-    define_dispatch2! {
+    define_dispatch! {
         app: SingleDispatcher;
         spawn_fn: spawn_fn;
         tx_impl: WireTxImpl;

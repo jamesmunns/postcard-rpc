@@ -226,11 +226,13 @@ where
         E::Response: DeserializeOwned + Schema,
     {
         let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
+
         let msg = postcard::to_stdvec(&t).expect("Allocations should not ever fail");
         let frame = RpcFrame {
+            // NOTE: send_resp_raw automatically shrinks down key and sequence
+            // kinds to the appropriate amount
             header: VarHeader {
                 key: VarKey::Key8(E::REQ_KEY),
-                // TODO: how to var?
                 seq_no: VarSeq::Seq4(seq_no),
             },
             body: msg,

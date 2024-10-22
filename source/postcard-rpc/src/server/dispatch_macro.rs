@@ -19,7 +19,7 @@
 //     }
 // }
 //
-// define_dispatch2! {
+// define_dispatch! {
 //     dispatcher: Dispatcher<
 //         Mutex = FakeMutex,
 //         Driver = FakeDriver,
@@ -55,7 +55,7 @@
 // ```
 
 #[macro_export]
-macro_rules! define_dispatch2 {
+macro_rules! define_dispatch {
     //////////////////////////////////////////////////////////////////////////////
     // ENDPOINT HANDLER EXPANSION ARMS
     //////////////////////////////////////////////////////////////////////////////
@@ -87,7 +87,7 @@ macro_rules! define_dispatch2 {
     // This is the "spawn an embassy task" arm for defining an endpoint
     (@ep_arm spawn ($endpoint:ty) $handler:ident $context:ident $header:ident $req:ident $outputter:ident ($spawn_fn:path) $spawner:ident) => {
         {
-            let context = $crate::server2::SpawnContext::spawn_ctxt($context);
+            let context = $crate::server::SpawnContext::spawn_ctxt($context);
             if $spawn_fn($spawner, $handler(context, $header.clone(), $req, $outputter.clone())).is_err() {
                 let err = $crate::standard_icd::WireError::FailedToSpawn;
                 $outputter.error($header.seq_no, err).await
@@ -115,7 +115,7 @@ macro_rules! define_dispatch2 {
     };
     (@tp_arm spawn $handler:ident $context:ident $header:ident $msg:ident $outputter:ident ($spawn_fn:path) $spawner:ident) => {
         {
-            let context = $crate::server2::SpawnContext::spawn_ctxt($context);
+            let context = $crate::server::SpawnContext::spawn_ctxt($context);
             let _ = $spawn_fn($spawner, $handler(context, $header.clone(), $msg, $outputter.clone()));
         }
     };
@@ -129,7 +129,7 @@ macro_rules! define_dispatch2 {
         ($($endpoint:ty | $ep_flavor:tt | $ep_handler:ident)*)
         ($($topic_in:ty | $tp_flavor:tt | $tp_handler:ident)*)
     ) => {
-        impl $crate::server2::Dispatch2 for $app_name<$n> {
+        impl $crate::server::Dispatch2 for $app_name<$n> {
             type Tx = $tx_impl;
 
             fn min_key_len(&self) -> $crate::header::VarKeyKind {
@@ -139,10 +139,10 @@ macro_rules! define_dispatch2 {
             /// Handle dispatching of a single frame
             async fn handle(
                 &mut self,
-                tx: &$crate::server2::Sender<Self::Tx>,
+                tx: &$crate::server::Sender<Self::Tx>,
                 hdr: &$crate::header::VarHeader,
                 body: &[u8],
-            ) -> Result<(), <Self::Tx as $crate::server2::WireTx>::Error> {
+            ) -> Result<(), <Self::Tx as $crate::server::WireTx>::Error> {
                 let key = hdr.key;
                 let Some(keyb) = <$key_ty>::try_from_varkey(&key) else {
                     let err = $crate::standard_icd::WireError::KeyTooSmall;
@@ -169,7 +169,7 @@ macro_rules! define_dispatch2 {
                             let spawninfo = &dispatch.spawn;
 
                             // This will expand to the right "flavor" of handler
-                            define_dispatch2!(@ep_arm $ep_flavor ($endpoint) $ep_handler context hdr req tx ($spawn_fn) spawninfo)
+                            define_dispatch!(@ep_arm $ep_flavor ($endpoint) $ep_handler context hdr req tx ($spawn_fn) spawninfo)
                         }
                     )*
                     $(
@@ -190,7 +190,7 @@ macro_rules! define_dispatch2 {
                             let spawninfo = &dispatch.spawn;
 
                             // (@tp_arm async $handler:ident $context:ident $header:ident $req:ident $outputter:ident)
-                            define_dispatch2!(@tp_arm $tp_flavor $tp_handler context hdr msg tx ($spawn_fn) spawninfo);
+                            define_dispatch!(@tp_arm $tp_flavor $tp_handler context hdr msg tx ($spawn_fn) spawninfo);
                             Ok(())
                         }
                     )*
@@ -254,7 +254,7 @@ macro_rules! define_dispatch2 {
                 $(<$topic_in as $crate::Topic>::TOPIC_KEY,)*
                 // TODO: include out keys!
             ];
-            pub const NEEDED_SZ: usize = $crate::server2::min_key_needed(&KEYS);
+            pub const NEEDED_SZ: usize = $crate::server::min_key_needed(&KEYS);
         }
 
 
@@ -344,22 +344,22 @@ macro_rules! define_dispatch2 {
                 }
             }
 
-            define_dispatch2! {
+            define_dispatch! {
                 @matcher 1 $app_name $tx_impl; $spawn_fn $crate::Key1; $crate::header::VarKeyKind::Key1;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
-            define_dispatch2! {
+            define_dispatch! {
                 @matcher 2 $app_name $tx_impl; $spawn_fn $crate::Key2; $crate::header::VarKeyKind::Key2;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
-            define_dispatch2! {
+            define_dispatch! {
                 @matcher 4 $app_name $tx_impl; $spawn_fn $crate::Key4; $crate::header::VarKeyKind::Key4;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
-            define_dispatch2! {
+            define_dispatch! {
                 @matcher 8 $app_name $tx_impl; $spawn_fn $crate::Key; $crate::header::VarKeyKind::Key8;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
