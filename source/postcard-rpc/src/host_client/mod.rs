@@ -286,7 +286,7 @@ where
     ///
     /// There is no feedback if the server received our message. If the I/O worker is
     /// closed, an error is returned.
-    pub async fn publish<T: Topic, S: Into<VarSeq>>(&self, seq_no: S, msg: &T::Message) -> Result<(), IoClosed>
+    pub async fn publish<T: Topic>(&self, seq_no: VarSeq, msg: &T::Message) -> Result<(), IoClosed>
     where
         T::Message: Serialize,
     {
@@ -294,7 +294,7 @@ where
         let frame = RpcFrame {
             header: VarHeader {
                 key: VarKey::Key8(T::TOPIC_KEY),
-                seq_no: seq_no.into(),
+                seq_no,
             },
             body: smsg,
         };

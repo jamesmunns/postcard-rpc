@@ -27,7 +27,7 @@ use postcard_rpc::{
         },
         Sender, Server, SpawnContext,
     },
-    WireHeader,
+    header::VarHeader,
 };
 use smart_leds::{colors::BLACK, RGB8};
 use static_cell::{ConstStaticCell, StaticCell};
@@ -179,22 +179,22 @@ pub async fn usb_task(mut usb: UsbDevice<'static, AppDriver>) {
 
 // ---
 
-fn ping_handler(_context: &mut Context, header: WireHeader, rqst: u32) -> u32 {
-    info!("ping: seq - {=u32}", header.seq_no);
+fn ping_handler(_context: &mut Context, _header: VarHeader, rqst: u32) -> u32 {
+    info!("ping");
     rqst
 }
 
-fn unique_id_handler(context: &mut Context, header: WireHeader, _rqst: ()) -> u64 {
-    info!("unique_id: seq - {=u32}", header.seq_no);
+fn unique_id_handler(context: &mut Context, _header: VarHeader, _rqst: ()) -> u64 {
+    info!("unique_id");
     context.unique_id
 }
 
 async fn set_led_handler(
     context: &mut Context,
-    header: WireHeader,
+    _header: VarHeader,
     rqst: SingleLed,
 ) -> Result<(), BadPositionError> {
-    info!("set_led: seq - {=u32}", header.seq_no);
+    info!("set_led");
     if rqst.position >= 24 {
         return Err(BadPositionError);
     }
@@ -208,8 +208,8 @@ async fn set_led_handler(
     Ok(())
 }
 
-async fn set_all_led_handler(context: &mut Context, header: WireHeader, rqst: [Rgb8; 24]) {
-    info!("set_all_led: seq - {=u32}", header.seq_no);
+async fn set_all_led_handler(context: &mut Context, _header: VarHeader, rqst: [Rgb8; 24]) {
+    info!("set_all_led");
     context
         .ws2812_state
         .iter_mut()
@@ -227,7 +227,7 @@ static STOP: AtomicBool = AtomicBool::new(false);
 #[embassy_executor::task]
 async fn accelerometer_handler(
     context: SpawnCtx,
-    header: WireHeader,
+    header: VarHeader,
     rqst: StartAccel,
     sender: Sender<AppTx>,
 ) {
@@ -244,7 +244,7 @@ async fn accelerometer_handler(
     defmt::unwrap!(accel.set_range(lis3dh_async::Range::G8).await.map_err(drop));
 
     let mut ticker = Ticker::every(Duration::from_millis(rqst.interval_ms.into()));
-    let mut seq = 0;
+    let mut seq = 0u8;
     while !STOP.load(Ordering::Acquire) {
         ticker.next().await;
         let acc = defmt::unwrap!(accel.accel_raw().await.map_err(drop));
@@ -254,7 +254,7 @@ async fn accelerometer_handler(
             y: acc.y,
             z: acc.z,
         };
-        if sender.publish::<AccelTopic>(seq, &msg).await.is_err() {
+        if sender.publish::<AccelTopic>(seq.into(), &msg).await.is_err() {
             defmt::error!("Send error!");
             break;
         }
@@ -264,8 +264,8 @@ async fn accelerometer_handler(
     STOP.store(false, Ordering::Release);
 }
 
-fn accelerometer_stop_handler(context: &mut Context, header: WireHeader, _rqst: ()) -> bool {
-    info!("accel_stop: seq - {=u32}", header.seq_no);
+fn accelerometer_stop_handler(context: &mut Context, _header: VarHeader, _rqst: ()) -> bool {
+    info!("accel_stop");
     let was_busy = context.accel.try_lock().is_err();
     if was_busy {
         STOP.store(true, Ordering::Release);
