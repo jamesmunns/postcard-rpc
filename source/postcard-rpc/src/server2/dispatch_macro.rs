@@ -125,12 +125,16 @@ macro_rules! define_dispatch2 {
     // is N, where N is 1, 2, 4, or 8
     //////////////////////////////////////////////////////////////////////////////
     (@matcher
-        $n:literal $app_name:ident $tx_impl:ty; $spawn_fn:ident $key_ty:ty;
+        $n:literal $app_name:ident $tx_impl:ty; $spawn_fn:ident $key_ty:ty; $key_kind:expr;
         ($($endpoint:ty | $ep_flavor:tt | $ep_handler:ident)*)
         ($($topic_in:ty | $tp_flavor:tt | $tp_handler:ident)*)
     ) => {
         impl $crate::server2::Dispatch2 for $app_name<$n> {
             type Tx = $tx_impl;
+
+            fn min_key_len(&self) -> $crate::header::VarKeyKind {
+                $key_kind
+            }
 
             /// Handle dispatching of a single frame
             async fn handle(
@@ -341,22 +345,22 @@ macro_rules! define_dispatch2 {
             }
 
             define_dispatch2! {
-                @matcher 1 $app_name $tx_impl; $spawn_fn $crate::Key1;
+                @matcher 1 $app_name $tx_impl; $spawn_fn $crate::Key1; $crate::header::VarKeyKind::Key1;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
             define_dispatch2! {
-                @matcher 2 $app_name $tx_impl; $spawn_fn $crate::Key2;
+                @matcher 2 $app_name $tx_impl; $spawn_fn $crate::Key2; $crate::header::VarKeyKind::Key2;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
             define_dispatch2! {
-                @matcher 4 $app_name $tx_impl; $spawn_fn $crate::Key4;
+                @matcher 4 $app_name $tx_impl; $spawn_fn $crate::Key4; $crate::header::VarKeyKind::Key4;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
             define_dispatch2! {
-                @matcher 8 $app_name $tx_impl; $spawn_fn $crate::Key;
+                @matcher 8 $app_name $tx_impl; $spawn_fn $crate::Key; $crate::header::VarKeyKind::Key8;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }

@@ -2,15 +2,20 @@ use core::fmt::Display;
 
 use tokio::sync::mpsc;
 
-use crate::standard_icd::WireError;
+use crate::{header::VarSeqKind, standard_icd::WireError};
 
 use super::{HostClient, WireRx, WireSpawn, WireTx};
 
-pub fn new_from_channels(tx: mpsc::Sender<Vec<u8>>, rx: mpsc::Receiver<Vec<u8>>) -> HostClient<WireError> {
+pub fn new_from_channels(
+    tx: mpsc::Sender<Vec<u8>>,
+    rx: mpsc::Receiver<Vec<u8>>,
+    seq_kind: VarSeqKind,
+) -> HostClient<WireError> {
     HostClient::new_with_wire(
         ChannelTx { tx },
         ChannelRx { rx },
         TokSpawn,
+        seq_kind,
         crate::standard_icd::ERROR_PATH,
         64,
     )
@@ -44,7 +49,11 @@ impl WireRx for ChannelRx {
 
     async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
         match self.rx.recv().await {
-            Some(v) => Ok(v),
+            Some(v) => {
+                #[cfg(test)]
+                println!("c<-s: {v:?}");
+                Ok(v)
+            },
             None => Err(ChannelError::RxClosed),
         }
     }
@@ -55,6 +64,8 @@ impl WireTx for ChannelTx {
     type Error = ChannelError;
 
     async fn send(&mut self, data: Vec<u8>) -> Result<(), Self::Error> {
+        #[cfg(test)]
+        println!("c->s: {data:?}");
         self.tx.send(data).await.map_err(|_| ChannelError::TxClosed)
     }
 }

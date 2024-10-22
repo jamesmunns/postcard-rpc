@@ -2,10 +2,10 @@
 
 use core::{convert::Infallible, future::Future};
 
-use crate::server2::{
+use crate::{header::VarKeyKind, server2::{
     AsWireRxErrorKind, AsWireTxErrorKind, WireRx, WireRxErrorKind, WireSpawn, WireTx,
     WireTxErrorKind,
-};
+}};
 use tokio::sync::mpsc;
 
 //////////////////////////////////////////////////////////////////////////////
@@ -47,6 +47,7 @@ pub mod dispatch_impl {
 #[derive(Clone)]
 pub struct ChannelWireTx {
     tx: mpsc::Sender<Vec<u8>>,
+    kkind: VarKeyKind,
 }
 
 impl WireTx for ChannelWireTx {
@@ -54,9 +55,10 @@ impl WireTx for ChannelWireTx {
 
     async fn send<T: serde::Serialize + ?Sized>(
         &self,
-        hdr: crate::header::VarHeader,
+        mut hdr: crate::header::VarHeader,
         msg: &T,
     ) -> Result<(), Self::Error> {
+        hdr.key.shrink_to(self.kkind);
         let mut hdr_ser = hdr.write_to_vec();
         let bdy_ser = postcard::to_stdvec(msg).unwrap();
         hdr_ser.extend_from_slice(&bdy_ser);
@@ -170,7 +172,7 @@ mod test {
     use tokio::task::yield_now;
 
     use crate::{
-        define_dispatch2, endpoints, header::{VarHeader, VarKey, VarSeq}, server2::{Sender, SpawnContext}, topics, Endpoint, Topic
+        define_dispatch2, endpoints, header::{VarHeader, VarKey, VarSeq, VarSeqKind}, server2::{Dispatch2, Sender, SpawnContext}, topics, Endpoint, Topic
     };
 
     use super::*;
@@ -322,10 +324,6 @@ mod test {
     async fn smoke() {
         let (client_tx, server_rx) = mpsc::channel(16);
         let (server_tx, mut client_rx) = mpsc::channel(16);
-
-        let cwrx = ChannelWireRx { rx: server_rx };
-        let cwtx = ChannelWireTx { tx: server_tx };
-
         let topic_ctr = Arc::new(AtomicUsize::new(0));
 
         let app = SingleDispatcher::new(
@@ -335,6 +333,12 @@ mod test {
             },
             ChannelWireSpawn {},
         );
+
+        let cwrx = ChannelWireRx { rx: server_rx };
+        let cwtx = ChannelWireTx { tx: server_tx, kkind: app.min_key_len() };
+
+
+
         let mut server = new_server(
             app,
             Settings {
@@ -460,10 +464,6 @@ mod test {
     async fn end_to_end() {
         let (client_tx, server_rx) = mpsc::channel(16);
         let (server_tx, client_rx) = mpsc::channel(16);
-
-        let cwrx = ChannelWireRx { rx: server_rx };
-        let cwtx = ChannelWireTx { tx: server_tx };
-
         let topic_ctr = Arc::new(AtomicUsize::new(0));
 
         let app = SingleDispatcher::new(
@@ -473,6 +473,10 @@ mod test {
             },
             ChannelWireSpawn {},
         );
+
+        let cwrx = ChannelWireRx { rx: server_rx };
+        let cwtx = ChannelWireTx { tx: server_tx, kkind: app.min_key_len() };
+
         let mut server = new_server(
             app,
             Settings {
@@ -485,7 +489,44 @@ mod test {
             server.run().await;
         });
 
-        let cli = client::new_from_channels(client_tx, client_rx);
+        let cli = client::new_from_channels(client_tx, client_rx, VarSeqKind::Seq1);
+
+        let resp = cli.send_resp::<AlphaEndpoint>(&AReq(42)).await.unwrap();
+        assert_eq!(resp.0, 42);
+        let resp = cli.send_resp::<BetaEndpoint>(&BReq(1234)).await.unwrap();
+        assert_eq!(resp.0, 1234);
+    }
+
+    #[tokio::test]
+    async fn end_to_end_force8() {
+        let (client_tx, server_rx) = mpsc::channel(16);
+        let (server_tx, client_rx) = mpsc::channel(16);
+        let topic_ctr = Arc::new(AtomicUsize::new(0));
+
+        let app = SingleDispatcher::new(
+            TestContext {
+                ctr: Arc::new(AtomicUsize::new(0)),
+                topic_ctr: topic_ctr.clone(),
+            },
+            ChannelWireSpawn {},
+        );
+
+        let cwrx = ChannelWireRx { rx: server_rx };
+        let cwtx = ChannelWireTx { tx: server_tx, kkind: VarKeyKind::Key8 };
+
+        let mut server = new_server(
+            app,
+            Settings {
+                tx: cwtx,
+                rx: cwrx,
+                buf: 1024,
+            },
+        );
+        tokio::task::spawn(async move {
+            server.run().await;
+        });
+
+        let cli = client::new_from_channels(client_tx, client_rx, VarSeqKind::Seq4);
 
         let resp = cli.send_resp::<AlphaEndpoint>(&AReq(42)).await.unwrap();
         assert_eq!(resp.0, 42);

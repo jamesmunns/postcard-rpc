@@ -8,7 +8,7 @@ use std::{
     marker::PhantomData,
     sync::{
         atomic::{AtomicU32, Ordering},
-        Arc,
+        Arc, RwLock,
     },
 };
 
@@ -23,7 +23,7 @@ use tokio::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use crate::{header::{VarHeader, VarKey, VarSeq}, Endpoint, Key, Topic};
+use crate::{header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind}, Endpoint, Key, Topic};
 
 use self::util::Stopper;
 
@@ -159,6 +159,7 @@ pub struct HostClient<WireErr> {
     subber: Sender<SubInfo>,
     err_key: Key,
     stopper: Stopper,
+    seq_kind: VarSeqKind,
     _pd: PhantomData<fn() -> WireErr>,
 }
 
@@ -167,23 +168,17 @@ impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
 {
-    /// Create a new manually implemented [HostClient].
-    ///
-    /// This is now deprecated, it is recommended to use [`HostClient::new_with_wire`] instead.
-    #[deprecated = "HostClient::new_manual will become private in the future, use HostClient::new_with_wire instead"]
-    pub fn new_manual(err_uri_path: &str, outgoing_depth: usize) -> (Self, WireContext) {
-        Self::new_manual_priv(err_uri_path, outgoing_depth)
-    }
-
     /// Private method for creating internal context
     pub(crate) fn new_manual_priv(
         err_uri_path: &str,
         outgoing_depth: usize,
+        seq_kind: VarSeqKind,
     ) -> (Self, WireContext) {
         let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(outgoing_depth);
         let (tx_si, rx_si) = tokio::sync::mpsc::channel(outgoing_depth);
 
         let ctx = Arc::new(HostContext {
+            kkind: RwLock::new(VarKeyKind::Key8),
             map: WaitMap::new(),
             seq: AtomicU32::new(0),
         });
@@ -197,6 +192,7 @@ where
             _pd: PhantomData,
             subber: tx_si.clone(),
             stopper: Stopper::new(),
+            seq_kind,
         };
 
         let wire = WireContext {
@@ -243,31 +239,43 @@ where
 
     pub async fn send_resp_raw(
         &self,
-        rqst: RpcFrame,
+        mut rqst: RpcFrame,
         resp_key: Key,
     ) -> Result<RpcFrame, HostErr<WireErr>> {
         let cancel_fut = self.stopper.wait_stopped();
+        let kkind: VarKeyKind = *self.ctx.kkind.read().unwrap();
+        rqst.header.key.shrink_to(kkind);
+        rqst.header.seq_no.resize(self.seq_kind);
+        let mut resp_key = VarKey::Key8(resp_key);
+        let mut err_key = VarKey::Key8(self.err_key);
+        resp_key.shrink_to(kkind);
+        err_key.shrink_to(kkind);
 
         // TODO: Do I need something like a .subscribe method to ensure this is enqueued?
         let ok_resp = self.ctx.map.wait(VarHeader {
             seq_no: rqst.header.seq_no,
-            key: VarKey::Key8(resp_key),
+            key: resp_key,
         });
         let err_resp = self.ctx.map.wait(VarHeader {
             seq_no: rqst.header.seq_no,
-            key: VarKey::Key8(self.err_key),
+            key: err_key,
         });
-        let seq_no = rqst.header.seq_no;
         self.out.send(rqst).await.map_err(|_| HostErr::Closed)?;
 
         select! {
             _c = cancel_fut => Err(HostErr::Closed),
             o = ok_resp => {
-                let resp = o?;
-                Ok(RpcFrame { header: VarHeader { key: VarKey::Key8(resp_key), seq_no }, body: resp })
+                let (hdr, resp) = o?;
+                if hdr.key.kind() != kkind {
+                    *self.ctx.kkind.write().unwrap() = hdr.key.kind();
+                }
+                Ok(RpcFrame { header: hdr, body: resp })
             },
             e = err_resp => {
-                let resp = e?;
+                let (hdr, resp) = e?;
+                if hdr.key.kind() != kkind {
+                    *self.ctx.kkind.write().unwrap() = hdr.key.kind();
+                }
                 let r = postcard::from_bytes::<WireErr>(&resp)?;
                 Err(HostErr::Wire(r))
             },
@@ -278,7 +286,7 @@ where
     ///
     /// There is no feedback if the server received our message. If the I/O worker is
     /// closed, an error is returned.
-    pub async fn publish<T: Topic>(&self, seq_no: u32, msg: &T::Message) -> Result<(), IoClosed>
+    pub async fn publish<T: Topic, S: Into<VarSeq>>(&self, seq_no: S, msg: &T::Message) -> Result<(), IoClosed>
     where
         T::Message: Serialize,
     {
@@ -286,14 +294,18 @@ where
         let frame = RpcFrame {
             header: VarHeader {
                 key: VarKey::Key8(T::TOPIC_KEY),
-                seq_no: VarSeq::Seq4(seq_no),
+                seq_no: seq_no.into(),
             },
             body: smsg,
         };
         self.publish_raw(frame).await
     }
 
-    pub async fn publish_raw(&self, frame: RpcFrame) -> Result<(), IoClosed> {
+    pub async fn publish_raw(&self, mut frame: RpcFrame) -> Result<(), IoClosed> {
+        let kkind: VarKeyKind = *self.ctx.kkind.read().unwrap();
+        frame.header.key.shrink_to(kkind);
+        frame.header.seq_no.resize(self.seq_kind);
+
         let cancel_fut = self.stopper.wait_stopped();
         let operate_fut = self.out.send(frame);
 
@@ -438,6 +450,7 @@ impl<WireErr> Clone for HostClient<WireErr> {
             _pd: PhantomData,
             subber: self.subber.clone(),
             stopper: self.stopper.clone(),
+            seq_kind: self.seq_kind,
         }
     }
 }
@@ -479,7 +492,8 @@ impl RpcFrame {
 
 /// Shared context between [HostClient] and the I/O worker task
 pub struct HostContext {
-    map: WaitMap<VarHeader, Vec<u8>>,
+    kkind: RwLock<VarKeyKind>,
+    map: WaitMap<VarHeader, (VarHeader, Vec<u8>)>,
     seq: AtomicU32,
 }
 
@@ -499,7 +513,7 @@ impl HostContext {
     /// Like `HostContext::process` but tells you if we processed the message or
     /// nobody wanted it
     pub fn process_did_wake(&self, frame: RpcFrame) -> Result<bool, ProcessError> {
-        match self.map.wake(&frame.header, frame.body) {
+        match self.map.wake(&frame.header, (frame.header, frame.body)) {
             WakeOutcome::Woke => Ok(true),
             WakeOutcome::NoMatch(_) => Ok(false),
             WakeOutcome::Closed(_) => Err(ProcessError::Closed),
@@ -510,7 +524,7 @@ impl HostContext {
     ///
     /// Returns an Err if the map was closed.
     pub fn process(&self, frame: RpcFrame) -> Result<(), ProcessError> {
-        if let WakeOutcome::Closed(_) = self.map.wake(&frame.header, frame.body) {
+        if let WakeOutcome::Closed(_) = self.map.wake(&frame.header, (frame.header, frame.body)) {
             Err(ProcessError::Closed)
         } else {
             Ok(())

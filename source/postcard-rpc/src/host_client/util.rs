@@ -14,7 +14,7 @@ use tokio::{
 use tracing::{debug, trace, warn};
 
 use crate::{
-    header::{VarHeader, VarKey}, host_client::{
+    header::{VarHeader, VarKey, VarSeqKind}, host_client::{
         HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext, WireRx, WireSpawn,
         WireTx,
     }, Key
@@ -72,6 +72,7 @@ where
         tx: WTX,
         rx: WRX,
         mut sp: WSP,
+        seq_kind: VarSeqKind,
         err_uri_path: &str,
         outgoing_depth: usize,
     ) -> Self
@@ -80,7 +81,7 @@ where
         WRX: WireRx,
         WSP: WireSpawn,
     {
-        let (me, wire_ctx) = Self::new_manual_priv(err_uri_path, outgoing_depth);
+        let (me, wire_ctx) = Self::new_manual_priv(err_uri_path, outgoing_depth, seq_kind);
 
         let WireContext {
             outgoing,

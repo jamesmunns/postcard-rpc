@@ -9,7 +9,7 @@ use core::ops::DerefMut;
 use postcard_schema::Schema;
 use serde::Serialize;
 
-use crate::{header::{VarHeader, VarKey, VarSeq}, Key};
+use crate::{header::{VarHeader, VarKey, VarKeyKind, VarSeq}, Key};
 
 //////////////////////////////////////////////////////////////////////////////
 // TX
@@ -236,6 +236,8 @@ where
 
 pub trait Dispatch2 {
     type Tx: WireTx;
+    fn min_key_len(&self) -> VarKeyKind;
+
     async fn handle(
         &mut self,
         tx: &Sender<Self::Tx>,

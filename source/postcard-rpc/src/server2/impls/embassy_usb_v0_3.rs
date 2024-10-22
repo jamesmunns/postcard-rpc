@@ -2,11 +2,10 @@ use embassy_executor::{SpawnError, SpawnToken, Spawner};
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_usb_driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use futures_util::FutureExt;
-use postcard::ser_flavors::Slice;
 use serde::Serialize;
 
 use crate::{
-    headered::Headered,
+    header::VarHeader,
     server2::{WireRx, WireRxErrorKind, WireSpawn, WireTx, WireTxErrorKind},
 };
 
@@ -140,7 +139,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
 
     async fn send<T: Serialize + ?Sized>(
         &self,
-        hdr: crate::WireHeader,
+        hdr: VarHeader,
         msg: &T,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.lock().await;
@@ -152,11 +151,11 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             _max_log_len: _,
         }: &mut EUsbWireTxInner<D> = &mut inner;
 
-        let flavor = Headered::try_new_keyed(Slice::new(tx_buf), hdr.seq_no, hdr.key)
-            .map_err(|_| WireTxErrorKind::Other)?;
-        let res = postcard::serialize_with_flavor(msg, flavor);
+        let (hdr_used, remain) = hdr.write_to_slice(tx_buf).ok_or(WireTxErrorKind::Other)?;
+        let bdy_used = postcard::to_slice(msg, remain).map_err(|_| WireTxErrorKind::Other)?;
+        let used_ttl = hdr_used.len() + bdy_used.len();
 
-        if let Ok(used) = res {
+        if let Some(used) = tx_buf.get(..used_ttl) {
             send_all::<D>(ep_in, used).await
         } else {
             Err(WireTxErrorKind::Other)
@@ -337,8 +336,7 @@ pub mod fake {
         server2::{Sender, SpawnContext},
         topics,
     };
-    #[allow(unused_imports)]
-    use crate::{endpoint, target_server::sender::Sender, Schema, WireHeader};
+    use crate::{header::VarHeader, Schema};
     use embassy_usb_driver::{Bus, ControlPipe, EndpointIn, EndpointOut};
     use serde::{Deserialize, Serialize};
 
@@ -564,7 +562,7 @@ pub mod fake {
 
     // TODO: How to do module path concat?
     use crate::server2::impls::embassy_usb_v0_3::dispatch_impl::{
-        spawn_fn, Settings, WireRxBuf, WireRxImpl, WireSpawnImpl, WireTxImpl,
+        spawn_fn, WireSpawnImpl, WireTxImpl,
     };
 
     define_dispatch2! {
@@ -595,7 +593,7 @@ pub mod fake {
 
     async fn test_alpha_handler(
         _context: &mut TestContext,
-        _header: WireHeader,
+        _header: VarHeader,
         _body: AReq,
     ) -> AResp {
         todo!()
@@ -603,7 +601,7 @@ pub mod fake {
 
     async fn test_beta_handler(
         _context: &mut TestContext,
-        _header: WireHeader,
+        _header: VarHeader,
         _body: BReq,
     ) -> BResp {
         todo!()
@@ -611,22 +609,22 @@ pub mod fake {
 
     async fn test_gamma_handler(
         _context: &mut TestContext,
-        _header: WireHeader,
+        _header: VarHeader,
         _body: GReq,
     ) -> GResp {
         todo!()
     }
 
-    fn test_delta_handler(_context: &mut TestContext, _header: WireHeader, _body: DReq) -> DResp {
+    fn test_delta_handler(_context: &mut TestContext, _header: VarHeader, _body: DReq) -> DResp {
         todo!()
     }
 
     #[embassy_executor::task]
     async fn test_epsilon_handler_task(
         _context: TestSpawnContext,
-        _header: WireHeader,
+        _header: VarHeader,
         _body: EReq,
-        _sender: Outputter<WireTxImpl<FakeMutex, FakeDriver>>,
+        _sender: Sender<WireTxImpl<FakeMutex, FakeDriver>>,
     ) {
         todo!()
     }

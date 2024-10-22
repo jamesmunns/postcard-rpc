@@ -2,7 +2,7 @@
 
 use core::{fmt::Display, future::Future};
 
-use crate::header::{VarHeader, VarKey, VarSeq};
+use crate::header::{VarHeader, VarKey, VarSeq, VarSeqKind};
 use crate::host_client::util::Stopper;
 use crate::{
     host_client::{HostClient, RpcFrame, WireRx, WireSpawn, WireTx},
@@ -187,6 +187,7 @@ where
             fake_error: fake_error.clone(),
         },
         LocalSpawn,
+        VarSeqKind::Seq2,
         err_uri_path,
         bound,
     );
