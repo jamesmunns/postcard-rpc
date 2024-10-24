@@ -55,7 +55,6 @@
 //! * The type of the Message
 //! * A string "path", like an HTTP URI that uniquely identifies the topic.
 
-
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
 use header::VarKey;
