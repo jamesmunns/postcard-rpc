@@ -1,8 +1,7 @@
 //! The goal of `postcard-rpc` is to make it easier for a
 //! host PC to talk to a constrained device, like a microcontroller.
 //!
-//! See [the repo] for examples, and [the overview] for more details on how
-//! to use this crate.
+//! See [the repo] for examples
 //!
 //! [the repo]: https://github.com/jamesmunns/postcard-rpc
 //! [the overview]: https://github.com/jamesmunns/postcard-rpc/blob/main/docs/overview.md
@@ -24,46 +23,8 @@
 //!   convert a type into bytes on the wire
 //! * [`serde`]'s [`Deserialize`] trait - which defines how we
 //!   can convert bytes on the wire into a type
-//! * [`postcard`]'s [`Schema`] trait - which generates a reflection-style
+//! * [`postcard-schema`]'s [`Schema`] trait - which generates a reflection-style
 //!   schema value for a given type.
-//!
-//! Here's an example of three types we'll use in future examples:
-//!
-//! ```rust
-//! // Consider making your shared "wire types" crate conditionally no-std,
-//! // if you want to use it with no-std embedded targets! This makes it no_std
-//! // except for testing and when the "use-std" feature is active.
-//! //
-//! // You may need to also ensure that `std`/`use-std` features are not active
-//! // in any dependencies as well.
-//! #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
-//! # fn main() {}
-//!
-//! use serde::{Serialize, Deserialize};
-//! use postcard_schema::Schema;
-//!
-//! #[derive(Serialize, Deserialize, Schema)]
-//! pub struct Alpha {
-//!     pub one: u8,
-//!     pub two: i64,
-//! }
-//!
-//! #[derive(Serialize, Deserialize, Schema)]
-//! pub enum Beta {
-//!     Bib,
-//!     Bim(i16),
-//!     Bap,
-//! }
-//!
-//! #[derive(Serialize, Deserialize, Schema)]
-//! pub struct Delta(pub [u8; 32]);
-//!
-//! #[derive(Serialize, Deserialize, Schema)]
-//! pub enum WireError {
-//!     ALittleBad,
-//!     VeryBad,
-//! }
-//! ```
 //!
 //! ### Endpoints
 //!
@@ -80,42 +41,6 @@
 //! * The type of the Response
 //! * A string "path", like an HTTP URI that uniquely identifies the endpoint.
 //!
-//! The easiest way to define an Endpoint is to use the [`endpoint!`][endpoint]
-//! macro.
-//!
-//! ```rust
-//! # use serde::{Serialize, Deserialize};
-//! # use postcard_schema::Schema;
-//! #
-//! # #[derive(Serialize, Deserialize, Schema)]
-//! # pub struct Alpha {
-//! #     pub one: u8,
-//! #     pub two: i64,
-//! # }
-//! #
-//! # #[derive(Serialize, Deserialize, Schema)]
-//! # pub enum Beta {
-//! #     Bib,
-//! #     Bim(i16),
-//! #     Bap,
-//! # }
-//! #
-//! use postcard_rpc::endpoint;
-//!
-//! // Define an endpoint
-//! endpoint!(
-//!     // This is the name of a marker type that represents our Endpoint,
-//!     // and implements the `Endpoint` trait.
-//!     FirstEndpoint,
-//!     // This is the request type for this endpoint
-//!     Alpha,
-//!     // This is the response type for this endpoint
-//!     Beta,
-//!     // This is the path/URI of the endpoint
-//!     "endpoints/first",
-//! );
-//! ```
-//!
 //! ### Topics
 //!
 //! Sometimes, you would just like to send data in a single direction, with no
@@ -129,60 +54,19 @@
 //!
 //! * The type of the Message
 //! * A string "path", like an HTTP URI that uniquely identifies the topic.
-//!
-//! The easiest way to define a Topic is to use the [`topic!`][topic]
-//! macro.
-//!
-//! ```rust
-//! # use serde::{Serialize, Deserialize};
-//! # use postcard_schema::Schema;
-//! #
-//! # #[derive(Serialize, Deserialize, Schema)]
-//! # pub struct Delta(pub [u8; 32]);
-//! #
-//! use postcard_rpc::topic;
-//!
-//! // Define a topic
-//! topic!(
-//!     // This is the name of a marker type that represents our Topic,
-//!     // and implements `Topic` trait.
-//!     FirstTopic,
-//!     // This is the message type for the endpoint (note there is no
-//!     // response type!)
-//!     Delta,
-//!     // This is the path/URI of the topic
-//!     "topics/first",
-//! );
-//! ```
-//!
-//! ## Using a schema
-//!
-//! At the moment, this library is primarily oriented around:
-//!
-//! * A single Client, usually a PC, with access to `std`
-//! * A single Server, usually an MCU, without access to `std`
-//!
-//! For Client facilities, check out the [`host_client`] module,
-//! particularly the [`HostClient`][host_client::HostClient] struct.
-//! This is only available with the `use-std` feature active.
-//!
-//! A serial-port transport using cobs encoding is available with the `cobs-serial` feature.
-//! This feature will add the [`new_serial_cobs`][host_client::HostClient::new_serial_cobs] constructor to [`HostClient`][host_client::HostClient].
-//!
-//! For Server facilities, check out the [`Dispatch`] struct. This is
-//! available with or without the standard library.
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
-use headered::extract_header_from_bytes;
-use postcard_schema::Schema;
+use header::VarKey;
+// use headered::extract_header_from_bytes;
+use postcard_schema::{schema::NamedType, Schema};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "cobs")]
 pub mod accumulator;
 
 pub mod hash;
-pub mod headered;
+pub mod header;
 
 #[cfg(feature = "use-std")]
 pub mod host_client;
@@ -190,121 +74,11 @@ pub mod host_client;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-#[cfg(feature = "embassy-usb-0_3-server")]
-pub mod target_server;
-
 mod macros;
 
-/// Error type for [Dispatch]
-#[derive(Debug, PartialEq)]
-pub enum Error<E> {
-    /// No handler was found for the given message.
-    /// The decoded key and sequence number are returned
-    NoMatchingHandler { key: Key, seq_no: u32 },
-    /// The handler returned an error
-    DispatchFailure(E),
-    /// An error when decoding messages
-    Postcard(postcard::Error),
-}
+pub mod server;
 
-impl<E> From<postcard::Error> for Error<E> {
-    fn from(value: postcard::Error) -> Self {
-        Self::Postcard(value)
-    }
-}
-
-/// Dispatch is the primary interface for MCU "server" devices.
-///
-/// Dispatch is generic over three types:
-///
-/// 1. The `Context`, which will be passed as a mutable reference
-///    to each of the handlers. It typically should contain
-///    whatever resource is necessary to send replies back to
-///    the host.
-/// 2. The `Error` type, which can be returned by handlers
-/// 3. `N`, for the maximum number of handlers
-///
-/// If you plan to use COBS encoding, you can also use [CobsDispatch].
-/// which will automatically handle accumulating bytes from the wire.
-///
-/// [CobsDispatch]: crate::accumulator::dispatch::CobsDispatch
-/// Note: This will be available when the `cobs` or `cobs-serial` feature is enabled.
-pub struct Dispatch<Context, Error, const N: usize> {
-    items: heapless::Vec<(Key, Handler<Context, Error>), N>,
-    context: Context,
-}
-
-impl<Context, Err, const N: usize> Dispatch<Context, Err, N> {
-    /// Create a new [Dispatch]
-    pub fn new(c: Context) -> Self {
-        Self {
-            items: heapless::Vec::new(),
-            context: c,
-        }
-    }
-
-    /// Add a handler to the [Dispatch] for the given path and type
-    ///
-    /// Returns an error if the given type+path have already been added,
-    /// or if Dispatch is full.
-    pub fn add_handler<E: Endpoint>(
-        &mut self,
-        handler: Handler<Context, Err>,
-    ) -> Result<(), &'static str> {
-        if self.items.is_full() {
-            return Err("full");
-        }
-        let id = E::REQ_KEY;
-        if self.items.iter().any(|(k, _)| k == &id) {
-            return Err("dupe");
-        }
-        let _ = self.items.push((id, handler));
-
-        // TODO: Why does this throw lifetime errors?
-        // self.items.sort_unstable_by_key(|(k, _)| k);
-        Ok(())
-    }
-
-    /// Accessor function for the Context field
-    pub fn context(&mut self) -> &mut Context {
-        &mut self.context
-    }
-
-    /// Attempt to dispatch the given message
-    ///
-    /// The bytes should consist of exactly one message (including the header).
-    ///
-    /// Returns an error in any of the following cases:
-    ///
-    /// * We failed to decode a header
-    /// * No handler was found for the decoded key
-    /// * The handler ran, but returned an error
-    pub fn dispatch(&mut self, bytes: &[u8]) -> Result<(), Error<Err>> {
-        let (hdr, remain) = extract_header_from_bytes(bytes)?;
-
-        // TODO: switch to binary search once we sort?
-        let Some(disp) = self
-            .items
-            .iter()
-            .find_map(|(k, d)| if k == &hdr.key { Some(d) } else { None })
-        else {
-            return Err(Error::<Err>::NoMatchingHandler {
-                key: hdr.key,
-                seq_no: hdr.seq_no,
-            });
-        };
-        (disp)(&hdr, &mut self.context, remain).map_err(Error::DispatchFailure)
-    }
-}
-
-type Handler<C, E> = fn(&WireHeader, &mut C, &[u8]) -> Result<(), E>;
-
-/// The WireHeader is appended to all messages
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-pub struct WireHeader {
-    pub key: Key,
-    pub seq_no: u32,
-}
+pub mod uniques;
 
 /// The `Key` uniquely identifies what "kind" of message this is.
 ///
@@ -387,6 +161,137 @@ mod key_owned {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct Key4(pub [u8; 4]);
+#[derive(Debug, Copy, Clone)]
+pub struct Key2(pub [u8; 2]);
+#[derive(Debug, Copy, Clone)]
+pub struct Key1(pub u8);
+
+impl Key1 {
+    pub const fn from_key2(value: Key2) -> Self {
+        let [a, b] = value.0;
+        Self(a ^ b)
+    }
+
+    pub const fn from_key4(value: Key4) -> Self {
+        let [a, b, c, d] = value.0;
+        Self(a ^ b ^ c ^ d)
+    }
+
+    pub const fn from_key8(value: Key) -> Self {
+        let [a, b, c, d, e, f, g, h] = value.0;
+        Self(a ^ b ^ c ^ d ^ e ^ f ^ g ^ h)
+    }
+
+    pub const fn to_bytes(&self) -> u8 {
+        self.0
+    }
+
+    pub fn try_from_varkey(value: &VarKey) -> Option<Self> {
+        Some(match value {
+            VarKey::Key1(key1) => *key1,
+            VarKey::Key2(key2) => Key1::from_key2(*key2),
+            VarKey::Key4(key4) => Key1::from_key4(*key4),
+            VarKey::Key8(key) => Key1::from_key8(*key),
+        })
+    }
+}
+
+impl Key2 {
+    pub const fn from_key4(value: Key4) -> Self {
+        let [a, b, c, d] = value.0;
+        Self([a ^ b, c ^ d])
+    }
+
+    pub const fn from_key8(value: Key) -> Self {
+        let [a, b, c, d, e, f, g, h] = value.0;
+        Self([a ^ b ^ c ^ d, e ^ f ^ g ^ h])
+    }
+
+    pub const fn to_bytes(&self) -> [u8; 2] {
+        self.0
+    }
+
+    pub fn try_from_varkey(value: &VarKey) -> Option<Self> {
+        Some(match value {
+            VarKey::Key1(_) => return None,
+            VarKey::Key2(key2) => *key2,
+            VarKey::Key4(key4) => Key2::from_key4(*key4),
+            VarKey::Key8(key) => Key2::from_key8(*key),
+        })
+    }
+}
+
+impl Key4 {
+    pub const fn from_key8(value: Key) -> Self {
+        let [a, b, c, d, e, f, g, h] = value.0;
+        Self([a ^ b, c ^ d, e ^ f, g ^ h])
+    }
+
+    pub const fn to_bytes(&self) -> [u8; 4] {
+        self.0
+    }
+
+    pub fn try_from_varkey(value: &VarKey) -> Option<Self> {
+        Some(match value {
+            VarKey::Key1(_) => return None,
+            VarKey::Key2(_) => return None,
+            VarKey::Key4(key4) => *key4,
+            VarKey::Key8(key) => Key4::from_key8(*key),
+        })
+    }
+}
+
+impl Key {
+    pub const fn from_key8(value: Key) -> Self {
+        value
+    }
+
+    pub fn try_from_varkey(value: &VarKey) -> Option<Self> {
+        match value {
+            VarKey::Key8(key) => Some(*key),
+            _ => None,
+        }
+    }
+}
+
+impl From<Key2> for Key1 {
+    fn from(value: Key2) -> Self {
+        Self::from_key2(value)
+    }
+}
+
+impl From<Key4> for Key1 {
+    fn from(value: Key4) -> Self {
+        Self::from_key4(value)
+    }
+}
+
+impl From<Key> for Key1 {
+    fn from(value: Key) -> Self {
+        Self::from_key8(value)
+    }
+}
+
+impl From<Key4> for Key2 {
+    fn from(value: Key4) -> Self {
+        Self::from_key4(value)
+    }
+}
+
+impl From<Key> for Key2 {
+    fn from(value: Key) -> Self {
+        Self::from_key8(value)
+    }
+}
+
+impl From<Key> for Key4 {
+    fn from(value: Key) -> Self {
+        Self::from_key8(value)
+    }
+}
+
 /// A marker trait denoting a single endpoint
 ///
 /// Typically used with the [endpoint] macro.
@@ -447,8 +352,10 @@ pub mod standard_icd {
         FrameTooShort(FrameTooShort),
         DeserFailed,
         SerFailed,
-        UnknownKey([u8; 8]),
+        // TODO: report different keys lens?
+        UnknownKey,
         FailedToSpawn,
+        KeyTooSmall,
     }
 
     #[cfg(not(feature = "use-std"))]
@@ -456,4 +363,22 @@ pub mod standard_icd {
 
     #[cfg(feature = "use-std")]
     crate::topic!(Logging, Vec<u8>, "logs/formatted");
+}
+
+pub struct DeviceMap {
+    pub types: &'static [&'static NamedType],
+    pub endpoints: &'static [(&'static str, Key, Key)],
+    pub topics: &'static [(&'static str, Key)],
+}
+
+#[derive(Debug)]
+pub struct EndpointMap {
+    pub types: &'static [&'static NamedType],
+    pub endpoints: &'static [(&'static str, Key, Key)],
+}
+
+#[derive(Debug)]
+pub struct TopicMap {
+    pub types: &'static [&'static NamedType],
+    pub topics: &'static [(&'static str, Key)],
 }
