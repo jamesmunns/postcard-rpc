@@ -100,7 +100,6 @@ where
             subscriptions.clone(),
             me.stopper.clone(),
         ));
-        sp.spawn(sub_worker(new_subs, subscriptions, me.stopper.clone()));
 
         me
     }
@@ -239,39 +238,3 @@ async fn in_worker_inner<W>(
     }
 }
 
-async fn sub_worker(
-    new_subs: Receiver<SubInfo>,
-    subscriptions: Arc<Mutex<Subscriptions>>,
-    stop: Stopper,
-) {
-    let cancel_fut = stop.wait_stopped();
-    let operate_fut = sub_worker_inner(new_subs, subscriptions);
-    select! {
-        _ = cancel_fut => {},
-        _ = operate_fut => {
-            // if WE exited, notify everyone else it's stoppin time
-            stop.stop();
-        },
-    }
-}
-
-async fn sub_worker_inner(
-    mut new_subs: Receiver<SubInfo>,
-    subscriptions: Arc<Mutex<Subscriptions>>,
-) {
-    while let Some(sub) = new_subs.recv().await {
-        let mut sub_guard = subscriptions.lock().await;
-        let k2b = sub.key.to_bytes();
-        match sub_guard.binary_search_by_key(&k2b, |(k, _)| k.to_bytes()) {
-            Ok(n) => {
-                let mut swap = (sub.key, sub.tx);
-                warn!("Replacing old subscription for {:?}", sub.key);
-                core::mem::swap(&mut swap, &mut sub_guard[n]);
-            }
-            Err(n) => {
-                // No need to replace or sort, we do this by insertion instead
-                sub_guard.insert(n, (sub.key, sub.tx));
-            }
-        }
-    }
-}

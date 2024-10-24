@@ -205,7 +205,7 @@ pub mod fnv1a64 {
                 let mut state = hash_update(state, &[0xC7]);
                 let mut idx = 0;
                 while idx < nts.len() {
-                    state = hash_named_type(state, &nts[idx]);
+                    state = hash_named_type(state, nts[idx]);
                     idx += 1;
                 }
                 state
@@ -214,7 +214,7 @@ pub mod fnv1a64 {
                 let mut state = hash_update(state, &[0x67]);
                 let mut idx = 0;
                 while idx < nvs.len() {
-                    state = hash_named_value(state, &nvs[idx]);
+                    state = hash_named_value(state, nvs[idx]);
                     idx += 1;
                 }
                 state

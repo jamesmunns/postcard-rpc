@@ -1,8 +1,7 @@
 //! The goal of `postcard-rpc` is to make it easier for a
 //! host PC to talk to a constrained device, like a microcontroller.
 //!
-//! See [the repo] for examples, and [the overview] for more details on how
-//! to use this crate.
+//! See [the repo] for examples
 //!
 //! [the repo]: https://github.com/jamesmunns/postcard-rpc
 //! [the overview]: https://github.com/jamesmunns/postcard-rpc/blob/main/docs/overview.md
@@ -24,46 +23,8 @@
 //!   convert a type into bytes on the wire
 //! * [`serde`]'s [`Deserialize`] trait - which defines how we
 //!   can convert bytes on the wire into a type
-//! * [`postcard`]'s [`Schema`] trait - which generates a reflection-style
+//! * [`postcard-schema`]'s [`Schema`] trait - which generates a reflection-style
 //!   schema value for a given type.
-//!
-//! Here's an example of three types we'll use in future examples:
-//!
-//! ```rust
-//! // Consider making your shared "wire types" crate conditionally no-std,
-//! // if you want to use it with no-std embedded targets! This makes it no_std
-//! // except for testing and when the "use-std" feature is active.
-//! //
-//! // You may need to also ensure that `std`/`use-std` features are not active
-//! // in any dependencies as well.
-//! #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
-//! # fn main() {}
-//!
-//! use serde::{Serialize, Deserialize};
-//! use postcard_schema::Schema;
-//!
-//! #[derive(Serialize, Deserialize, Schema)]
-//! pub struct Alpha {
-//!     pub one: u8,
-//!     pub two: i64,
-//! }
-//!
-//! #[derive(Serialize, Deserialize, Schema)]
-//! pub enum Beta {
-//!     Bib,
-//!     Bim(i16),
-//!     Bap,
-//! }
-//!
-//! #[derive(Serialize, Deserialize, Schema)]
-//! pub struct Delta(pub [u8; 32]);
-//!
-//! #[derive(Serialize, Deserialize, Schema)]
-//! pub enum WireError {
-//!     ALittleBad,
-//!     VeryBad,
-//! }
-//! ```
 //!
 //! ### Endpoints
 //!
@@ -80,42 +41,6 @@
 //! * The type of the Response
 //! * A string "path", like an HTTP URI that uniquely identifies the endpoint.
 //!
-//! The easiest way to define an Endpoint is to use the [`endpoint!`][endpoint]
-//! macro.
-//!
-//! ```rust
-//! # use serde::{Serialize, Deserialize};
-//! # use postcard_schema::Schema;
-//! #
-//! # #[derive(Serialize, Deserialize, Schema)]
-//! # pub struct Alpha {
-//! #     pub one: u8,
-//! #     pub two: i64,
-//! # }
-//! #
-//! # #[derive(Serialize, Deserialize, Schema)]
-//! # pub enum Beta {
-//! #     Bib,
-//! #     Bim(i16),
-//! #     Bap,
-//! # }
-//! #
-//! use postcard_rpc::endpoint;
-//!
-//! // Define an endpoint
-//! endpoint!(
-//!     // This is the name of a marker type that represents our Endpoint,
-//!     // and implements the `Endpoint` trait.
-//!     FirstEndpoint,
-//!     // This is the request type for this endpoint
-//!     Alpha,
-//!     // This is the response type for this endpoint
-//!     Beta,
-//!     // This is the path/URI of the endpoint
-//!     "endpoints/first",
-//! );
-//! ```
-//!
 //! ### Topics
 //!
 //! Sometimes, you would just like to send data in a single direction, with no
@@ -129,48 +54,7 @@
 //!
 //! * The type of the Message
 //! * A string "path", like an HTTP URI that uniquely identifies the topic.
-//!
-//! The easiest way to define a Topic is to use the [`topic!`][topic]
-//! macro.
-//!
-//! ```rust
-//! # use serde::{Serialize, Deserialize};
-//! # use postcard_schema::Schema;
-//! #
-//! # #[derive(Serialize, Deserialize, Schema)]
-//! # pub struct Delta(pub [u8; 32]);
-//! #
-//! use postcard_rpc::topic;
-//!
-//! // Define a topic
-//! topic!(
-//!     // This is the name of a marker type that represents our Topic,
-//!     // and implements `Topic` trait.
-//!     FirstTopic,
-//!     // This is the message type for the endpoint (note there is no
-//!     // response type!)
-//!     Delta,
-//!     // This is the path/URI of the topic
-//!     "topics/first",
-//! );
-//! ```
-//!
-//! ## Using a schema
-//!
-//! At the moment, this library is primarily oriented around:
-//!
-//! * A single Client, usually a PC, with access to `std`
-//! * A single Server, usually an MCU, without access to `std`
-//!
-//! For Client facilities, check out the [`host_client`] module,
-//! particularly the [`HostClient`][host_client::HostClient] struct.
-//! This is only available with the `use-std` feature active.
-//!
-//! A serial-port transport using cobs encoding is available with the `cobs-serial` feature.
-//! This feature will add the [`new_serial_cobs`][host_client::HostClient::new_serial_cobs] constructor to [`HostClient`][host_client::HostClient].
-//!
-//! For Server facilities, check out the [`Dispatch`] struct. This is
-//! available with or without the standard library.
+
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
@@ -195,12 +79,7 @@ mod macros;
 
 pub mod server;
 
-// /// The WireHeader is appended to all messages
-// #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-// pub struct WireHeader {
-//     pub key: Key,
-//     pub seq_no: u32,
-// }
+pub mod uniques;
 
 /// The `Key` uniquely identifies what "kind" of message this is.
 ///

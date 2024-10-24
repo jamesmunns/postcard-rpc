@@ -1,67 +1,88 @@
+//! # Postcard-RPC Header Format
+//!
+//! Postcard-RPC's header is made up of three main parts:
+//!
+//! 1. A one-byte discriminant
+//! 2. A 1-8 byte "Key"
+//! 3. A 1-4 byte "Sequence Number"
+//!
+//! The Postcard-RPC Header is NOT encoded using `postcard`'s wire format.
+//!
+//! ## Discriminant
+//!
+//! The discriminant field is always one byte, and consists of three subfields
+//! in the form `0bNNMM_VVVV`.
+//!
+//! * The two msbits are "key length", where the two N length bits represent
+//!   a key length of 2^N. All values are valid.
+//! * The next two msbits are "sequence number length", where the two M length
+//!   bits represent a sequence number length of 2^M. Values 00, 01, and 10
+//!   are valid.
+//! * The four lsbits are "protocol version", where the four V version bits
+//!   represent an unsigned 4-bit number. Currently only 0000 is a valid value.
+//!
+//! ## Key
+//!
+//! The Key consists of an fnv1a hash of the path string and schema of the
+//! contained message. These are calculated using the [`hash` module](crate::hash),
+//! and are natively calculated as an 8-byte hash.
+//!
+//! Keys may be encoded with variable fidelity on the wire, as follows:
+//!
+//! * For 8-byte keys, all key bytes appear in the form `[A, B, C, D, E, F, G, H]`.
+//! * For 4-byte keys, the 8-byte form is compressed as `[A^B, C^D, E^F, G^H]`.
+//! * For 2-byte keys, the 8-byte form is compressed as `[A^B^C^D, E^F^G^H]`.
+//! * For 1-byte keys, the 8-byte form is compressed as `A^B^C^D^E^F^G^H`.
+//!
+//! The length of the Key is determined by the two `NN` bits in the discriminant.
+//!
+//! The length of the key is usually chosen by the **Server**, as the server is
+//! able to calculate the minimum number of bits necessary to avoid collisions.
+//!
+//! When Clients receive a server response, they shall note the Key length used,
+//! and match that for all subsequent messages. When Clients make first connection,
+//! they shall use the 8-byte form by default.
+//!
+//! ## Sequence Number
+//!
+//! The Sequence Number is an unsigned integer used to match request-response pairs,
+//! and disambiguate between multiple in-flight messages.
+//!
+//! Sequence Numbers may be encoded with variable fidelity on the wire, always in
+//! little-endian order, of 1, 2, or 4 bytes.
+//!
+//! The length of the Sequence Number is determined by the two `MM` bits in the
+//! discriminant.
+//!
+//! The length of the key is chosen by the "originator" of the message. For Endpoints
+//! this is the client making the request. For Topics, this is the device sending the
+//! topic message.
+
 use crate::{Key, Key1, Key2, Key4};
 
-/// We DO NOT impl Serialize/Deserialize for this type because we use
-/// non-postcard-compatible format (externally tagged)
+//////////////////////////////////////////////////////////////////////////////
+// VARKEY
+//////////////////////////////////////////////////////////////////////////////
+
+/// A variably sized header Key
+///
+/// NOTE: We DO NOT impl Serialize/Deserialize for this type because
+/// we use non-postcard-compatible format (externally tagged) on the wire.
+///
+/// NOTE: VarKey implements `PartialEq` by reducing two VarKeys down to the
+/// smaller of the two forms, and checking whether they match. This allows
+/// a key in 8-byte form to be compared to a key in 1, 2, or 4-byte form
+/// for equality.
 #[derive(Debug, Copy, Clone)]
 pub enum VarKey {
+    /// A one byte key
     Key1(Key1),
+    /// A two byte key
     Key2(Key2),
+    /// A four byte key
     Key4(Key4),
+    /// An eight byte key
     Key8(Key),
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum VarKeyKind {
-    Key1,
-    Key2,
-    Key4,
-    Key8,
-}
-
-impl VarKey {
-    pub fn shrink_to(&mut self, kind: VarKeyKind) {
-        match (&self, kind) {
-            (VarKey::Key1(_), _) => {
-                // Nothing to shrink
-            }
-            (VarKey::Key2(key2), VarKeyKind::Key1) => {
-                *self = VarKey::Key1(Key1::from_key2(*key2));
-            }
-            (VarKey::Key2(_), _) => {
-                // We are already as small or smaller than the request
-            }
-            (VarKey::Key4(key4), VarKeyKind::Key1) => {
-                *self = VarKey::Key1(Key1::from_key4(*key4));
-            }
-            (VarKey::Key4(key4), VarKeyKind::Key2) => {
-                *self = VarKey::Key2(Key2::from_key4(*key4));
-            }
-            (VarKey::Key4(_), _) => {
-                // We are already as small or smaller than the request
-            }
-            (VarKey::Key8(key), VarKeyKind::Key1) => {
-                *self = VarKey::Key1(Key1::from_key8(*key));
-            }
-            (VarKey::Key8(key), VarKeyKind::Key2) => {
-                *self = VarKey::Key2(Key2::from_key8(*key));
-            }
-            (VarKey::Key8(key), VarKeyKind::Key4) => {
-                *self = VarKey::Key4(Key4::from_key8(*key));
-            }
-            (VarKey::Key8(_), _) => {
-                // Nothing to do
-            }
-        }
-    }
-
-    pub fn kind(&self) -> VarKeyKind {
-        match self {
-            VarKey::Key1(_) => VarKeyKind::Key1,
-            VarKey::Key2(_) => VarKeyKind::Key2,
-            VarKey::Key4(_) => VarKeyKind::Key4,
-            VarKey::Key8(_) => VarKeyKind::Key8,
-        }
-    }
 }
 
 /// We implement PartialEq MANUALLY for VarKey, because keys of different lengths SHOULD compare
@@ -130,6 +151,82 @@ impl PartialEq for VarKey {
     }
 }
 
+impl VarKey {
+    /// Keys can not be reaised, but instead only shrunk.
+    ///
+    /// This method will shrink to the requested length if that length is
+    /// smaller than the current representation, or if the requested length
+    /// is the same or larger than the current representation, it will be
+    /// kept unchanged
+    pub fn shrink_to(&mut self, kind: VarKeyKind) {
+        match (&self, kind) {
+            (VarKey::Key1(_), _) => {
+                // Nothing to shrink
+            }
+            (VarKey::Key2(key2), VarKeyKind::Key1) => {
+                *self = VarKey::Key1(Key1::from_key2(*key2));
+            }
+            (VarKey::Key2(_), _) => {
+                // We are already as small or smaller than the request
+            }
+            (VarKey::Key4(key4), VarKeyKind::Key1) => {
+                *self = VarKey::Key1(Key1::from_key4(*key4));
+            }
+            (VarKey::Key4(key4), VarKeyKind::Key2) => {
+                *self = VarKey::Key2(Key2::from_key4(*key4));
+            }
+            (VarKey::Key4(_), _) => {
+                // We are already as small or smaller than the request
+            }
+            (VarKey::Key8(key), VarKeyKind::Key1) => {
+                *self = VarKey::Key1(Key1::from_key8(*key));
+            }
+            (VarKey::Key8(key), VarKeyKind::Key2) => {
+                *self = VarKey::Key2(Key2::from_key8(*key));
+            }
+            (VarKey::Key8(key), VarKeyKind::Key4) => {
+                *self = VarKey::Key4(Key4::from_key8(*key));
+            }
+            (VarKey::Key8(_), VarKeyKind::Key8) => {
+                // Nothing to do
+            }
+        }
+    }
+
+    /// The current kind/length of the key
+    pub fn kind(&self) -> VarKeyKind {
+        match self {
+            VarKey::Key1(_) => VarKeyKind::Key1,
+            VarKey::Key2(_) => VarKeyKind::Key2,
+            VarKey::Key4(_) => VarKeyKind::Key4,
+            VarKey::Key8(_) => VarKeyKind::Key8,
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// VARKEYKIND
+//////////////////////////////////////////////////////////////////////////////
+
+/// The kind or length of the variably sized header Key
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum VarKeyKind {
+    /// A one byte key
+    Key1,
+    /// A two byte key
+    Key2,
+    /// A four byte key
+    Key4,
+    /// An eight byte key
+    Key8,
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// VARSEQ
+//////////////////////////////////////////////////////////////////////////////
+
+/// A variably sized sequence number
+///
 /// NOTE: We use the standard PartialEq here, as we DO NOT treat sequence
 /// numbers of different lengths as equivalent.
 ///
@@ -137,8 +234,11 @@ impl PartialEq for VarKey {
 /// non-postcard-compatible format (externally tagged)
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum VarSeq {
+    /// A one byte sequence number
     Seq1(u8),
+    /// A two byte sequence number
     Seq2(u16),
+    /// A four byte sequence number
     Seq4(u32),
 }
 
@@ -161,6 +261,13 @@ impl From<u32> for VarSeq {
 }
 
 impl VarSeq {
+    /// Resize (up or down) to the requested kind.
+    ///
+    /// When increasing size, the number is left-extended, e.g. `0x42u8` becomes
+    /// `0x0000_0042u32` when resizing 1 -> 4.
+    ///
+    /// When decreasing size, the number is truncated, e.g. `0xABCD_EF12u32`
+    /// becomes `0x12u8` when resizing 4 -> 1.
     pub fn resize(&mut self, kind: VarSeqKind) {
         match (&self, kind) {
             (VarSeq::Seq1(_), VarSeqKind::Seq1) => {}
@@ -188,13 +295,27 @@ impl VarSeq {
     }
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// VARSEQKIND
+//////////////////////////////////////////////////////////////////////////////
+
+/// The Kind or Length of a VarSeq
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum VarSeqKind {
+    /// A one byte sequence number
     Seq1,
+    /// A two byte sequence number
     Seq2,
+    /// A four byte sequence number
     Seq4,
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// VARHEADER
+//////////////////////////////////////////////////////////////////////////////
+
+/// A variably sized message header
+///
 /// NOTE: We use the standard PartialEq here as it will do the correct things.
 ///
 /// Sequence numbers must be EXACTLY the same, and keys must be equivalent when
@@ -210,20 +331,32 @@ pub struct VarHeader {
 
 #[allow(clippy::unusual_byte_groupings)]
 impl VarHeader {
+    /// Bits for a key of ONE byte
     pub const KEY_ONE_BITS: u8 = 0b00_00_0000;
+    /// Bits for a key of TWO bytes
     pub const KEY_TWO_BITS: u8 = 0b01_00_0000;
+    /// Bits for a key of FOUR bytes
     pub const KEY_FOUR_BITS: u8 = 0b10_00_0000;
+    /// Bits for a key of EIGHT bytes
     pub const KEY_EIGHT_BITS: u8 = 0b11_00_0000;
+    /// Mask bits
     pub const KEY_MASK_BITS: u8 = 0b11_00_0000;
 
+    /// Bits for a sequence number of ONE bytes
     pub const SEQ_ONE_BITS: u8 = 0b00_00_0000;
+    /// Bits for a sequence number of TWO bytes
     pub const SEQ_TWO_BITS: u8 = 0b00_01_0000;
+    /// Bits for a sequence number of FOUR bytes
     pub const SEQ_FOUR_BITS: u8 = 0b00_10_0000;
+    /// Mask bits
     pub const SEQ_MASK_BITS: u8 = 0b00_11_0000;
 
+    /// Bits for a version number of ZERO
     pub const VER_ZERO_BITS: u8 = 0b00_00_0000;
+    /// Mask bits
     pub const VER_MASK_BITS: u8 = 0b00_00_1111;
 
+    /// Encode the header to a Vec of bytes
     #[cfg(feature = "use-std")]
     pub fn write_to_vec(&self) -> Vec<u8> {
         // start with placeholder byte
@@ -268,6 +401,13 @@ impl VarHeader {
         out
     }
 
+    /// Attempt to write the header to the given slice
+    ///
+    /// If the slice is large enough, a `Some` will be returned with the bytes used
+    /// to encode the header, as well as the remaining unused bytes.
+    ///
+    /// If the slice is not large enough, a `None` will be returned, and some bytes
+    /// of the buffer may have been modified.
     pub fn write_to_slice<'a>(&self, buf: &'a mut [u8]) -> Option<(&'a mut [u8], &'a mut [u8])> {
         let (disc_out, mut remain) = buf.split_first_mut()?;
         let mut used = 1;
@@ -325,6 +465,12 @@ impl VarHeader {
         Some(buf.split_at_mut(used))
     }
 
+    /// Attempt to decode a header from the given bytes.
+    ///
+    /// If a well-formed header was found, a `Some` will be returned with the
+    /// decoded header and unused remaining bytes.
+    ///
+    /// If no well-formed header was found, a `None` will be returned.
     pub fn take_from_slice(buf: &[u8]) -> Option<(Self, &[u8])> {
         let (disc, mut remain) = buf.split_first()?;
 
