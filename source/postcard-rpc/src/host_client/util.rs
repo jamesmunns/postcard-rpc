@@ -16,13 +16,18 @@ use tracing::{debug, trace, warn};
 use crate::{
     header::{VarHeader, VarKey, VarSeqKind},
     host_client::{
-        HostClient, HostContext, ProcessError, RpcFrame, SubInfo, WireContext, WireRx, WireSpawn,
+        HostClient, HostContext, ProcessError, RpcFrame, WireContext, WireRx, WireSpawn,
         WireTx,
     },
     Key,
 };
 
-pub(crate) type Subscriptions = Vec<(Key, Sender<RpcFrame>)>;
+#[derive(Default, Debug)]
+pub(crate) struct Subscriptions {
+    pub(crate) list: Vec<(Key, Sender<RpcFrame>)>,
+    pub(crate) stopped: bool
+}
+
 
 /// A basic cancellation-token
 ///
@@ -88,16 +93,13 @@ where
         let WireContext {
             outgoing,
             incoming,
-            new_subs,
         } = wire_ctx;
-
-        let subscriptions: Arc<Mutex<Subscriptions>> = Arc::new(Mutex::new(Subscriptions::new()));
 
         sp.spawn(out_worker(tx, outgoing, me.stopper.clone()));
         sp.spawn(in_worker(
             rx,
             incoming,
-            subscriptions.clone(),
+            me.subscriptions.clone(),
             me.stopper.clone(),
         ));
 
@@ -150,7 +152,7 @@ async fn in_worker<W>(
     W::Error: Debug,
 {
     let cancel_fut = stop.wait_stopped();
-    let operate_fut = in_worker_inner(wire, host_ctx, subscriptions);
+    let operate_fut = in_worker_inner(wire, host_ctx, subscriptions.clone());
     select! {
         _ = cancel_fut => {},
         _ = operate_fut => {
@@ -158,6 +160,11 @@ async fn in_worker<W>(
             stop.stop();
         },
     }
+    // If we stop, purge the subscription list so that it is clear that no more messages are coming
+    // TODO: Have a "stopped" flag to prevent later additions (e.g. sub after store?)
+    let mut guard = subscriptions.lock().await;
+    guard.stopped = true;
+    guard.list.clear();
 }
 
 async fn in_worker_inner<W>(
@@ -189,7 +196,7 @@ async fn in_worker_inner<W>(
 
             // Remove if sending fails
             let remove_sub =
-                if let Some((_h, m)) = subs_guard.iter().find(|(k, _)| VarKey::Key8(*k) == key) {
+                if let Some((_h, m)) = subs_guard.list.iter().find(|(k, _)| VarKey::Key8(*k) == key) {
                     handled = true;
                     let frame = RpcFrame {
                         header: hdr,
@@ -214,7 +221,7 @@ async fn in_worker_inner<W>(
 
             if remove_sub {
                 debug!("Dropping subscription");
-                subs_guard.retain(|(k, _)| VarKey::Key8(*k) != key);
+                subs_guard.list.retain(|(k, _)| VarKey::Key8(*k) != key);
             }
         }
 

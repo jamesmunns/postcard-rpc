@@ -20,8 +20,9 @@ use postcard_schema::Schema;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{
     select,
-    sync::mpsc::{Receiver, Sender},
+    sync::{mpsc::{Receiver, Sender}, Mutex},
 };
+use util::Subscriptions;
 
 use crate::{
     header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind},
@@ -159,7 +160,7 @@ pub trait WireSpawn: 'static {
 pub struct HostClient<WireErr> {
     ctx: Arc<HostContext>,
     out: Sender<RpcFrame>,
-    subber: Sender<SubInfo>,
+    subscriptions: Arc<Mutex<Subscriptions>>,
     err_key: Key,
     stopper: Stopper,
     seq_kind: VarSeqKind,
@@ -178,7 +179,6 @@ where
         seq_kind: VarSeqKind,
     ) -> (Self, WireContext) {
         let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(outgoing_depth);
-        let (tx_si, rx_si) = tokio::sync::mpsc::channel(outgoing_depth);
 
         let ctx = Arc::new(HostContext {
             kkind: RwLock::new(VarKeyKind::Key8),
@@ -193,7 +193,7 @@ where
             out: tx_pc,
             err_key,
             _pd: PhantomData,
-            subber: tx_si.clone(),
+            subscriptions: Arc::new(Mutex::new(Subscriptions::default())),
             stopper: Stopper::new(),
             seq_kind,
         };
@@ -201,7 +201,6 @@ where
         let wire = WireContext {
             outgoing: rx_pc,
             incoming: ctx,
-            new_subs: rx_si,
         };
 
         (me, wire)
@@ -351,13 +350,18 @@ where
         T::Message: DeserializeOwned,
     {
         let (tx, rx) = tokio::sync::mpsc::channel(depth);
-        self.subber
-            .send(SubInfo {
-                key: T::TOPIC_KEY,
-                tx,
-            })
-            .await
-            .map_err(|_| IoClosed)?;
+        {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(IoClosed);
+            }
+            if let Some(entry) = guard.list.iter_mut().find(|(k, _)| *k == T::TOPIC_KEY) {
+                tracing::warn!("replacing subscription for topic path '{}'", T::PATH);
+                entry.1 = tx;
+            } else {
+                guard.list.push((T::TOPIC_KEY, tx));
+            }
+        }
         Ok(Subscription {
             rx,
             _pd: PhantomData,
@@ -380,10 +384,18 @@ where
         depth: usize,
     ) -> Result<RawSubscription, IoClosed> {
         let (tx, rx) = tokio::sync::mpsc::channel(depth);
-        self.subber
-            .send(SubInfo { key, tx })
-            .await
-            .map_err(|_| IoClosed)?;
+        {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(IoClosed);
+            }
+            if let Some(entry) = guard.list.iter_mut().find(|(k, _)| *k == key) {
+                tracing::warn!("replacing subscription for raw topic key '{:?}'", key);
+                entry.1 = tx;
+            } else {
+                guard.list.push((key, tx));
+            }
+        }
         Ok(RawSubscription { rx })
     }
 
@@ -453,17 +465,11 @@ impl<WireErr> Clone for HostClient<WireErr> {
             out: self.out.clone(),
             err_key: self.err_key,
             _pd: PhantomData,
-            subber: self.subber.clone(),
+            subscriptions: self.subscriptions.clone(),
             stopper: self.stopper.clone(),
             seq_kind: self.seq_kind,
         }
     }
-}
-
-/// A new subscription that should be accounted for
-pub struct SubInfo {
-    pub key: Key,
-    pub tx: Sender<RpcFrame>,
 }
 
 /// Items necessary for implementing a custom I/O Task
@@ -474,8 +480,6 @@ pub struct WireContext {
     /// This shared information contains the WaitMap used for replying to
     /// open requests.
     pub incoming: Arc<HostContext>,
-    /// This is a stream of new subscriptions that should be tracked
-    pub new_subs: Receiver<SubInfo>,
 }
 
 /// A single postcard-rpc frame

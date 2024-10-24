@@ -679,6 +679,12 @@ macro_rules! unique_types {
 //////////////////////////////////////////////////////////////////////////////
 // STAGE 6 - COLLECTION OF UNIQUES ACROSS MULTIPLE TYPES
 //////////////////////////////////////////////////////////////////////////////
+
+/// This function turns an array of type lists into a single list of unique types
+///
+/// The type parameter `M` is the maximum potential output size, it should be
+/// equal to `lists.iter().map(|l| l.len()).sum()`, and should generally be
+/// calculated as part of [`merge_unique_types!()`][crate::merge_unique_types].
 pub const fn merge_nty_lists<const M: usize>(
     lists: &[&[&'static NamedType]],
 ) -> ([Option<&'static NamedType>; M], usize) {
