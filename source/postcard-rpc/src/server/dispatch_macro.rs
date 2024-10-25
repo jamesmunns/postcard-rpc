@@ -194,17 +194,122 @@ macro_rules! define_dispatch {
             use super::*;
             use $crate::Key;
 
-            // TODO: Warn/error if the list doesn't match the defined handlers?
+            // Create a list of JUST the REQUEST keys from the endpoint report
+            const EP_IN_KEYS_SZ: usize = $endpoint_list.endpoints.len();
+            const EP_IN_KEYS: [Key; EP_IN_KEYS_SZ] = const {
+                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; EP_IN_KEYS_SZ];
+                let mut i = 0;
+                while i < EP_IN_KEYS_SZ {
+                    keys[i] = $endpoint_list.endpoints[i].1;
+                    i += 1;
+                }
+                keys
+            };
+            // Create a list of JUST the RESPONSE keys from the endpoint report
+            const EP_OUT_KEYS_SZ: usize = $endpoint_list.endpoints.len();
+            const EP_OUT_KEYS: [Key; EP_OUT_KEYS_SZ] = const {
+                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; EP_OUT_KEYS_SZ];
+                let mut i = 0;
+                while i < EP_OUT_KEYS_SZ {
+                    keys[i] = $endpoint_list.endpoints[i].2;
+                    i += 1;
+                }
+                keys
+            };
+            // Create a list of JUST the MESSAGE keys from the TOPICS IN report
+            const TP_IN_KEYS_SZ: usize = $topic_in_list.topics.len();
+            const TP_IN_KEYS: [Key; TP_IN_KEYS_SZ] = const {
+                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; TP_IN_KEYS_SZ];
+                let mut i = 0;
+                while i < TP_IN_KEYS_SZ {
+                    keys[i] = $topic_in_list.topics[i].1;
+                    i += 1;
+                }
+                keys
+            };
+            // Create a list of JUST the MESSAGE keys from the TOPICS OUT report
+            const TP_OUT_KEYS_SZ: usize = $topic_out_list.topics.len();
+            const TP_OUT_KEYS: [Key; TP_OUT_KEYS_SZ] = const {
+                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; TP_OUT_KEYS_SZ];
+                let mut i = 0;
+                while i < TP_OUT_KEYS_SZ {
+                    keys[i] = $topic_out_list.topics[i].1;
+                    i += 1;
+                }
+                keys
+            };
 
-            const KEY_SLI_IN: &[Key] = &[
+            // This is a list of all REQUEST KEYS in the actual handlers
+            //
+            // This should be a SUBSET of the REQUEST KEYS in the Endpoint report
+            const EP_HANDLER_IN_KEYS: &[Key] = &[
                 $(<$endpoint as $crate::Endpoint>::REQ_KEY,)*
+            ];
+            // This is a list of all RESPONSE KEYS in the actual handlers
+            //
+            // This should be a SUBSET of the RESPONSE KEYS in the Endpoint report
+            const EP_HANDLER_OUT_KEYS: &[Key] = &[
+                $(<$endpoint as $crate::Endpoint>::RESP_KEY,)*
+            ];
+            // This is a list of all TOPIC KEYS in the actual handlers
+            //
+            // This should be a SUBSET of the TOPIC KEYS in the Topic IN report
+            // (we can't check the out, we have no way of enumerating that yet,
+            // which would require linkme-like crimes I think)
+            const TP_HANDLER_IN_KEYS: &[Key] = &[
                 $(<$topic_in as $crate::Topic>::TOPIC_KEY,)*
             ];
-            const KEYS_IN: [Key; KEY_SLI_IN.len()] = [
-                $(<$endpoint as $crate::Endpoint>::REQ_KEY,)*
-                $(<$topic_in as $crate::Topic>::TOPIC_KEY,)*
-            ];
-            pub const NEEDED_SZ_IN: usize = $crate::server::min_key_needed(&[&KEYS_IN]);
+
+            const fn a_is_subset_of_b(a: &[Key], b: &[Key]) -> bool {
+                let mut i = 0;
+                while i < a.len() {
+                    let x = u64::from_le_bytes(a[i].0);
+                    let mut matched = false;
+                    let mut j = 0;
+                    while j < b.len() {
+                        let y = u64::from_le_bytes(b[j].0);
+                        if x == y {
+                            matched = true;
+                            break;
+                        }
+                        j += 1;
+                    }
+                    if !matched {
+                        return false;
+                    }
+                    i += 1;
+                }
+                true
+            }
+
+            // TODO: Warn/error if the list doesn't match the defined handlers?
+            pub const NEEDED_SZ_IN: usize = $crate::server::min_key_needed(&[
+                &EP_IN_KEYS,
+                &TP_IN_KEYS,
+            ]);
+            pub const NEEDED_SZ_OUT: usize = $crate::server::min_key_needed(&[
+                &EP_OUT_KEYS,
+                &TP_OUT_KEYS,
+            ]);
+            pub const NEEDED_SZ: usize = const {
+                assert!(
+                    a_is_subset_of_b(EP_HANDLER_IN_KEYS, &EP_IN_KEYS),
+                    "All listed endpoint handlers must be listed in endpoints->list! Missing Requst Type found!",
+                );
+                assert!(
+                    a_is_subset_of_b(EP_HANDLER_OUT_KEYS, &EP_OUT_KEYS),
+                    "All listed endpoint handlers must be listed in endpoints->list! Missing Response Type found!",
+                );
+                assert!(
+                    a_is_subset_of_b(TP_HANDLER_IN_KEYS, &TP_IN_KEYS),
+                    "All listed endpoint handlers must be listed in endpoints->list! Missing Response Type found!",
+                );
+                if NEEDED_SZ_IN > NEEDED_SZ_OUT {
+                    NEEDED_SZ_IN
+                } else {
+                    NEEDED_SZ_OUT
+                }
+            };
         }
 
 
@@ -267,7 +372,7 @@ macro_rules! define_dispatch {
         // This is overly complicated because I'm mixing const-time capabilities with
         // macro-time capabilities. I'm very open to other suggestions that achieve the
         // same outcome.
-        pub type $app_name = impls::$app_name<{ sizer::NEEDED_SZ_IN }>;
+        pub type $app_name = impls::$app_name<{ sizer::NEEDED_SZ }>;
 
         mod impls {
             use super::*;

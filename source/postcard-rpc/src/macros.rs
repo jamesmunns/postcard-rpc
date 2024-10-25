@@ -144,7 +144,7 @@ macro_rules! topics {
             }
         )*
 
-        pub static $list_name: $crate::TopicMap = $crate::TopicMap {
+        pub const $list_name: $crate::TopicMap = $crate::TopicMap {
             types: &[
                 $(
                     <$tp_name as $crate::Topic>::Message::SCHEMA,

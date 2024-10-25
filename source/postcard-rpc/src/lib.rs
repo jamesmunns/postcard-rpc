@@ -368,7 +368,8 @@ pub mod standard_icd {
 pub struct DeviceMap {
     pub types: &'static [&'static NamedType],
     pub endpoints: &'static [(&'static str, Key, Key)],
-    pub topics: &'static [(&'static str, Key)],
+    pub topics_in: &'static [(&'static str, Key)],
+    pub topics_out: &'static [(&'static str, Key)],
 }
 
 #[derive(Debug)]
