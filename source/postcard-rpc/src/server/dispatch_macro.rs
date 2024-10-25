@@ -1,58 +1,5 @@
 /// # Define Dispatch Macro
 ///
-// ```rust,skip
-// # use postcard_rpc::target_server::dispatch_macro::fake::*;
-// # use postcard_rpc::{endpoint, target_server::{sender::Sender, SpawnContext}, WireHeader, define_dispatch};
-// # use postcard_schema::Schema;
-// # use embassy_usb_driver::{Bus, ControlPipe, EndpointIn, EndpointOut};
-// # use serde::{Deserialize, Serialize};
-//
-// pub struct DispatchCtx;
-// pub struct SpawnCtx;
-//
-// // This trait impl is necessary if you want to use the `spawn` variant,
-// // as spawned tasks must take ownership of any context they need.
-// impl SpawnContext for DispatchCtx {
-//     type SpawnCtxt = SpawnCtx;
-//     fn spawn_ctxt(&mut self) -> Self::SpawnCtxt {
-//         SpawnCtx
-//     }
-// }
-//
-// define_dispatch! {
-//     dispatcher: Dispatcher<
-//         Mutex = FakeMutex,
-//         Driver = FakeDriver,
-//         Context = DispatchCtx,
-//     >;
-//     AlphaEndpoint => async alpha_handler,
-//     BetaEndpoint => async beta_handler,
-//     GammaEndpoint => async gamma_handler,
-//     DeltaEndpoint => blocking delta_handler,
-//     EpsilonEndpoint => spawn epsilon_handler_task,
-// }
-//
-// async fn alpha_handler(_c: &mut DispatchCtx, _h: WireHeader, _b: AReq) -> AResp {
-//     todo!()
-// }
-//
-// async fn beta_handler(_c: &mut DispatchCtx, _h: WireHeader, _b: BReq) -> BResp {
-//     todo!()
-// }
-//
-// async fn gamma_handler(_c: &mut DispatchCtx, _h: WireHeader, _b: GReq) -> GResp {
-//     todo!()
-// }
-//
-// fn delta_handler(_c: &mut DispatchCtx, _h: WireHeader, _b: DReq) -> DResp {
-//     todo!()
-// }
-//
-// #[embassy_executor::task]
-// async fn epsilon_handler_task(_c: SpawnCtx, _h: WireHeader, _b: EReq, _sender: Sender<FakeMutex, FakeDriver>) {
-//     todo!()
-// }
-// ```
 
 #[macro_export]
 macro_rules! define_dispatch {
@@ -229,6 +176,9 @@ macro_rules! define_dispatch {
                | $(-)*          | $(-)*         | $(-)*             |
             $( | $topic_in:ty   | $tp_flavor:tt | $tp_handler:ident | )*
         };
+        topics_out: {
+            list: $topic_out_list:ident;
+        };
     ) => {
 
         // Here, we calculate how many bytes (1, 2, 4, or 8) are required to uniquely
@@ -244,17 +194,17 @@ macro_rules! define_dispatch {
             use super::*;
             use $crate::Key;
 
-            const KEY_SLI: &[Key] = &[
+            // TODO: Warn/error if the list doesn't match the defined handlers?
+
+            const KEY_SLI_IN: &[Key] = &[
                 $(<$endpoint as $crate::Endpoint>::REQ_KEY,)*
                 $(<$topic_in as $crate::Topic>::TOPIC_KEY,)*
-                // TODO: include out keys!
             ];
-            const KEYS: [Key; KEY_SLI.len()] = [
+            const KEYS_IN: [Key; KEY_SLI_IN.len()] = [
                 $(<$endpoint as $crate::Endpoint>::REQ_KEY,)*
                 $(<$topic_in as $crate::Topic>::TOPIC_KEY,)*
-                // TODO: include out keys!
             ];
-            pub const NEEDED_SZ: usize = $crate::server::min_key_needed(&KEYS);
+            pub const NEEDED_SZ_IN: usize = $crate::server::min_key_needed(&[&KEYS_IN]);
         }
 
 
@@ -317,7 +267,7 @@ macro_rules! define_dispatch {
         // This is overly complicated because I'm mixing const-time capabilities with
         // macro-time capabilities. I'm very open to other suggestions that achieve the
         // same outcome.
-        pub type $app_name = impls::$app_name<{ sizer::NEEDED_SZ }>;
+        pub type $app_name = impls::$app_name<{ sizer::NEEDED_SZ_IN }>;
 
         mod impls {
             use super::*;

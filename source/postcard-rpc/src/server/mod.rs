@@ -253,122 +253,247 @@ pub trait SpawnContext {
     fn spawn_ctxt(&mut self) -> Self::SpawnCtxt;
 }
 
-pub const fn min_key_needed<const N: usize>(keys: &[Key; N]) -> usize {
-    // Can we do it in one?
-    {
-        let mut keys1 = [0u8; N];
-        let mut i = 0;
 
-        while i < keys.len() {
-            let [a, b, c, d, e, f, g, h] = keys[i].0;
-            keys1[i] = a ^ b ^ c ^ d ^ e ^ f ^ g ^ h;
-            i += 1;
-        }
+macro_rules! keycheck {
+    (
+        $lists:ident;
+        $($num:literal => $func:ident;)*
+    ) => {
+        $(
+            {
+                let mut i = 0;
+                let mut good = true;
+                'dupe: while i < $lists.len() {
+                    let ilist = $lists[i];
+                    let mut j = 0;
+                    while j < ilist.len() {
+                        let jkey = ilist[j];
+                        let akey = $func(jkey);
 
-        let mut good = true;
-        i = 0;
+                        let mut x = i;
+                        while x < $lists.len() {
+                            let xlist = $lists[x];
+                            let mut y = if x == i {
+                                j + 1
+                            } else {
+                                0
+                            };
 
-        while i < keys.len() {
-            let mut j = i + 1;
-            while good && j < keys.len() {
-                good &= keys1[i] != keys1[j];
-                j += 1;
+                            while y < xlist.len() {
+                                let ykey = xlist[y];
+                                let bkey = $func(ykey);
+
+                                if akey == bkey {
+                                    good = false;
+                                    break 'dupe;
+                                }
+                                y += 1;
+                            }
+                            x += 1;
+                        }
+                        j += 1;
+                    }
+                    i += 1;
+                }
+                if good {
+                    return $num;
+                }
             }
+        )*
+    };
+}
 
-            i += 1;
-        }
-
-        if good {
-            return 1;
-        }
+pub const fn min_key_needed(lists: &[&[Key]]) -> usize {
+    const fn one(key: Key) -> u8 {
+        crate::Key1::from_key8(key).0
     }
-
-    // How about two?
-    {
-        let mut keys2 = [0u16; N];
-        let mut i = 0;
-
-        while i < keys.len() {
-            let [a, b, c, d, e, f, g, h] = keys[i].0;
-            keys2[i] = u16::from_le_bytes([a ^ b ^ c ^ d, e ^ f ^ g ^ h]);
-            i += 1;
-        }
-
-        let mut good = true;
-        i = 0;
-
-        while i < keys.len() {
-            let mut j = i + 1;
-            while good && j < keys.len() {
-                good &= keys2[i] != keys2[j];
-                j += 1;
-            }
-
-            i += 1;
-        }
-
-        if good {
-            return 2;
-        }
+    const fn two(key: Key) -> u16 {
+        u16::from_le_bytes(crate::Key2::from_key8(key).0)
     }
-
-    // How about four?
-    {
-        let mut keys4 = [0u32; N];
-        let mut i = 0;
-
-        while i < keys.len() {
-            let [a, b, c, d, e, f, g, h] = keys[i].0;
-            keys4[i] = u32::from_le_bytes([a ^ b, c ^ d, e ^ f, g ^ h]);
-            i += 1;
-        }
-
-        let mut good = true;
-        i = 0;
-
-        while i < keys.len() {
-            let mut j = i + 1;
-            while good && j < keys.len() {
-                good &= keys4[i] != keys4[j];
-                j += 1;
-            }
-
-            i += 1;
-        }
-
-        if good {
-            return 4;
-        }
+    const fn four(key: Key) -> u32 {
+        u32::from_le_bytes(crate::Key4::from_key8(key).0)
     }
-
-    // How about eight?
-    {
-        let mut keys8 = [0u64; N];
-        let mut i = 0;
-
-        while i < keys.len() {
-            let [a, b, c, d, e, f, g, h] = keys[i].0;
-            keys8[i] = u64::from_le_bytes([a, b, c, d, e, f, g, h]);
-            i += 1;
-        }
-
-        let mut good = true;
-        i = 0;
-
-        while i < keys.len() {
-            let mut j = i + 1;
-            while good && j < keys.len() {
-                good &= keys8[i] != keys8[j];
-                j += 1;
-            }
-
-            i += 1;
-        }
-
-        if good {
-            return 8;
-        }
+    const fn eight(key: Key) -> u64 {
+        u64::from_le_bytes(key.0)
     }
+    keycheck! {
+        lists;
+        1 => one;
+        2 => two;
+        4 => four;
+        8 => eight;
+    };
+    // // Can we do it in one?
+    // {
+    //     let mut i = 0;
+    //     let mut good = true;
+    //     'dupe1: while i < lists.len() {
+    //         let ilist = lists[i];
+    //         let mut j = 0;
+    //         while j < ilist.len() {
+    //             let jkey = ilist[j];
+    //             let [a, b, c, d, e, f, g, h] = jkey.0;
+    //             let akey = a ^ b ^ c ^ d ^ e ^ f ^ g ^ h;
+
+    //             let mut x = i;
+    //             while x < lists.len() {
+    //                 let xlist = lists[x];
+    //                 let mut y = if x == i {
+    //                     j + 1
+    //                 } else {
+    //                     0
+    //                 };
+
+    //                 while y < xlist.len() {
+    //                     let ykey = xlist[y];
+    //                     let [a, b, c, d, e, f, g, h] = ykey.0;
+    //                     let bkey = a ^ b ^ c ^ d ^ e ^ f ^ g ^ h;
+
+    //                     if akey == bkey {
+    //                         good = false;
+    //                         break 'dupe1;
+    //                     }
+    //                     y += 1;
+    //                 }
+    //                 x += 1;
+    //             }
+    //             j += 1;
+    //         }
+    //         i += 1;
+    //     }
+    //     if good {
+    //         return 1;
+    //     }
+    // }
+
+    // // How about two?
+    // {
+    //     let mut i = 0;
+    //     let mut good = true;
+    //     'dupe2: while i < lists.len() {
+    //         let ilist = lists[i];
+    //         let mut j = 0;
+    //         while j < ilist.len() {
+    //             let jkey = ilist[j];
+    //             let [a, b, c, d, e, f, g, h] = jkey.0;
+    //             let akey = u16::from_le_bytes([a ^ b ^ c ^ d, e ^ f ^ g ^ h]);
+
+    //             let mut x = i;
+    //             while x < lists.len() {
+    //                 let xlist = lists[x];
+    //                 let mut y = if x == i {
+    //                     j + 1
+    //                 } else {
+    //                     0
+    //                 };
+
+    //                 while y < xlist.len() {
+    //                     let ykey = xlist[y];
+    //                     let [a, b, c, d, e, f, g, h] = ykey.0;
+    //                     let bkey = u16::from_le_bytes([a ^ b ^ c ^ d, e ^ f ^ g ^ h]);
+
+    //                     if akey == bkey {
+    //                         good = false;
+    //                         break 'dupe2;
+    //                     }
+    //                     y += 1;
+    //                 }
+    //                 x += 1;
+    //             }
+    //             j += 1;
+    //         }
+    //         i += 1;
+    //     }
+    //     if good {
+    //         return 2;
+    //     }
+    // }
+
+    // // How about four?
+    // {
+    //     let mut i = 0;
+    //     let mut good = true;
+    //     'dupe4: while i < lists.len() {
+    //         let ilist = lists[i];
+    //         let mut j = 0;
+    //         while j < ilist.len() {
+    //             let jkey = ilist[j];
+    //             let [a, b, c, d, e, f, g, h] = jkey.0;
+    //             let akey = u32::from_le_bytes([a ^ b, c ^ d, e ^ f, g ^ h]);
+
+    //             let mut x = i;
+    //             while x < lists.len() {
+    //                 let xlist = lists[x];
+    //                 let mut y = if x == i {
+    //                     j + 1
+    //                 } else {
+    //                     0
+    //                 };
+
+    //                 while y < xlist.len() {
+    //                     let ykey = xlist[y];
+    //                     let [a, b, c, d, e, f, g, h] = ykey.0;
+    //                     let bkey = u32::from_le_bytes([a ^ b, c ^ d, e ^ f, g ^ h]);
+
+    //                     if akey == bkey {
+    //                         good = false;
+    //                         break 'dupe4;
+    //                     }
+    //                     y += 1;
+    //                 }
+    //                 x += 1;
+    //             }
+    //             j += 1;
+    //         }
+    //         i += 1;
+    //     }
+    //     if good {
+    //         return 4;
+    //     }
+    // }
+
+    // // How about eight?
+    // {
+    //     let mut i = 0;
+    //     let mut good = true;
+    //     'dupe8: while i < lists.len() {
+    //         let ilist = lists[i];
+    //         let mut j = 0;
+    //         while j < ilist.len() {
+    //             let jkey = ilist[j];
+    //             let [a, b, c, d, e, f, g, h] = jkey.0;
+    //             let akey = u64::from_le_bytes([a, b, c, d, e, f, g, h]);
+
+    //             let mut x = i;
+    //             while x < lists.len() {
+    //                 let xlist = lists[x];
+    //                 let mut y = if x == i {
+    //                     j + 1
+    //                 } else {
+    //                     0
+    //                 };
+
+    //                 while y < xlist.len() {
+    //                     let ykey = xlist[y];
+    //                     let [a, b, c, d, e, f, g, h] = ykey.0;
+    //                     let bkey = u64::from_le_bytes([a, b, c, d, e, f, g, h]);
+
+    //                     if akey == bkey {
+    //                         good = false;
+    //                         break 'dupe8;
+    //                     }
+    //                     y += 1;
+    //                 }
+    //                 x += 1;
+    //             }
+    //             j += 1;
+    //         }
+    //         i += 1;
+    //     }
+    //     if good {
+    //         return 8;
+    //     }
+    // }
 
     panic!("Collision requiring more than 8 bytes!");
 }
@@ -379,37 +504,58 @@ mod test {
 
     #[test]
     fn min_test_1() {
-        const MIN: usize = min_key_needed(&[
+        const MINA: usize = min_key_needed(&[&[
             unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) },
             unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]) },
+        ]]);
+        assert_eq!(1, MINA);
+
+        const MINB: usize = min_key_needed(&[
+            &[unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) }],
+            &[unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]) }],
         ]);
-        assert_eq!(1, MIN);
+        assert_eq!(1, MINB);
     }
 
     #[test]
     fn min_test_2() {
-        const MIN: usize = min_key_needed(&[
+        const MINA: usize = min_key_needed(&[&[
             unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) },
             unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01]) },
+        ]]);
+        assert_eq!(2, MINA);
+        const MINB: usize = min_key_needed(&[
+            &[unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) }],
+            &[unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01]) }],
         ]);
-        assert_eq!(2, MIN);
+        assert_eq!(2, MINB);
     }
 
     #[test]
     fn min_test_4() {
-        const MIN: usize = min_key_needed(&[
+        const MINA: usize = min_key_needed(&[&[
             unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) },
             unsafe { Key::from_bytes([0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01]) },
+        ]]);
+        assert_eq!(4, MINA);
+        const MINB: usize = min_key_needed(&[
+            &[unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) }],
+            &[unsafe { Key::from_bytes([0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01]) }],
         ]);
-        assert_eq!(4, MIN);
+        assert_eq!(4, MINB);
     }
 
     #[test]
     fn min_test_8() {
-        const MIN: usize = min_key_needed(&[
+        const MINA: usize = min_key_needed(&[&[
             unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) },
             unsafe { Key::from_bytes([0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]) },
+        ]]);
+        assert_eq!(8, MINA);
+        const MINB: usize = min_key_needed(&[
+            &[unsafe { Key::from_bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) }],
+            &[unsafe { Key::from_bytes([0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]) }],
         ]);
-        assert_eq!(8, MIN);
+        assert_eq!(8, MINB);
     }
 }

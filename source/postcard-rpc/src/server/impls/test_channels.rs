@@ -231,6 +231,12 @@ mod test {
         | ZetaTopic3        | ZMsg          | "zeta3"           |
     }
 
+    topics! {
+        list = TOPICS_OUT_LIST;
+        | TopicTy           | MessageTy     | Path              |
+        | ----------        | ---------     | ----              |
+    }
+
     pub struct TestContext {
         pub ctr: Arc<AtomicUsize>,
         pub topic_ctr: Arc<AtomicUsize>,
@@ -280,6 +286,9 @@ mod test {
             | ZetaTopic1        | blocking  | test_zeta_blocking    |
             | ZetaTopic2        | async     | test_zeta_async       |
             | ZetaTopic3        | spawn     | test_zeta_spawn       |
+        };
+        topics_out: {
+            list: TOPICS_OUT_LIST;
         };
     }
 

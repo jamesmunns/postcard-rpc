@@ -383,6 +383,13 @@ pub mod fake {
         | ZetaTopic3        | ZMsg          | "zeta3"           |
     }
 
+    topics! {
+        list = TOPICS_OUT_LIST;
+        | TopicTy           | MessageTy     | Path              |
+        | ----------        | ---------     | ----              |
+        | ZetaTopic10       | ZMsg          | "zeta10"          |
+    }
+
     pub struct FakeMutex;
     pub struct FakeDriver;
     pub struct FakeEpOut;
@@ -588,6 +595,9 @@ pub mod fake {
             // | ZetaTopic1        | blocking  | test_zeta_blocking    |
             // | ZetaTopic2        | async     | test_zeta_async       |
             // | ZetaTopic3        | spawn     | test_zeta_spawn       |
+        };
+        topics_out: {
+            list: TOPICS_OUT_LIST;
         };
     }
 

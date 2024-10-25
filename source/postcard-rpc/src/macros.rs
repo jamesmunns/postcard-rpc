@@ -66,7 +66,7 @@ macro_rules! endpoints {
             }
         )*
 
-        pub static $list_name: $crate::EndpointMap = $crate::EndpointMap {
+        pub const $list_name: $crate::EndpointMap = $crate::EndpointMap {
             types: &[
                 $(
                     <$ep_name as $crate::Endpoint>::Request::SCHEMA,
