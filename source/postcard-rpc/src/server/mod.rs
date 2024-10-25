@@ -253,7 +253,7 @@ pub trait SpawnContext {
     fn spawn_ctxt(&mut self) -> Self::SpawnCtxt;
 }
 
-
+// Hilarious quadruply nested loop. Hope our lists are relatively small!
 macro_rules! keycheck {
     (
         $lists:ident;
@@ -263,15 +263,26 @@ macro_rules! keycheck {
             {
                 let mut i = 0;
                 let mut good = true;
+                // For each list...
                 'dupe: while i < $lists.len() {
                     let ilist = $lists[i];
                     let mut j = 0;
+                    // And for each key in the list
                     while j < ilist.len() {
                         let jkey = ilist[j];
                         let akey = $func(jkey);
 
+                        //
+                        // We now start checking against items later in the lists...
+                        //
+
+                        // For each list (starting with the one we are on)
                         let mut x = i;
                         while x < $lists.len() {
+                            // For each item...
+                            //
+                            // Note that for the STARTING list we continue where we started,
+                            // but on subsequent lists start from the beginning
                             let xlist = $lists[x];
                             let mut y = if x == i {
                                 j + 1
@@ -316,6 +327,7 @@ pub const fn min_key_needed(lists: &[&[Key]]) -> usize {
     const fn eight(key: Key) -> u64 {
         u64::from_le_bytes(key.0)
     }
+
     keycheck! {
         lists;
         1 => one;
@@ -323,177 +335,6 @@ pub const fn min_key_needed(lists: &[&[Key]]) -> usize {
         4 => four;
         8 => eight;
     };
-    // // Can we do it in one?
-    // {
-    //     let mut i = 0;
-    //     let mut good = true;
-    //     'dupe1: while i < lists.len() {
-    //         let ilist = lists[i];
-    //         let mut j = 0;
-    //         while j < ilist.len() {
-    //             let jkey = ilist[j];
-    //             let [a, b, c, d, e, f, g, h] = jkey.0;
-    //             let akey = a ^ b ^ c ^ d ^ e ^ f ^ g ^ h;
-
-    //             let mut x = i;
-    //             while x < lists.len() {
-    //                 let xlist = lists[x];
-    //                 let mut y = if x == i {
-    //                     j + 1
-    //                 } else {
-    //                     0
-    //                 };
-
-    //                 while y < xlist.len() {
-    //                     let ykey = xlist[y];
-    //                     let [a, b, c, d, e, f, g, h] = ykey.0;
-    //                     let bkey = a ^ b ^ c ^ d ^ e ^ f ^ g ^ h;
-
-    //                     if akey == bkey {
-    //                         good = false;
-    //                         break 'dupe1;
-    //                     }
-    //                     y += 1;
-    //                 }
-    //                 x += 1;
-    //             }
-    //             j += 1;
-    //         }
-    //         i += 1;
-    //     }
-    //     if good {
-    //         return 1;
-    //     }
-    // }
-
-    // // How about two?
-    // {
-    //     let mut i = 0;
-    //     let mut good = true;
-    //     'dupe2: while i < lists.len() {
-    //         let ilist = lists[i];
-    //         let mut j = 0;
-    //         while j < ilist.len() {
-    //             let jkey = ilist[j];
-    //             let [a, b, c, d, e, f, g, h] = jkey.0;
-    //             let akey = u16::from_le_bytes([a ^ b ^ c ^ d, e ^ f ^ g ^ h]);
-
-    //             let mut x = i;
-    //             while x < lists.len() {
-    //                 let xlist = lists[x];
-    //                 let mut y = if x == i {
-    //                     j + 1
-    //                 } else {
-    //                     0
-    //                 };
-
-    //                 while y < xlist.len() {
-    //                     let ykey = xlist[y];
-    //                     let [a, b, c, d, e, f, g, h] = ykey.0;
-    //                     let bkey = u16::from_le_bytes([a ^ b ^ c ^ d, e ^ f ^ g ^ h]);
-
-    //                     if akey == bkey {
-    //                         good = false;
-    //                         break 'dupe2;
-    //                     }
-    //                     y += 1;
-    //                 }
-    //                 x += 1;
-    //             }
-    //             j += 1;
-    //         }
-    //         i += 1;
-    //     }
-    //     if good {
-    //         return 2;
-    //     }
-    // }
-
-    // // How about four?
-    // {
-    //     let mut i = 0;
-    //     let mut good = true;
-    //     'dupe4: while i < lists.len() {
-    //         let ilist = lists[i];
-    //         let mut j = 0;
-    //         while j < ilist.len() {
-    //             let jkey = ilist[j];
-    //             let [a, b, c, d, e, f, g, h] = jkey.0;
-    //             let akey = u32::from_le_bytes([a ^ b, c ^ d, e ^ f, g ^ h]);
-
-    //             let mut x = i;
-    //             while x < lists.len() {
-    //                 let xlist = lists[x];
-    //                 let mut y = if x == i {
-    //                     j + 1
-    //                 } else {
-    //                     0
-    //                 };
-
-    //                 while y < xlist.len() {
-    //                     let ykey = xlist[y];
-    //                     let [a, b, c, d, e, f, g, h] = ykey.0;
-    //                     let bkey = u32::from_le_bytes([a ^ b, c ^ d, e ^ f, g ^ h]);
-
-    //                     if akey == bkey {
-    //                         good = false;
-    //                         break 'dupe4;
-    //                     }
-    //                     y += 1;
-    //                 }
-    //                 x += 1;
-    //             }
-    //             j += 1;
-    //         }
-    //         i += 1;
-    //     }
-    //     if good {
-    //         return 4;
-    //     }
-    // }
-
-    // // How about eight?
-    // {
-    //     let mut i = 0;
-    //     let mut good = true;
-    //     'dupe8: while i < lists.len() {
-    //         let ilist = lists[i];
-    //         let mut j = 0;
-    //         while j < ilist.len() {
-    //             let jkey = ilist[j];
-    //             let [a, b, c, d, e, f, g, h] = jkey.0;
-    //             let akey = u64::from_le_bytes([a, b, c, d, e, f, g, h]);
-
-    //             let mut x = i;
-    //             while x < lists.len() {
-    //                 let xlist = lists[x];
-    //                 let mut y = if x == i {
-    //                     j + 1
-    //                 } else {
-    //                     0
-    //                 };
-
-    //                 while y < xlist.len() {
-    //                     let ykey = xlist[y];
-    //                     let [a, b, c, d, e, f, g, h] = ykey.0;
-    //                     let bkey = u64::from_le_bytes([a, b, c, d, e, f, g, h]);
-
-    //                     if akey == bkey {
-    //                         good = false;
-    //                         break 'dupe8;
-    //                     }
-    //                     y += 1;
-    //                 }
-    //                 x += 1;
-    //             }
-    //             j += 1;
-    //         }
-    //         i += 1;
-    //     }
-    //     if good {
-    //         return 8;
-    //     }
-    // }
 
     panic!("Collision requiring more than 8 bytes!");
 }
