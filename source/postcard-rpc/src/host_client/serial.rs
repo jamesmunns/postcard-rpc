@@ -9,6 +9,7 @@ use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use crate::{
     accumulator::raw::{CobsAccumulator, FeedResult},
     host_client::{HostClient, WireRx, WireSpawn, WireTx},
+    header::VarSeqKind,
 };
 
 /// # Serial Constructor Methods
@@ -31,6 +32,7 @@ where
     ///
     /// ```rust,no_run
     /// use postcard_rpc::host_client::HostClient;
+    /// use postcard_rpc::header::VarSeqKind;
     /// use serde::{Serialize, Deserialize};
     /// use postcard_schema::Schema;
     ///
@@ -51,6 +53,8 @@ where
     ///     // Baud rate of serial (does not generally matter for
     ///     //  USB UART/CDC-ACM serial connections)
     ///     115_200,
+    ///     // Use one-byte sequence numbers
+    ///     VarSeqKind::Seq1,
     /// );
     /// ```
     pub fn try_new_serial_cobs(
@@ -58,6 +62,7 @@ where
         err_uri_path: &str,
         outgoing_depth: usize,
         baud: u32,
+        seq_no_kind: VarSeqKind,
     ) -> Result<Self, String> {
         let port = tokio_serial::new(serial_path, baud)
             .open_native_async()
@@ -74,6 +79,7 @@ where
                 pending: VecDeque::new(),
             },
             SerialSpawn,
+            seq_no_kind,
             err_uri_path,
             outgoing_depth,
         ))
@@ -89,8 +95,9 @@ where
         err_uri_path: &str,
         outgoing_depth: usize,
         baud: u32,
+        seq_no_kind: VarSeqKind,
     ) -> Self {
-        Self::try_new_serial_cobs(serial_path, err_uri_path, outgoing_depth, baud).unwrap()
+        Self::try_new_serial_cobs(serial_path, err_uri_path, outgoing_depth, baud, seq_no_kind).unwrap()
     }
 }
 

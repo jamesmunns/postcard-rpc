@@ -1,305 +1,449 @@
-use std::{collections::HashMap, time::Duration};
-
-use postcard_schema::Schema;
-use postcard_rpc::test_utils::local_setup;
-use postcard_rpc::{
-    endpoint, headered::to_stdvec_keyed, topic, Dispatch, Endpoint, Key, Topic, WireHeader,
+use core::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
 };
+use std::{sync::Arc, time::Instant};
+
+use postcard_schema::{schema::owned::OwnedNamedType, Schema};
 use serde::{Deserialize, Serialize};
-use tokio::task::yield_now;
-use tokio::time::timeout;
+use tokio::{sync::mpsc, task::yield_now};
 
-endpoint!(EndpointOne, Req1, Resp1, "endpoint/one");
-topic!(TopicOne, Req1, "unsolicited/topic1");
+use postcard_rpc::{
+    define_dispatch, endpoints,
+    header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind},
+    host_client::test_channels as client,
+    server::{
+        impls::test_channels::{
+            dispatch_impl::{new_server, spawn_fn, Settings, WireSpawnImpl, WireTxImpl},
+            ChannelWireRx, ChannelWireSpawn, ChannelWireTx,
+        },
+        Dispatch, Sender, SpawnContext,
+    },
+    topics, Endpoint, Topic,
+};
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Schema)]
-pub struct Req1 {
-    a: u8,
-    b: u64,
+#[derive(Serialize, Deserialize, Schema)]
+pub struct AReq(pub u8);
+#[derive(Serialize, Deserialize, Schema)]
+pub struct AResp(pub u8);
+#[derive(Serialize, Deserialize, Schema)]
+pub struct BReq(pub u16);
+#[derive(Serialize, Deserialize, Schema)]
+pub struct BResp(pub u32);
+#[derive(Serialize, Deserialize, Schema)]
+pub struct GReq;
+#[derive(Serialize, Deserialize, Schema)]
+pub struct GResp;
+#[derive(Serialize, Deserialize, Schema)]
+pub struct DReq;
+#[derive(Serialize, Deserialize, Schema)]
+pub struct DResp;
+#[derive(Serialize, Deserialize, Schema)]
+pub struct EReq;
+#[derive(Serialize, Deserialize, Schema)]
+pub struct EResp;
+#[derive(Serialize, Deserialize, Schema)]
+pub struct ZMsg(pub i16);
+
+endpoints! {
+    list = ENDPOINT_LIST;
+    | EndpointTy        | RequestTy     | ResponseTy    | Path              |
+    | ----------        | ---------     | ----------    | ----              |
+    | AlphaEndpoint     | AReq          | AResp         | "alpha"           |
+    | BetaEndpoint      | BReq          | BResp         | "beta"            |
+    | GammaEndpoint     | GReq          | GResp         | "gamma"           |
+    | DeltaEndpoint     | DReq          | DResp         | "delta"           |
+    | EpsilonEndpoint   | EReq          | EResp         | "epsilon"         |
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Schema)]
-pub struct Resp1 {
-    c: [u8; 8],
-    d: i32,
+topics! {
+    list = TOPICS_IN_LIST;
+    | TopicTy           | MessageTy     | Path              |
+    | ----------        | ---------     | ----              |
+    | ZetaTopic1        | ZMsg          | "zeta1"           |
+    | ZetaTopic2        | ZMsg          | "zeta2"           |
+    | ZetaTopic3        | ZMsg          | "zeta3"           |
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Schema)]
-pub enum WireError {
-    LeastBad,
-    MediumBad,
-    MostBad,
+topics! {
+    list = TOPICS_OUT_LIST;
+    | TopicTy           | MessageTy     | Path              |
+    | ----------        | ---------     | ----              |
+    | ZetaTopic10       | ZMsg          | "zeta10"          |
 }
 
-struct SmokeContext {
-    got: HashMap<Key, (WireHeader, Vec<u8>)>,
-    next_err: bool,
+pub struct TestContext {
+    pub ctr: Arc<AtomicUsize>,
+    pub topic_ctr: Arc<AtomicUsize>,
 }
 
-fn store_disp(hdr: &WireHeader, ctx: &mut SmokeContext, body: &[u8]) -> Result<(), WireError> {
-    if ctx.next_err {
-        ctx.next_err = false;
-        return Err(WireError::MediumBad);
+pub struct TestSpawnContext {
+    pub ctr: Arc<AtomicUsize>,
+    pub topic_ctr: Arc<AtomicUsize>,
+}
+
+impl SpawnContext for TestContext {
+    type SpawnCtxt = TestSpawnContext;
+
+    fn spawn_ctxt(&mut self) -> Self::SpawnCtxt {
+        TestSpawnContext {
+            ctr: self.ctr.clone(),
+            topic_ctr: self.topic_ctr.clone(),
+        }
     }
-    ctx.got.insert(hdr.key, (hdr.clone(), body.to_vec()));
-    Ok(())
 }
 
-impl SmokeDispatch {
-    pub fn new() -> Self {
-        let ctx = SmokeContext {
-            got: HashMap::new(),
-            next_err: false,
-        };
-        let disp = Dispatch::new(ctx);
-        Self { disp }
-    }
+define_dispatch! {
+    app: SingleDispatcher;
+    spawn_fn: spawn_fn;
+    tx_impl: WireTxImpl;
+    spawn_impl: WireSpawnImpl;
+    context: TestContext;
+
+    endpoints: {
+        list: ENDPOINT_LIST;
+
+        | EndpointTy        | kind      | handler               |
+        | ----------        | ----      | -------               |
+        | AlphaEndpoint     | async     | test_alpha_handler    |
+        | BetaEndpoint      | spawn     | test_beta_handler     |
+    };
+    topics_in: {
+        list: TOPICS_IN_LIST;
+
+        | TopicTy           | kind      | handler               |
+        | ----------        | ----      | -------               |
+        | ZetaTopic1        | blocking  | test_zeta_blocking    |
+        | ZetaTopic2        | async     | test_zeta_async       |
+        | ZetaTopic3        | spawn     | test_zeta_spawn       |
+    };
+    topics_out: {
+        list: TOPICS_OUT_LIST;
+    };
 }
 
-struct SmokeDispatch {
-    disp: Dispatch<SmokeContext, WireError, 8>,
+fn test_zeta_blocking(
+    context: &mut TestContext,
+    _header: VarHeader,
+    _body: ZMsg,
+    _out: &Sender<ChannelWireTx>,
+) {
+    context.topic_ctr.fetch_add(1, Ordering::Relaxed);
+}
+
+async fn test_zeta_async(
+    context: &mut TestContext,
+    _header: VarHeader,
+    _body: ZMsg,
+    _out: &Sender<ChannelWireTx>,
+) {
+    context.topic_ctr.fetch_add(1, Ordering::Relaxed);
+}
+
+async fn test_zeta_spawn(
+    context: TestSpawnContext,
+    _header: VarHeader,
+    _body: ZMsg,
+    _out: Sender<ChannelWireTx>,
+) {
+    context.topic_ctr.fetch_add(1, Ordering::Relaxed);
+}
+
+async fn test_alpha_handler(context: &mut TestContext, _header: VarHeader, body: AReq) -> AResp {
+    context.ctr.fetch_add(1, Ordering::Relaxed);
+    AResp(body.0)
+}
+
+async fn test_beta_handler(
+    context: TestSpawnContext,
+    header: VarHeader,
+    body: BReq,
+    out: Sender<ChannelWireTx>,
+) {
+    context.ctr.fetch_add(1, Ordering::Relaxed);
+    let _ = out
+        .reply::<BetaEndpoint>(header.seq_no, &BResp(body.0.into()))
+        .await;
 }
 
 #[tokio::test]
-async fn smoke_reqresp() {
-    let (mut srv, client) = local_setup::<WireError>(8, "error");
+async fn smoke() {
+    let (client_tx, server_rx) = mpsc::channel(16);
+    let (server_tx, mut client_rx) = mpsc::channel(16);
+    let topic_ctr = Arc::new(AtomicUsize::new(0));
 
-    // Create the Dispatch Server
-    let mut disp = SmokeDispatch::new();
-    disp.disp.add_handler::<EndpointOne>(store_disp).unwrap();
+    let app = SingleDispatcher::new(
+        TestContext {
+            ctr: Arc::new(AtomicUsize::new(0)),
+            topic_ctr: topic_ctr.clone(),
+        },
+        ChannelWireSpawn {},
+    );
 
-    // Start the request
-    let send1 = tokio::spawn({
-        let client = client.clone();
-        async move {
-            client
-                .send_resp::<EndpointOne>(&Req1 { a: 10, b: 100 })
-                .await
-        }
+    let cwrx = ChannelWireRx::new(server_rx);
+    let cwtx = ChannelWireTx::new(server_tx);
+    let kkind = app.min_key_len();
+    let mut server = new_server(
+        app,
+        Settings {
+            tx: cwtx,
+            rx: cwrx,
+            buf: 1024,
+            kkind,
+        },
+    );
+    tokio::task::spawn(async move {
+        server.run().await;
     });
 
-    // As the wire, get the outgoing request
-    let out1 = srv.recv_from_client().await.unwrap();
+    // manually build request - Alpha
+    let mut msg = VarHeader {
+        key: VarKey::Key8(AlphaEndpoint::REQ_KEY),
+        seq_no: VarSeq::Seq4(123),
+    }
+    .write_to_vec();
+    let body = postcard::to_stdvec(&AReq(42)).unwrap();
+    msg.extend_from_slice(&body);
+    client_tx.send(msg).await.unwrap();
+    let resp = client_rx.recv().await.unwrap();
 
-    // Does the outgoing value match what we expect?
-    let exp_out = to_stdvec_keyed(0, EndpointOne::REQ_KEY, &Req1 { a: 10, b: 100 }).unwrap();
-    let act_out = out1.to_bytes();
-    assert_eq!(act_out, exp_out);
+    // manually extract response
+    let (hdr, body) = VarHeader::take_from_slice(&resp).unwrap();
+    let resp = postcard::from_bytes::<<AlphaEndpoint as Endpoint>::Response>(body).unwrap();
+    assert_eq!(resp.0, 42);
+    assert_eq!(hdr.key, VarKey::Key8(AlphaEndpoint::RESP_KEY));
+    assert_eq!(hdr.seq_no, VarSeq::Seq4(123));
 
-    // The request is still awaiting a response
-    assert!(!send1.is_finished());
+    // manually build request - Beta
+    let mut msg = VarHeader {
+        key: VarKey::Key8(BetaEndpoint::REQ_KEY),
+        seq_no: VarSeq::Seq4(234),
+    }
+    .write_to_vec();
+    let body = postcard::to_stdvec(&BReq(1000)).unwrap();
+    msg.extend_from_slice(&body);
+    client_tx.send(msg).await.unwrap();
+    let resp = client_rx.recv().await.unwrap();
 
-    // Feed the request through the dispatcher
-    disp.disp.dispatch(&act_out).unwrap();
+    // manually extract response
+    let (hdr, body) = VarHeader::take_from_slice(&resp).unwrap();
+    let resp = postcard::from_bytes::<<BetaEndpoint as Endpoint>::Response>(body).unwrap();
+    assert_eq!(resp.0, 1000);
+    assert_eq!(hdr.key, VarKey::Key8(BetaEndpoint::RESP_KEY));
+    assert_eq!(hdr.seq_no, VarSeq::Seq4(234));
 
-    // Make sure we "dispatched" it right
-    let disp_got = disp.disp.context().got.remove(&out1.header.key).unwrap();
-    assert_eq!(disp_got.0, out1.header);
-    assert!(act_out.ends_with(&disp_got.1));
+    // blocking topic handler
+    for i in 0..3 {
+        let mut msg = VarHeader {
+            key: VarKey::Key8(ZetaTopic1::TOPIC_KEY),
+            seq_no: VarSeq::Seq4(i),
+        }
+        .write_to_vec();
 
-    // The request is still awaiting a response
-    assert!(!send1.is_finished());
+        let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
+        msg.extend_from_slice(&body);
+        client_tx.send(msg).await.unwrap();
 
-    // Feed a simulated response "from the wire" back to the
-    // awaiting request
-    const RESP_001: Resp1 = Resp1 {
-        c: [1, 2, 3, 4, 5, 6, 7, 8],
-        d: -10,
-    };
-    srv.reply::<EndpointOne>(out1.header.seq_no, &RESP_001)
-        .await
-        .unwrap();
-
-    // Now wait for the request to complete
-    let end = send1.await.unwrap().unwrap();
-
-    // We got the simulated value back
-    assert_eq!(end, RESP_001);
-}
-
-#[tokio::test]
-async fn smoke_publish() {
-    let (mut srv, client) = local_setup::<WireError>(8, "error");
-
-    // Start the request
-    client
-        .publish::<TopicOne>(123, &Req1 { a: 10, b: 100 })
-        .await
-        .unwrap();
-
-    // As the wire, get the outgoing request
-    let out1 = srv.recv_from_client().await.unwrap();
-
-    // Does the outgoing value match what we expect?
-    let exp_out = to_stdvec_keyed(123, TopicOne::TOPIC_KEY, &Req1 { a: 10, b: 100 }).unwrap();
-    let act_out = out1.to_bytes();
-    assert_eq!(act_out, exp_out);
-}
-
-#[tokio::test]
-async fn smoke_subscribe() {
-    let (mut srv, client) = local_setup::<WireError>(8, "error");
-
-    // Do a subscription
-    let mut sub = client.subscribe::<TopicOne>(8).await.unwrap();
-
-    // Start the listen
-    let recv1 = timeout(Duration::from_millis(100), sub.recv());
-    let _ = recv1.await.unwrap_err();
-
-    // Send a message on the topic
-    const VAL: Req1 = Req1 { a: 10, b: 100 };
-    srv.publish::<TopicOne>(123, &VAL).await.unwrap();
-
-    // Now the request resolves
-    let publ = timeout(Duration::from_millis(100), sub.recv())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(publ, VAL);
-}
-
-#[tokio::test]
-async fn smoke_io_error() {
-    let (mut srv, client) = local_setup::<WireError>(8, "error");
-
-    // Do one round trip to make sure the connection works
-    {
-        let rr_rt = tokio::task::spawn({
-            let client = client.clone();
-            async move {
-                client
-                    .send_resp::<EndpointOne>(&Req1 { a: 10, b: 100 })
-                    .await
+        let start = Instant::now();
+        let mut good = false;
+        while start.elapsed() < Duration::from_millis(100) {
+            let ct = topic_ctr.load(Ordering::Relaxed);
+            if ct == (i + 1) as usize {
+                good = true;
+                break;
+            } else {
+                yield_now().await
             }
-        });
-
-        // As the wire, get the outgoing request
-        let out1 = srv.recv_from_client().await.unwrap();
-
-        // Does the outgoing value match what we expect?
-        let exp_out = to_stdvec_keyed(0, EndpointOne::REQ_KEY, &Req1 { a: 10, b: 100 }).unwrap();
-        let act_out = out1.to_bytes();
-        assert_eq!(act_out, exp_out);
-
-        // The request is still awaiting a response
-        assert!(!rr_rt.is_finished());
-
-        // Feed a simulated response "from the wire" back to the
-        // awaiting request
-        const RESP_001: Resp1 = Resp1 {
-            c: [1, 2, 3, 4, 5, 6, 7, 8],
-            d: -10,
-        };
-        srv.reply::<EndpointOne>(out1.header.seq_no, &RESP_001)
-            .await
-            .unwrap();
-
-        // Now wait for the request to complete
-        let end = rr_rt.await.unwrap().unwrap();
-
-        // We got the simulated value back
-        assert_eq!(end, RESP_001);
+        }
+        assert!(good);
     }
 
-    // Now, simulate an I/O error
-    srv.cause_fatal_error();
+    // async topic handler
+    for i in 0..3 {
+        let mut msg = VarHeader {
+            key: VarKey::Key8(ZetaTopic2::TOPIC_KEY),
+            seq_no: VarSeq::Seq4(i),
+        }
+        .write_to_vec();
+        let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
+        msg.extend_from_slice(&body);
+        client_tx.send(msg).await.unwrap();
 
-    // Give the clients some time to halt
-    yield_now().await;
-
-    // Our server channels should now be closed - the tasks hung up
-    assert!(srv.from_client.recv().await.is_none());
-    assert!(srv.to_client.send(Vec::new()).await.is_err());
-
-    // Try again, but nothing should work because all the worker tasks just halted
-    {
-        let rr_rt = tokio::task::spawn({
-            let client = client.clone();
-            async move {
-                client
-                    .send_resp::<EndpointOne>(&Req1 { a: 10, b: 100 })
-                    .await
+        let start = Instant::now();
+        let mut good = false;
+        while start.elapsed() < Duration::from_millis(100) {
+            let ct = topic_ctr.load(Ordering::Relaxed);
+            if ct == (i + 4) as usize {
+                good = true;
+                break;
+            } else {
+                yield_now().await
             }
-        });
+        }
+        assert!(good);
+    }
 
-        // As the wire, get the outgoing request - didn't happen
-        assert!(srv.recv_from_client().await.is_err());
+    // spawn topic handler
+    for i in 0..3 {
+        let mut msg = VarHeader {
+            key: VarKey::Key8(ZetaTopic3::TOPIC_KEY),
+            seq_no: VarSeq::Seq4(i),
+        }
+        .write_to_vec();
+        let body = postcard::to_stdvec(&ZMsg(456)).unwrap();
+        msg.extend_from_slice(&body);
+        client_tx.send(msg).await.unwrap();
 
-        // Now wait for the request to complete - it failed
-        rr_rt.await.unwrap().unwrap_err();
+        let start = Instant::now();
+        let mut good = false;
+        while start.elapsed() < Duration::from_millis(100) {
+            let ct = topic_ctr.load(Ordering::Relaxed);
+            if ct == (i + 7) as usize {
+                good = true;
+                break;
+            } else {
+                yield_now().await
+            }
+        }
+        assert!(good);
     }
 }
 
 #[tokio::test]
-async fn smoke_closed() {
-    let (mut srv, client) = local_setup::<WireError>(8, "error");
+async fn end_to_end() {
+    let (client_tx, server_rx) = mpsc::channel(16);
+    let (server_tx, client_rx) = mpsc::channel(16);
+    let topic_ctr = Arc::new(AtomicUsize::new(0));
 
-    // Do one round trip to make sure the connection works
-    {
-        let rr_rt = tokio::task::spawn({
-            let client = client.clone();
-            async move {
-                client
-                    .send_resp::<EndpointOne>(&Req1 { a: 10, b: 100 })
-                    .await
-            }
-        });
+    let app = SingleDispatcher::new(
+        TestContext {
+            ctr: Arc::new(AtomicUsize::new(0)),
+            topic_ctr: topic_ctr.clone(),
+        },
+        ChannelWireSpawn {},
+    );
 
-        // As the wire, get the outgoing request
-        let out1 = srv.recv_from_client().await.unwrap();
+    let cwrx = ChannelWireRx::new(server_rx);
+    let cwtx = ChannelWireTx::new(server_tx);
 
-        // Does the outgoing value match what we expect?
-        let exp_out = to_stdvec_keyed(0, EndpointOne::REQ_KEY, &Req1 { a: 10, b: 100 }).unwrap();
-        let act_out = out1.to_bytes();
-        assert_eq!(act_out, exp_out);
+    let kkind = app.min_key_len();
+    let mut server = new_server(
+        app,
+        Settings {
+            tx: cwtx,
+            rx: cwrx,
+            buf: 1024,
+            kkind,
+        },
+    );
+    tokio::task::spawn(async move {
+        server.run().await;
+    });
 
-        // The request is still awaiting a response
-        assert!(!rr_rt.is_finished());
+    let cli = client::new_from_channels(client_tx, client_rx, VarSeqKind::Seq1);
 
-        // Feed a simulated response "from the wire" back to the
-        // awaiting request
-        const RESP_001: Resp1 = Resp1 {
-            c: [1, 2, 3, 4, 5, 6, 7, 8],
-            d: -10,
-        };
-        srv.reply::<EndpointOne>(out1.header.seq_no, &RESP_001)
-            .await
-            .unwrap();
+    let resp = cli.send_resp::<AlphaEndpoint>(&AReq(42)).await.unwrap();
+    assert_eq!(resp.0, 42);
+    let resp = cli.send_resp::<BetaEndpoint>(&BReq(1234)).await.unwrap();
+    assert_eq!(resp.0, 1234);
+}
 
-        // Now wait for the request to complete
-        let end = rr_rt.await.unwrap().unwrap();
+#[tokio::test]
+async fn end_to_end_force8() {
+    let (client_tx, server_rx) = mpsc::channel(16);
+    let (server_tx, client_rx) = mpsc::channel(16);
+    let topic_ctr = Arc::new(AtomicUsize::new(0));
 
-        // We got the simulated value back
-        assert_eq!(end, RESP_001);
+    let app = SingleDispatcher::new(
+        TestContext {
+            ctr: Arc::new(AtomicUsize::new(0)),
+            topic_ctr: topic_ctr.clone(),
+        },
+        ChannelWireSpawn {},
+    );
+
+    let cwrx = ChannelWireRx::new(server_rx);
+    let cwtx = ChannelWireTx::new(server_tx);
+
+    let kkind = VarKeyKind::Key8;
+    let mut server = new_server(
+        app,
+        Settings {
+            tx: cwtx,
+            rx: cwrx,
+            buf: 1024,
+            kkind,
+        },
+    );
+    tokio::task::spawn(async move {
+        server.run().await;
+    });
+
+    let cli = client::new_from_channels(client_tx, client_rx, VarSeqKind::Seq4);
+
+    let resp = cli.send_resp::<AlphaEndpoint>(&AReq(42)).await.unwrap();
+    assert_eq!(resp.0, 42);
+    let resp = cli.send_resp::<BetaEndpoint>(&BReq(1234)).await.unwrap();
+    assert_eq!(resp.0, 1234);
+}
+
+#[test]
+fn device_map() {
+    let topic_ctr = Arc::new(AtomicUsize::new(0));
+    let app = SingleDispatcher::new(
+        TestContext {
+            ctr: Arc::new(AtomicUsize::new(0)),
+            topic_ctr: topic_ctr.clone(),
+        },
+        ChannelWireSpawn {},
+    );
+
+    println!("# SingleDispatcher");
+    println!();
+
+    println!("## Types");
+    println!();
+    for ty in app.device_map.types {
+        let ty = OwnedNamedType::from(*ty);
+        println!("* {ty}");
     }
 
-    // Now, use the *client* to close the connection
-    client.close();
-
-    // Give the clients some time to halt
-    yield_now().await;
-
-    // Our server channels should now be closed - the tasks hung up
-    assert!(srv.from_client.recv().await.is_none());
-    assert!(srv.to_client.send(Vec::new()).await.is_err());
-
-    // Try again, but nothing should work because all the worker tasks just halted
-    {
-        let rr_rt = tokio::task::spawn({
-            let client = client.clone();
-            async move {
-                client
-                    .send_resp::<EndpointOne>(&Req1 { a: 10, b: 100 })
-                    .await
-            }
-        });
-
-        // As the wire, get the outgoing request - didn't happen
-        assert!(srv.recv_from_client().await.is_err());
-
-        // Now wait for the request to complete - it failed
-        rr_rt.await.unwrap().unwrap_err();
+    println!();
+    println!("## Endpoints");
+    println!();
+    for ep in app.device_map.endpoints {
+        println!(
+            "* {} ({:016X} -> {:016X})",
+            ep.0,
+            u64::from_le_bytes(ep.1.to_bytes()),
+            u64::from_le_bytes(ep.2.to_bytes()),
+        );
     }
+
+    println!();
+    println!("## Topics (In)");
+    println!();
+    for tp in app.device_map.topics_in {
+        println!(
+            "* {} <- ({:016X})",
+            tp.0,
+            u64::from_le_bytes(tp.1.to_bytes()),
+        );
+    }
+
+    println!();
+    println!("## Topics (Out)");
+    println!();
+    for tp in app.device_map.topics_out {
+        println!(
+            "* {} -> ({:016X})",
+            tp.0,
+            u64::from_le_bytes(tp.1.to_bytes()),
+        );
+    }
+    println!();
+    println!("## Min Key Length");
+    println!();
+    println!("{:?}", app.device_map.min_key_len);
+    println!();
 }

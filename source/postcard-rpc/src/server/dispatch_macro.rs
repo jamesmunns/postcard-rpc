@@ -1,6 +1,11 @@
 /// # Define Dispatch Macro
 ///
 
+#[doc(hidden)]
+pub mod export {
+    pub use paste::paste;
+}
+
 #[macro_export]
 macro_rules! define_dispatch {
     //////////////////////////////////////////////////////////////////////////////
@@ -76,7 +81,7 @@ macro_rules! define_dispatch {
         ($($endpoint:ty | $ep_flavor:tt | $ep_handler:ident)*)
         ($($topic_in:ty | $tp_flavor:tt | $tp_handler:ident)*)
     ) => {
-        impl $crate::server::Dispatch2 for $app_name<$n> {
+        impl $crate::server::Dispatch for $app_name<$n> {
             type Tx = $tx_impl;
 
             fn min_key_len(&self) -> $crate::header::VarKeyKind {
@@ -99,7 +104,7 @@ macro_rules! define_dispatch {
                 use consts::*;
                 match keyb {
                     $(
-                        ::paste::paste! { [<$endpoint:upper _KEY $n>] } => {
+                        $crate::server::dispatch_macro::export::paste! { [<$endpoint:upper _KEY $n>] } => {
                             // Can we deserialize the request?
                             let Ok(req) = postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
                                 let err = $crate::standard_icd::WireError::DeserFailed;
@@ -120,7 +125,7 @@ macro_rules! define_dispatch {
                         }
                     )*
                     $(
-                        ::paste::paste! { [<$topic_in:upper _KEY $n>] } => {
+                        $crate::server::dispatch_macro::export::paste! { [<$topic_in:upper _KEY $n>] } => {
                             // Can we deserialize the request?
                             let Ok(msg) = postcard::from_bytes::<<$topic_in as $crate::Topic>::Message>(body) else {
                                 // This is a topic, not much to be done
@@ -263,11 +268,11 @@ macro_rules! define_dispatch {
             const fn a_is_subset_of_b(a: &[Key], b: &[Key]) -> bool {
                 let mut i = 0;
                 while i < a.len() {
-                    let x = u64::from_le_bytes(a[i].0);
+                    let x = u64::from_le_bytes(a[i].to_bytes());
                     let mut matched = false;
                     let mut j = 0;
                     while j < b.len() {
-                        let y = u64::from_le_bytes(b[j].0);
+                        let y = u64::from_le_bytes(b[j].to_bytes());
                         if x == y {
                             matched = true;
                             break;
@@ -318,42 +323,42 @@ macro_rules! define_dispatch {
         mod consts {
             use super::*;
             $(
-                ::paste::paste! {
+                $crate::server::dispatch_macro::export::paste! {
                     pub const [<$endpoint:upper _KEY1>]: u8 = $crate::Key1::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).to_bytes();
                 }
             )*
             $(
-                ::paste::paste! {
+                $crate::server::dispatch_macro::export::paste! {
                     pub const [<$topic_in:upper _KEY1>]: u8 = $crate::Key1::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).to_bytes();
                 }
             )*
             $(
-                ::paste::paste! {
+                $crate::server::dispatch_macro::export::paste! {
                     pub const [<$endpoint:upper _KEY2>]: [u8; 2] = $crate::Key2::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).to_bytes();
                 }
             )*
             $(
-                ::paste::paste! {
+                $crate::server::dispatch_macro::export::paste! {
                     pub const [<$topic_in:upper _KEY2>]: [u8; 2] = $crate::Key2::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).to_bytes();
                 }
             )*
             $(
-                ::paste::paste! {
+                $crate::server::dispatch_macro::export::paste! {
                     pub const [<$endpoint:upper _KEY4>]: [u8; 4] = $crate::Key4::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).to_bytes();
                 }
             )*
             $(
-                ::paste::paste! {
+                $crate::server::dispatch_macro::export::paste! {
                     pub const [<$topic_in:upper _KEY4>]: [u8; 4] = $crate::Key4::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).to_bytes();
                 }
             )*
             $(
-                ::paste::paste! {
+                $crate::server::dispatch_macro::export::paste! {
                     pub const [<$endpoint:upper _KEY8>]: [u8; 8] = <$endpoint as $crate::Endpoint>::REQ_KEY.to_bytes();
                 }
             )*
             $(
-                ::paste::paste! {
+                $crate::server::dispatch_macro::export::paste! {
                     pub const [<$topic_in:upper _KEY8>]: [u8; 8] = <$topic_in as $crate::Topic>::TOPIC_KEY.to_bytes();
                 }
             )*
@@ -374,14 +379,15 @@ macro_rules! define_dispatch {
         // same outcome.
         pub type $app_name = impls::$app_name<{ sizer::NEEDED_SZ }>;
 
+
+
         mod impls {
             use super::*;
 
             pub struct $app_name<const N: usize> {
                 pub context: $context_ty,
                 pub spawn: $spawn_impl,
-                pub endpoint_list: &'static $crate::EndpointMap,
-                pub topic_in_list: &'static $crate::TopicMap,
+                pub device_map: &'static $crate::DeviceMap,
             }
 
             impl<const N: usize> $app_name<N> {
@@ -390,11 +396,36 @@ macro_rules! define_dispatch {
                     context: $context_ty,
                     spawn: $spawn_impl,
                 ) -> Self {
+                    const MAP: &$crate::DeviceMap = &$crate::DeviceMap {
+                        types: const {
+                            const LISTS: &[&[&'static postcard_schema::schema::NamedType]] = &[
+                                $endpoint_list.types,
+                                $topic_in_list.types,
+                                $topic_out_list.types,
+                            ];
+                            const TTL_COUNT: usize = $endpoint_list.types.len() + $topic_in_list.types.len() + $topic_out_list.types.len();
+
+                            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
+                            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+                            SMALL_RPT.as_slice()
+                        },
+                        endpoints: &$endpoint_list.endpoints,
+                        topics_in: &$topic_in_list.topics,
+                        topics_out: &$topic_out_list.topics,
+                        min_key_len: const {
+                            match sizer::NEEDED_SZ {
+                                1 => $crate::header::VarKeyKind::Key1,
+                                2 => $crate::header::VarKeyKind::Key2,
+                                4 => $crate::header::VarKeyKind::Key4,
+                                8 => $crate::header::VarKeyKind::Key8,
+                                _ => unreachable!(),
+                            }
+                        }
+                    };
                     $app_name {
                         context,
                         spawn,
-                        endpoint_list: &$endpoint_list,
-                        topic_in_list: &$topic_in_list,
+                        device_map: MAP,
                     }
                 }
             }

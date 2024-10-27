@@ -23,6 +23,12 @@ topics! {
     list = TOPICS_IN_LIST;
     | TopicTy                   | MessageTy     | Path              |
     | -------                   | ---------     | ----              |
+}
+
+topics! {
+    list = TOPICS_OUT_LIST;
+    | TopicTy                   | MessageTy     | Path              |
+    | -------                   | ---------     | ----              |
     | AccelTopic                | Acceleration  | "accel/data"      |
 }
 

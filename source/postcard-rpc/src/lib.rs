@@ -57,7 +57,7 @@
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 
-use header::VarKey;
+use header::{VarKey, VarKeyKind};
 // use headered::extract_header_from_bytes;
 use postcard_schema::{schema::NamedType, Schema};
 use serde::{Deserialize, Serialize};
@@ -162,11 +162,11 @@ mod key_owned {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct Key4(pub [u8; 4]);
+pub struct Key4([u8; 4]);
 #[derive(Debug, Copy, Clone)]
-pub struct Key2(pub [u8; 2]);
+pub struct Key2([u8; 2]);
 #[derive(Debug, Copy, Clone)]
-pub struct Key1(pub u8);
+pub struct Key1(u8);
 
 impl Key1 {
     pub const fn from_key2(value: Key2) -> Self {
@@ -370,6 +370,7 @@ pub struct DeviceMap {
     pub endpoints: &'static [(&'static str, Key, Key)],
     pub topics_in: &'static [(&'static str, Key)],
     pub topics_out: &'static [(&'static str, Key)],
+    pub min_key_len: VarKeyKind,
 }
 
 #[derive(Debug)]

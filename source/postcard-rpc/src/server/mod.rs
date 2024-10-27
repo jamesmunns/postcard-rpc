@@ -155,7 +155,7 @@ where
     Tx: WireTx,
     Rx: WireRx,
     Buf: DerefMut<Target = [u8]>,
-    D: Dispatch2<Tx = Tx>,
+    D: Dispatch<Tx = Tx>,
 {
     tx: Sender<Tx>,
     rx: Rx,
@@ -177,7 +177,7 @@ where
     Tx: WireTx,
     Rx: WireRx,
     Buf: DerefMut<Target = [u8]>,
-    D: Dispatch2<Tx = Tx>,
+    D: Dispatch<Tx = Tx>,
 {
     pub fn new(tx: &Tx, rx: Rx, buf: Buf, dis: D, kkind: VarKeyKind) -> Self {
         Self {
@@ -231,7 +231,7 @@ where
 // DISPATCH TRAIT
 //////////////////////////////////////////////////////////////////////////////
 
-pub trait Dispatch2 {
+pub trait Dispatch {
     type Tx: WireTx;
     fn min_key_len(&self) -> VarKeyKind;
 

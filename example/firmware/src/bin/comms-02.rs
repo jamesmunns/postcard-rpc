@@ -18,6 +18,7 @@ use lis3dh_async::{Lis3dh, Lis3dhSPI};
 use portable_atomic::{AtomicBool, Ordering};
 use postcard_rpc::{
     define_dispatch,
+    header::VarHeader,
     server::{
         impls::embassy_usb_v0_3::{
             dispatch_impl::{
@@ -25,9 +26,8 @@ use postcard_rpc::{
             },
             PacketBuffers,
         },
-        Sender, Server, SpawnContext,
+        Dispatch, Sender, Server, SpawnContext,
     },
-    header::VarHeader,
 };
 use smart_leds::{colors::BLACK, RGB8};
 use static_cell::{ConstStaticCell, StaticCell};
@@ -39,7 +39,7 @@ use workbook_fw::{
 use workbook_icd::{
     AccelTopic, Acceleration, BadPositionError, GetUniqueIdEndpoint, PingEndpoint, Rgb8,
     SetAllLedEndpoint, SetSingleLedEndpoint, SingleLed, StartAccel, StartAccelerationEndpoint,
-    StopAccelerationEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST,
+    StopAccelerationEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST,
 };
 use {defmt_rtt as _, panic_probe as _};
 
@@ -70,7 +70,7 @@ type AppStorage = WireStorage<ThreadModeRawMutex, AppDriver, 256, 256, 64, 256>;
 type BufStorage = PacketBuffers<1024, 1024>;
 type AppTx = WireTxImpl<ThreadModeRawMutex, AppDriver>;
 type AppRx = WireRxImpl<AppDriver>;
-type AppServer = Server<AppTx, AppRx, WireRxBuf, Dispatcher>;
+type AppServer = Server<AppTx, AppRx, WireRxBuf, MyApp>;
 
 static PBUFS: ConstStaticCell<BufStorage> = ConstStaticCell::new(BufStorage::new());
 static STORAGE: AppStorage = AppStorage::new();
@@ -92,7 +92,7 @@ fn usb_config() -> Config<'static> {
 }
 
 define_dispatch! {
-    app: Dispatcher;
+    app: MyApp;
     spawn_fn: spawn_fn;
     tx_impl: AppTx;
     spawn_impl: WireSpawnImpl;
@@ -115,6 +115,9 @@ define_dispatch! {
 
         | TopicTy                   | kind      | handler                       |
         | ----------                | ----      | -------                       |
+    };
+    topics_out: {
+        list: TOPICS_OUT_LIST;
     };
 }
 
@@ -160,8 +163,15 @@ async fn main(spawner: Spawner) {
     };
 
     let (device, tx_impl, rx_impl) = STORAGE.init(driver, config, pbufs.tx_buf.as_mut_slice());
-    let dispatcher = Dispatcher::new(context, spawner.into());
-    let mut server: AppServer = Server::new(&tx_impl, rx_impl, pbufs.rx_buf.as_mut_slice(), dispatcher);
+    let dispatcher = MyApp::new(context, spawner.into());
+    let vkk = dispatcher.min_key_len();
+    let mut server: AppServer = Server::new(
+        &tx_impl,
+        rx_impl,
+        pbufs.rx_buf.as_mut_slice(),
+        dispatcher,
+        vkk,
+    );
     spawner.must_spawn(usb_task(device));
 
     loop {
@@ -254,7 +264,11 @@ async fn accelerometer_handler(
             y: acc.y,
             z: acc.z,
         };
-        if sender.publish::<AccelTopic>(seq.into(), &msg).await.is_err() {
+        if sender
+            .publish::<AccelTopic>(seq.into(), &msg)
+            .await
+            .is_err()
+        {
             defmt::error!("Send error!");
             break;
         }

@@ -796,7 +796,7 @@ mod test {
     fn subpar_arrs() {
         const MAXARR: usize = unique_types_nty_upper(<[Example0; 32]>::SCHEMA);
         // I don't *like* this, it really should be 2. Leaving it as a test so
-        // I can remember that it's here. See TODO on unique_types_dmt_upper
+        // I can remember that it's here. See TODO on unique_types_dmt_upper.
         assert_eq!(MAXARR, 33);
     }
 

@@ -8,6 +8,7 @@ use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{UsbDevice, UsbInTransferResult, UsbTransferStatus};
 
 use crate::host_client::{HostClient, WireRx, WireSpawn, WireTx};
+use crate::header::VarSeqKind;
 
 #[derive(Clone)]
 pub struct WebUsbWire {
@@ -57,6 +58,7 @@ where
         ep_out: u8,
         err_uri_path: &str,
         outgoing_depth: usize,
+        seq_no_len: VarSeqKind,
     ) -> Result<Self, Error> {
         let wire =
             WebUsbWire::new(vendor_id, interface, transfer_max_length, ep_in, ep_out).await?;
@@ -64,6 +66,7 @@ where
             wire.clone(),
             wire.clone(),
             wire,
+            seq_no_len,
             err_uri_path,
             outgoing_depth,
         ))
@@ -71,6 +74,7 @@ where
 }
 
 /// # Example usage ()
+///
 /// ```no_run
 /// let wire = WebUsbWire::new(0x16c0, 0, 1000, 1, 1)
 ///         .await
@@ -82,6 +86,7 @@ where
 ///     wire,
 ///     crate::standard_icd::ERROR_PATH,
 ///     8,
+///     VarSeqKind::Seq1,
 /// )
 /// .expect("could not create HostClient");
 /// ```
