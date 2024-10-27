@@ -4,6 +4,56 @@ pub mod export {
 }
 
 /// Define Dispatch Macro
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use postcard_rpc::define_dispatch;
+/// use postcard_rpc::server::impls::test_channels::dispatch_impl::*;
+///
+/// // This creates a type that implements the `Dispatcher` trait
+/// define_dispatch! {
+///     // This becomes the name of your dispatcher
+///     app: SingleDispatcher;
+///     // This is the spawn function, usually found in the `dispatch_impl` module of your
+///     // implementation
+///     spawn_fn: spawn_fn;
+///     // This is the WireTx impl
+///     tx_impl: WireTxImpl;
+///     // This is the WireSpawn impl
+///     spawn_impl: WireSpawnImpl;
+///     // This is the TestContext you define to be passed to all handlers
+///     context: TestContext;
+///
+///     endpoints: {
+///         // This is the list you get from the `endpoints()` macro
+///         list: ENDPOINT_LIST;
+///
+///         // These are all of your endpoints and the handlers they map to
+///         | EndpointTy        | kind      | handler               |
+///         | ----------        | ----      | -------               |
+///         | AlphaEndpoint     | async     | test_alpha_handler    |
+///         | BetaEndpoint      | spawn     | test_beta_handler     |
+///     };
+///     topics_in: {
+///         // This is the list you get from the `topics!()` macro
+///         list: TOPICS_IN_LIST;
+///
+///         // These are the incoming topics and the handlers they map to
+///         | TopicTy           | kind      | handler               |
+///         | ----------        | ----      | -------               |
+///         | ZetaTopic1        | blocking  | test_zeta_blocking    |
+///         | ZetaTopic2        | async     | test_zeta_async       |
+///         | ZetaTopic3        | spawn     | test_zeta_spawn       |
+///     };
+///     topics_out: {
+///         // This is the list you get from the `topics!()` macro
+///         list: TOPICS_OUT_LIST;
+///
+///         // NOTE: outgoing topics don't have any handlers!
+///     };
+/// }
+/// ```
 #[macro_export]
 macro_rules! define_dispatch {
     //////////////////////////////////////////////////////////////////////////////
@@ -119,7 +169,7 @@ macro_rules! define_dispatch {
                             let spawninfo = &dispatch.spawn;
 
                             // This will expand to the right "flavor" of handler
-                            define_dispatch!(@ep_arm $ep_flavor ($endpoint) $ep_handler context hdr req tx ($spawn_fn) spawninfo)
+                            $crate::define_dispatch!(@ep_arm $ep_flavor ($endpoint) $ep_handler context hdr req tx ($spawn_fn) spawninfo)
                         }
                     )*
                     $(
@@ -140,7 +190,7 @@ macro_rules! define_dispatch {
                             let spawninfo = &dispatch.spawn;
 
                             // (@tp_arm async $handler:ident $context:ident $header:ident $req:ident $outputter:ident)
-                            define_dispatch!(@tp_arm $tp_flavor $tp_handler context hdr msg tx ($spawn_fn) spawninfo);
+                            $crate::define_dispatch!(@tp_arm $tp_flavor $tp_handler context hdr msg tx ($spawn_fn) spawninfo);
                             Ok(())
                         }
                     )*
@@ -428,22 +478,22 @@ macro_rules! define_dispatch {
                 }
             }
 
-            define_dispatch! {
+            $crate::define_dispatch! {
                 @matcher 1 $app_name $tx_impl; $spawn_fn $crate::Key1; $crate::header::VarKeyKind::Key1;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
-            define_dispatch! {
+            $crate::define_dispatch! {
                 @matcher 2 $app_name $tx_impl; $spawn_fn $crate::Key2; $crate::header::VarKeyKind::Key2;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
-            define_dispatch! {
+            $crate::define_dispatch! {
                 @matcher 4 $app_name $tx_impl; $spawn_fn $crate::Key4; $crate::header::VarKeyKind::Key4;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
-            define_dispatch! {
+            $crate::define_dispatch! {
                 @matcher 8 $app_name $tx_impl; $spawn_fn $crate::Key; $crate::header::VarKeyKind::Key8;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
