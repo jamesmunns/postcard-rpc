@@ -13,6 +13,7 @@ use postcard_schema::{
     Schema,
 };
 
+/// A const compatible Fnv1a64 hasher
 pub struct Fnv1a64Hasher {
     state: u64,
 }
@@ -22,10 +23,12 @@ impl Fnv1a64Hasher {
     const BASIS: u64 = 0xcbf2_9ce4_8422_2325;
     const PRIME: u64 = 0x0000_0100_0000_01b3;
 
+    /// Create a new hasher with the default basis as state contents
     pub fn new() -> Self {
         Self { state: Self::BASIS }
     }
 
+    /// Calculate the hash for each of the given data bytes
     pub fn update(&mut self, data: &[u8]) {
         for b in data {
             let ext = u64::from(*b);
@@ -34,10 +37,12 @@ impl Fnv1a64Hasher {
         }
     }
 
+    /// Extract the current state for finalizing the hash
     pub fn digest(self) -> u64 {
         self.state
     }
 
+    /// Same as digest but as bytes
     pub fn digest_bytes(self) -> [u8; 8] {
         self.digest().to_le_bytes()
     }
@@ -50,10 +55,12 @@ impl Default for Fnv1a64Hasher {
 }
 
 pub mod fnv1a64 {
+    //! Const and no-std helper methods and types for perfoming hash calculation
     use postcard_schema::schema::DataModelVariant;
 
     use super::*;
 
+    /// Calculate the Key hash for the given path and type T
     pub const fn hash_ty_path<T: Schema + ?Sized>(path: &str) -> [u8; 8] {
         let schema = T::SCHEMA;
         let state = hash_update_str(Fnv1a64Hasher::BASIS, path);
@@ -230,6 +237,8 @@ pub mod fnv1a64 {
 
 #[cfg(feature = "use-std")]
 pub mod fnv1a64_owned {
+    //! Heapful helpers and versions of hashing for use on `std` targets
+
     use postcard_schema::schema::owned::{
         OwnedDataModelType, OwnedDataModelVariant, OwnedNamedType, OwnedNamedValue,
         OwnedNamedVariant,
@@ -238,6 +247,7 @@ pub mod fnv1a64_owned {
     use super::fnv1a64::*;
     use super::*;
 
+    /// Calculate the Key hash for the given path and OwnedNamedType
     pub fn hash_ty_path_owned(path: &str, nt: &OwnedNamedType) -> [u8; 8] {
         let state = hash_update_str(Fnv1a64Hasher::BASIS, path);
         hash_named_type_owned(state, nt).to_le_bytes()

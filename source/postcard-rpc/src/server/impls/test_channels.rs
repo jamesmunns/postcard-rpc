@@ -12,19 +12,8 @@ use tokio::sync::mpsc;
 // DISPATCH IMPL
 //////////////////////////////////////////////////////////////////////////////
 
+/// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
-    pub struct Settings {
-        pub tx: WireTxImpl,
-        pub rx: WireRxImpl,
-        pub buf: usize,
-        pub kkind: VarKeyKind,
-    }
-
-    pub type WireTxImpl = super::ChannelWireTx;
-    pub type WireRxImpl = super::ChannelWireRx;
-    pub type WireSpawnImpl = super::ChannelWireSpawn;
-    pub type WireRxBuf = Box<[u8]>;
-
     use crate::{
         header::VarKeyKind,
         server::{Dispatch, Server},
@@ -32,6 +21,28 @@ pub mod dispatch_impl {
 
     pub use super::tokio_spawn as spawn_fn;
 
+    /// The settings necessary for creating a new channel server
+    pub struct Settings {
+        /// The frame sender
+        pub tx: WireTxImpl,
+        /// The frame receiver
+        pub rx: WireRxImpl,
+        /// The size of the receive buffer
+        pub buf: usize,
+        /// The sender key size to use
+        pub kkind: VarKeyKind,
+    }
+
+    /// Type alias for `WireTx` impl
+    pub type WireTxImpl = super::ChannelWireTx;
+    /// Type alias for `WireRx` impl
+    pub type WireRxImpl = super::ChannelWireRx;
+    /// Type alias for `WireSpawn` impl
+    pub type WireSpawnImpl = super::ChannelWireSpawn;
+    /// Type alias for the receive buffer
+    pub type WireRxBuf = Box<[u8]>;
+
+    /// Create a new server using the [`Settings`] and [`Dispatch`] implementation
     pub fn new_server<D>(
         dispatch: D,
         settings: Settings,
@@ -54,12 +65,14 @@ pub mod dispatch_impl {
 // TX
 //////////////////////////////////////////////////////////////////////////////
 
+/// A [`WireTx`] impl using tokio mpsc channels
 #[derive(Clone)]
 pub struct ChannelWireTx {
     tx: mpsc::Sender<Vec<u8>>,
 }
 
 impl ChannelWireTx {
+    /// Create a new [`ChannelWireTx`]
     pub fn new(tx: mpsc::Sender<Vec<u8>>) -> Self {
         Self { tx }
     }
@@ -93,8 +106,10 @@ impl WireTx for ChannelWireTx {
     }
 }
 
+/// A wire tx error
 #[derive(Debug)]
 pub enum ChannelWireTxError {
+    /// The receiver closed the channel
     ChannelClosed,
 }
 
@@ -110,11 +125,13 @@ impl AsWireTxErrorKind for ChannelWireTxError {
 // RX
 //////////////////////////////////////////////////////////////////////////////
 
+/// A [`WireRx`] impl using tokio mpsc channels
 pub struct ChannelWireRx {
     rx: mpsc::Receiver<Vec<u8>>,
 }
 
 impl ChannelWireRx {
+    /// Create a new [`ChannelWireRx`]
     pub fn new(rx: mpsc::Receiver<Vec<u8>>) -> Self {
         Self { rx }
     }
@@ -135,9 +152,12 @@ impl WireRx for ChannelWireRx {
     }
 }
 
+/// A wire rx error
 #[derive(Debug)]
 pub enum ChannelWireRxError {
+    /// The sender closed the channel
     ChannelClosed,
+    /// The sender sent a too-large message
     MessageTooLarge,
 }
 
@@ -154,9 +174,9 @@ impl AsWireRxErrorKind for ChannelWireRxError {
 // SPAWN
 //////////////////////////////////////////////////////////////////////////////
 
-// todo: just use a standard tokio impl?
+/// A wire spawn implementation
 #[derive(Clone)]
-pub struct ChannelWireSpawn {}
+pub struct ChannelWireSpawn;
 
 impl WireSpawn for ChannelWireSpawn {
     type Error = Infallible;
@@ -168,6 +188,7 @@ impl WireSpawn for ChannelWireSpawn {
     }
 }
 
+/// Spawn a task using tokio
 pub fn tokio_spawn<Sp, F>(_sp: &Sp, fut: F) -> Result<(), Sp::Error>
 where
     Sp: WireSpawn<Error = Infallible, Info = ()>,

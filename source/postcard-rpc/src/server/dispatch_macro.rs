@@ -1,11 +1,9 @@
-/// # Define Dispatch Macro
-///
-
 #[doc(hidden)]
 pub mod export {
     pub use paste::paste;
 }
 
+/// Define Dispatch Macro
 #[macro_export]
 macro_rules! define_dispatch {
     //////////////////////////////////////////////////////////////////////////////

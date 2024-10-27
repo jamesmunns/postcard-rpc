@@ -6,6 +6,62 @@
 //! [the repo]: https://github.com/jamesmunns/postcard-rpc
 //! [the overview]: https://github.com/jamesmunns/postcard-rpc/blob/main/docs/overview.md
 //!
+//! ## Architecture overview
+//!
+//! ```text
+//!                 ┌──────────┐      ┌─────────┐         ┌───────────┐
+//!                 │ Endpoint │      │ Publish │         │ Subscribe │
+//!                 └──────────┘      └─────────┘         └───────────┘
+//!                   │     ▲       message│                │        ▲
+//!    ┌────────┐ rqst│     │resp          │       subscribe│        │messages
+//!  ┌─┤ CLIENT ├─────┼─────┼──────────────┼────────────────┼────────┼──┐
+//!  │ └────────┘     ▼     │              ▼                ▼        │  │
+//!  │       ┌─────────────────────────────────────────────────────┐ │  │
+//!  │       │                     HostClient                      │ │  │
+//!  │       └─────────────────────────────────────────────────────┘ │  │
+//!  │         │                  │              ▲           │       |  │
+//!  │         │                  │              │           │       │  │
+//!  │         │                  │              │           ▼       │  │
+//!  │         │                  │      ┌──────────────┬──────────────┐│
+//!  │         │                  └─────▶│ Pending Resp │ Subscription ││
+//!  │         │                         └──────────────┴──────────────┘│
+//!  │         │                                 ▲              ▲       │
+//!  │         │                                 └───────┬──────┘       │
+//!  │         ▼                                         │              │
+//!  │      ┌────────────────────┐            ┌────────────────────┐    │
+//!  │      ││ Task: out_worker  │            │  Task: in_worker  ▲│    │
+//!  │      ├┼───────────────────┤            ├───────────────────┼┤    │
+//!  │      │▼  Trait: WireTx    │            │   Trait: WireRx   ││    │
+//!  └──────┴────────────────────┴────────────┴────────────────────┴────┘
+//!                    │ ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐ ▲
+//!                    │   The Server + Client WireRx    │
+//!                    │ │ and WireTx traits can be    │ │
+//!                    │   impl'd for any wire           │
+//!                    │ │ transport like USB, TCP,    │ │
+//!                    │   I2C, UART, etc.               │
+//!                    ▼ └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘ │
+//!   ┌─────┬────────────────────┬────────────┬────────────────────┬─────┐
+//!   │     ││  Trait: WireRx    │            │   Trait: WireTx   ▲│     │
+//!   │     ├┼───────────────────┤            ├───────────────────┼┤     │
+//!   │     ││      Server       │       ┌───▶│       Sender      ││     │
+//!   │     ├┼───────────────────┤       │    └────────────────────┘     │
+//!   │     │▼ Macro: Dispatch   │       │               ▲               │
+//!   │     └────────────────────┘       │               │               │
+//!   │    ┌─────────┐ │ ┌──────────┐    │ ┌───────────┐ │ ┌───────────┐ │
+//!   │    │  Topic  │ │ │ Endpoint │    │ │ Publisher │ │ │ Publisher │ │
+//!   │    │   fn    │◀┼▶│ async fn │────┤ │   Task    │─┼─│   Task    │ │
+//!   │    │ Handler │ │ │ Handler  │    │ └───────────┘ │ └───────────┘ │
+//!   │    └─────────┘ │ └──────────┘    │               │               │
+//!   │    ┌─────────┐ │ ┌──────────┐    │ ┌───────────┐ │ ┌───────────┐ │
+//!   │    │  Topic  │ │ │ Endpoint │    │ │ Publisher │ │ │ Publisher │ │
+//!   │    │async fn │◀┴▶│   task   │────┘ │   Task    │─┴─│   Task    │ │
+//!   │    │ Handler │   │ Handler  │      └───────────┘   └───────────┘ │
+//!   │    └─────────┘   └──────────┘                                    │
+//!   │ ┌────────┐                                                       │
+//!   └─┤ SERVER ├───────────────────────────────────────────────────────┘
+//!     └────────┘
+//! ```
+//!
 //! ## Defining a schema
 //!
 //! Typically, you will define your "wire types" in a shared schema crate. This
@@ -23,7 +79,7 @@
 //!   convert a type into bytes on the wire
 //! * [`serde`]'s [`Deserialize`] trait - which defines how we
 //!   can convert bytes on the wire into a type
-//! * [`postcard-schema`]'s [`Schema`] trait - which generates a reflection-style
+//! * [`postcard_schema`]'s [`Schema`] trait - which generates a reflection-style
 //!   schema value for a given type.
 //!
 //! ### Endpoints
@@ -56,6 +112,8 @@
 //! * A string "path", like an HTTP URI that uniquely identifies the topic.
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
+#![warn(missing_docs)]
+#![warn(rustdoc::broken_intra_doc_links)]
 
 use header::{VarKey, VarKeyKind};
 // use headered::extract_header_from_bytes;
@@ -155,39 +213,79 @@ mod key_owned {
     use super::*;
     use postcard_schema::schema::owned::OwnedNamedType;
     impl Key {
+        /// Calculate the Key for the given path and [`OwnedNamedType`]
         pub fn for_owned_schema_path(path: &str, nt: &OwnedNamedType) -> Key {
             Key(crate::hash::fnv1a64_owned::hash_ty_path_owned(path, nt))
         }
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct Key4([u8; 4]);
-#[derive(Debug, Copy, Clone)]
-pub struct Key2([u8; 2]);
+/// A compacted 2-byte key
+///
+/// This is defined specifically as the following conversion:
+///
+/// * Key8 bytes (`[u8; 8]`): `[a, b, c, d, e, f, g, h]`
+/// * Key4 bytes (`u8`): `a ^ b ^ c ^ d ^ e ^ f ^ g ^ h`
 #[derive(Debug, Copy, Clone)]
 pub struct Key1(u8);
 
+/// A compacted 2-byte key
+///
+/// This is defined specifically as the following conversion:
+///
+/// * Key8 bytes (`[u8; 8]`): `[a, b, c, d, e, f, g, h]`
+/// * Key4 bytes (`[u8; 2]`): `[a ^ b ^ c ^ d, e ^ f ^ g ^ h]`
+#[derive(Debug, Copy, Clone)]
+pub struct Key2([u8; 2]);
+
+/// A compacted 4-byte key
+///
+/// This is defined specifically as the following conversion:
+///
+/// * Key8 bytes (`[u8; 8]`): `[a, b, c, d, e, f, g, h]`
+/// * Key4 bytes (`[u8; 4]`): `[a ^ b, c ^ d, e ^ f, g ^ h]`
+#[derive(Debug, Copy, Clone)]
+pub struct Key4([u8; 4]);
+
 impl Key1 {
+    /// Convert from a 2-byte key
+    ///
+    /// This is a lossy conversion, and can never fail
+    #[inline]
     pub const fn from_key2(value: Key2) -> Self {
         let [a, b] = value.0;
         Self(a ^ b)
     }
 
+    /// Convert from a 4-byte key
+    ///
+    /// This is a lossy conversion, and can never fail
+    #[inline]
     pub const fn from_key4(value: Key4) -> Self {
         let [a, b, c, d] = value.0;
         Self(a ^ b ^ c ^ d)
     }
 
+    /// Convert from a full size 8-byte key
+    ///
+    /// This is a lossy conversion, and can never fail
+    #[inline]
     pub const fn from_key8(value: Key) -> Self {
         let [a, b, c, d, e, f, g, h] = value.0;
         Self(a ^ b ^ c ^ d ^ e ^ f ^ g ^ h)
     }
 
+    /// Convert to the inner byte representation
+    #[inline]
     pub const fn to_bytes(&self) -> u8 {
         self.0
     }
 
+    /// Create a `Key1` from a [`VarKey`]
+    ///
+    /// This method can never fail, but has the same API as other key
+    /// types for consistency reasons.
+    #[inline]
     pub fn try_from_varkey(value: &VarKey) -> Option<Self> {
         Some(match value {
             VarKey::Key1(key1) => *key1,
@@ -199,20 +297,34 @@ impl Key1 {
 }
 
 impl Key2 {
+    /// Convert from a 4-byte key
+    ///
+    /// This is a lossy conversion, and can never fail
+    #[inline]
     pub const fn from_key4(value: Key4) -> Self {
         let [a, b, c, d] = value.0;
         Self([a ^ b, c ^ d])
     }
 
+    /// Convert from a full size 8-byte key
+    ///
+    /// This is a lossy conversion, and can never fail
+    #[inline]
     pub const fn from_key8(value: Key) -> Self {
         let [a, b, c, d, e, f, g, h] = value.0;
         Self([a ^ b ^ c ^ d, e ^ f ^ g ^ h])
     }
 
+    /// Convert to the inner byte representation
+    #[inline]
     pub const fn to_bytes(&self) -> [u8; 2] {
         self.0
     }
 
+    /// Attempt to create a [`Key2`] from a [`VarKey`].
+    ///
+    /// Only succeeds if `value` is a `VarKey::Key2`, `VarKey::Key4`, or `VarKey::Key8`.
+    #[inline]
     pub fn try_from_varkey(value: &VarKey) -> Option<Self> {
         Some(match value {
             VarKey::Key1(_) => return None,
@@ -224,15 +336,25 @@ impl Key2 {
 }
 
 impl Key4 {
+    /// Convert from a full size 8-byte key
+    ///
+    /// This is a lossy conversion, and can never fail
+    #[inline]
     pub const fn from_key8(value: Key) -> Self {
         let [a, b, c, d, e, f, g, h] = value.0;
         Self([a ^ b, c ^ d, e ^ f, g ^ h])
     }
 
+    /// Convert to the inner byte representation
+    #[inline]
     pub const fn to_bytes(&self) -> [u8; 4] {
         self.0
     }
 
+    /// Attempt to create a [`Key4`] from a [`VarKey`].
+    ///
+    /// Only succeeds if `value` is a `VarKey::Key4` or `VarKey::Key8`.
+    #[inline]
     pub fn try_from_varkey(value: &VarKey) -> Option<Self> {
         Some(match value {
             VarKey::Key1(_) => return None,
@@ -244,10 +366,16 @@ impl Key4 {
 }
 
 impl Key {
+    /// This is an identity function, used for consistency
+    #[inline]
     pub const fn from_key8(value: Key) -> Self {
         value
     }
 
+    /// Attempt to create a [`Key`] from a [`VarKey`].
+    ///
+    /// Only succeeds if `value` is a `VarKey::Key8`.
+    #[inline]
     pub fn try_from_varkey(value: &VarKey) -> Option<Self> {
         match value {
             VarKey::Key8(key) => Some(*key),
@@ -332,29 +460,48 @@ pub mod standard_icd {
     use postcard_schema::Schema;
     use serde::{Deserialize, Serialize};
 
+    /// The calculated Key for the type [`WireError`] and the path [`ERROR_PATH`]
     pub const ERROR_KEY: Key = Key::for_path::<WireError>(ERROR_PATH);
+
+    /// The path string used for the error type
     pub const ERROR_PATH: &str = "error";
 
+    /// The given frame was too long
     #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
     pub struct FrameTooLong {
+        /// The length of the too-long frame
         pub len: u32,
+        /// The maximum frame length supported
         pub max: u32,
     }
 
+    /// The given frame was too short
     #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
     pub struct FrameTooShort {
+        /// The length of the too-short frame
         pub len: u32,
     }
 
+    /// A protocol error that is handled outside of the normal request type, usually
+    /// indicating a protocol-level error
     #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
     pub enum WireError {
+        /// The frame exceeded the buffering capabilities of the server
         FrameTooLong(FrameTooLong),
+        /// The frame was shorter than the minimum frame size and was rejected
         FrameTooShort(FrameTooShort),
+        /// Deserialization of a message failed
         DeserFailed,
+        /// Serialization of a message failed, usually due to a lack of space to
+        /// buffer the serialized form
         SerFailed,
-        // TODO: report different keys lens?
+        /// The key associated with this request was unknown
         UnknownKey,
+        /// The server was unable to spawn the associated handler, typically due
+        /// to an exhaustion of resources
         FailedToSpawn,
+        /// The provided key is below the minimum key size calculated to avoid hash
+        /// collisions, and was rejected to avoid potential misunderstanding
         KeyTooSmall,
     }
 
@@ -365,22 +512,48 @@ pub mod standard_icd {
     crate::topic!(Logging, Vec<u8>, "logs/formatted");
 }
 
+/// An overview of all topics (in and out) and endpoints
+///
+/// Typically generated by the [`define_dispatch!()`] macro. Contains a list
+/// of all unique types across endpoints and topics, as well as the endpoints,
+/// topics in (client to server), topics out (server to client), as well as a
+/// calculated minimum key length required to avoid collisions in either the in
+/// or out direction.
 pub struct DeviceMap {
+    /// The set of unique types used by all endpoints and topics in this map
     pub types: &'static [&'static NamedType],
+    /// The list of endpoints by path string, request key, and response key
     pub endpoints: &'static [(&'static str, Key, Key)],
+    /// The list of topics (client to server) by path string and topic key
     pub topics_in: &'static [(&'static str, Key)],
+    /// The list of topics (server to client) by path string and topic key
     pub topics_out: &'static [(&'static str, Key)],
+    /// The minimum key size required to avoid hash collisions
     pub min_key_len: VarKeyKind,
 }
 
+/// An overview of a list of endpoints
+///
+/// Typically generated by the [`endpoints!()`] macro. Contains a list of
+/// all unique types used by a list of endpoints, as well as the list of these
+/// endpoints by path, request key, and response key
 #[derive(Debug)]
 pub struct EndpointMap {
+    /// The set of unique types used by all endpoints in this map
     pub types: &'static [&'static NamedType],
+    /// The list of endpoints by path string, request key, and response key
     pub endpoints: &'static [(&'static str, Key, Key)],
 }
 
+/// An overview of a list of topics
+///
+/// Typically generated by the [`topics!()`] macro. Contains a list of all
+/// unique types used by a list of topics as well as the list of the topics
+/// by path and key
 #[derive(Debug)]
 pub struct TopicMap {
+    /// The set of unique types used by all topics in this map
     pub types: &'static [&'static NamedType],
+    /// The list of topics by path string and topic key
     pub topics: &'static [(&'static str, Key)],
 }

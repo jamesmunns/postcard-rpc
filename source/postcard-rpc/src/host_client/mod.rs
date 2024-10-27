@@ -86,7 +86,7 @@ impl<T> From<WaitError> for HostErr<T> {
 /// be returned to the caller.
 #[cfg(target_family = "wasm")]
 pub trait WireTx: 'static {
-    type Error: std::error::Error; // or std?
+    type Error: std::error::Error;
     fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
@@ -123,7 +123,9 @@ pub trait WireSpawn: 'static {
 /// be returned to the caller.
 #[cfg(not(target_family = "wasm"))]
 pub trait WireTx: Send + 'static {
-    type Error: std::error::Error; // or std?
+    /// Transmit error type
+    type Error: std::error::Error;
+    /// Send a single frame
     fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
@@ -136,7 +138,9 @@ pub trait WireTx: Send + 'static {
 /// be returned to the caller.
 #[cfg(not(target_family = "wasm"))]
 pub trait WireRx: Send + 'static {
-    type Error: std::error::Error; // or std?
+    /// Receive error type
+    type Error: std::error::Error;
+    /// Receive a single frame
     fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send;
 }
 
@@ -145,6 +149,7 @@ pub trait WireRx: Send + 'static {
 /// Should be suitable for spawning a task in the host executor.
 #[cfg(not(target_family = "wasm"))]
 pub trait WireSpawn: 'static {
+    /// Spawn a task
     fn spawn(&mut self, fut: impl Future<Output = ()> + Send + 'static);
 }
 
@@ -244,6 +249,8 @@ where
         Ok(r)
     }
 
+    /// Perform an endpoint request/response,but without handling the
+    /// Ser/De automatically
     pub async fn send_resp_raw(
         &self,
         mut rqst: RpcFrame,
@@ -308,6 +315,7 @@ where
         self.publish_raw(frame).await
     }
 
+    /// Publish the given raw frame
     pub async fn publish_raw(&self, mut frame: RpcFrame) -> Result<(), IoClosed> {
         let kkind: VarKeyKind = *self.ctx.kkind.read().unwrap();
         frame.header.key.shrink_to(kkind);
@@ -371,6 +379,7 @@ where
         })
     }
 
+    /// Subscribe to the given [`Key`], without automatically handling deserialization
     pub async fn subscribe_raw(&self, key: Key, depth: usize) -> Result<RawSubscription, IoClosed> {
         let cancel_fut = self.stopper.wait_stopped();
         let operate_fut = self.subscribe_inner_raw(key, depth);
@@ -424,6 +433,8 @@ where
     }
 }
 
+/// Like Subscription, but receives Raw frames that are not
+/// automatically deserialized
 pub struct RawSubscription {
     rx: Receiver<RpcFrame>,
 }

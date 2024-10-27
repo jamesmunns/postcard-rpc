@@ -15,22 +15,29 @@ use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
 };
 
+/// Rx Helper type
 pub struct LocalRx {
     fake_error: Stopper,
     from_server: Receiver<Vec<u8>>,
 }
+/// Tx Helper type
 pub struct LocalTx {
     fake_error: Stopper,
     to_server: Sender<Vec<u8>>,
 }
+/// Spawn helper type
 pub struct LocalSpawn;
+/// Server type
 pub struct LocalFakeServer {
     fake_error: Stopper,
+    /// from client to server
     pub from_client: Receiver<Vec<u8>>,
+    /// from server to client
     pub to_client: Sender<Vec<u8>>,
 }
 
 impl LocalFakeServer {
+    /// receive a frame
     pub async fn recv_from_client(&mut self) -> Result<RpcFrame, LocalError> {
         let msg = self.from_client.recv().await.ok_or(LocalError::TxClosed)?;
         let Some((hdr, body)) = VarHeader::take_from_slice(&msg) else {
@@ -42,6 +49,7 @@ impl LocalFakeServer {
         })
     }
 
+    /// Reply
     pub async fn reply<E: Endpoint>(
         &mut self,
         seq_no: u32,
@@ -63,6 +71,7 @@ impl LocalFakeServer {
             .map_err(|_| LocalError::RxClosed)
     }
 
+    /// Publish
     pub async fn publish<T: Topic>(
         &mut self,
         seq_no: u32,
@@ -84,16 +93,22 @@ impl LocalFakeServer {
             .map_err(|_| LocalError::RxClosed)
     }
 
+    /// oops
     pub fn cause_fatal_error(&self) {
         self.fake_error.stop();
     }
 }
 
+/// Local error type
 #[derive(Debug, PartialEq)]
 pub enum LocalError {
+    /// RxClosed
     RxClosed,
+    /// TxClosed
     TxClosed,
+    /// BadFrame
     BadFrame,
+    /// FatalError
     FatalError,
 }
 

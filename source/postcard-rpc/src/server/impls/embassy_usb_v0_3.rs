@@ -1,3 +1,5 @@
+//! Implementation using `embassy-usb` and bulk interfaces
+
 use embassy_executor::{SpawnError, SpawnToken, Spawner};
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_usb_driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
@@ -9,8 +11,12 @@ use crate::{
     server::{WireRx, WireRxErrorKind, WireSpawn, WireTx, WireTxErrorKind},
 };
 
-// pub fn eusb_wire_tx<D: Driver<'static>>(ep_in: D::EndpointIn, tx_buf: &'static mut [u8]) ->
+/// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
+    pub use super::embassy_spawn as spawn_fn;
+    use super::{EUsbWireRx, EUsbWireTx, EUsbWireTxInner, UsbDeviceBuffers};
+
+    /// Used for defining the USB interface
     pub const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
     use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
@@ -21,14 +27,16 @@ pub mod dispatch_impl {
     use embassy_usb_driver::Driver;
     use static_cell::{ConstStaticCell, StaticCell};
 
+    /// Type alias for `WireTx` impl
     pub type WireTxImpl<M, D> = super::EUsbWireTx<M, D>;
+    /// Type alias for `WireRx` impl
     pub type WireRxImpl<D> = super::EUsbWireRx<D>;
+    /// Type alias for `WireSpawn` impl
     pub type WireSpawnImpl = super::EUsbWireSpawn;
+    /// Type alias for the receive buffer
     pub type WireRxBuf = &'static mut [u8];
 
-    pub use super::embassy_spawn as spawn_fn;
-    use super::{EUsbWireRx, EUsbWireTx, EUsbWireTxInner, UsbDeviceBuffers};
-
+    /// A helper type for `static` storage of buffers and driver components
     pub struct WireStorage<
         M: RawMutex + 'static,
         D: Driver<'static> + 'static,
@@ -37,8 +45,10 @@ pub mod dispatch_impl {
         const CONTROL: usize = 64,
         const MSOS: usize = 256,
     > {
-        bufs_usb: ConstStaticCell<UsbDeviceBuffers<CONFIG, BOS, CONTROL, CONFIG>>,
-        cell: StaticCell<Mutex<M, EUsbWireTxInner<D>>>,
+        /// Usb buffer storage
+        pub bufs_usb: ConstStaticCell<UsbDeviceBuffers<CONFIG, BOS, CONTROL, CONFIG>>,
+        /// WireTx/Sender static storage
+        pub cell: StaticCell<Mutex<M, EUsbWireTxInner<D>>>,
     }
 
     impl<
@@ -50,6 +60,7 @@ pub mod dispatch_impl {
             const MSOS: usize,
         > WireStorage<M, D, CONFIG, BOS, CONTROL, MSOS>
     {
+        /// Create a new, uninitialized static set of buffers
         pub const fn new() -> Self {
             Self {
                 bufs_usb: ConstStaticCell::new(UsbDeviceBuffers::new()),
@@ -57,6 +68,9 @@ pub mod dispatch_impl {
             }
         }
 
+        /// Initialize the static storage.
+        ///
+        /// This must only be called once.
         pub fn init(
             &'static self,
             driver: D,
@@ -123,6 +137,7 @@ pub struct EUsbWireTxInner<D: Driver<'static>> {
     _max_log_len: usize,
 }
 
+/// A [`WireTx`] implementation for embassy-usb 0.3.
 #[derive(Copy)]
 pub struct EUsbWireTx<M: RawMutex + 'static, D: Driver<'static> + 'static> {
     inner: &'static Mutex<M, EUsbWireTxInner<D>>,
@@ -202,6 +217,7 @@ where
 // RX
 //////////////////////////////////////////////////////////////////////////////
 
+/// A [`WireRx`] implementation for embassy-usb 0.3.
 pub struct EUsbWireRx<D: Driver<'static>> {
     ep_out: D::EndpointOut,
 }
@@ -252,9 +268,10 @@ impl<D: Driver<'static>> WireRx for EUsbWireRx<D> {
 // SPAWN
 //////////////////////////////////////////////////////////////////////////////
 
-// todo: just use a standard tokio impl?
+/// A [`WireSpawn`] impl using the embassy executor
 #[derive(Clone)]
 pub struct EUsbWireSpawn {
+    /// The embassy-executor spawner
     pub spawner: Spawner,
 }
 
@@ -274,6 +291,7 @@ impl WireSpawn for EUsbWireSpawn {
     }
 }
 
+/// Attempt to spawn the given token
 pub fn embassy_spawn<Sp, S: Sized>(sp: &Sp, tok: SpawnToken<S>) -> Result<(), Sp::Error>
 where
     Sp: WireSpawn<Error = SpawnError, Info = Spawner>,
@@ -286,21 +304,27 @@ where
 // OTHER
 //////////////////////////////////////////////////////////////////////////////
 
+/// A generically sized storage type for buffers
 pub struct UsbDeviceBuffers<
     const CONFIG: usize = 256,
     const BOS: usize = 256,
     const CONTROL: usize = 64,
     const MSOS: usize = 256,
 > {
+    /// Config descriptor storage
     pub config_descriptor: [u8; CONFIG],
+    /// BOS descriptor storage
     pub bos_descriptor: [u8; BOS],
+    /// CONTROL endpoint buffer storage
     pub control_buf: [u8; CONTROL],
+    /// MSOS descriptor buffer storage
     pub msos_descriptor: [u8; MSOS],
 }
 
 impl<const CONFIG: usize, const BOS: usize, const CONTROL: usize, const MSOS: usize>
     UsbDeviceBuffers<CONFIG, BOS, CONTROL, MSOS>
 {
+    /// Create a new, empty set of buffers
     pub const fn new() -> Self {
         Self {
             config_descriptor: [0u8; CONFIG],
@@ -311,12 +335,16 @@ impl<const CONFIG: usize, const BOS: usize, const CONTROL: usize, const MSOS: us
     }
 }
 
+/// Static storage for generically sized input and output packet buffers
 pub struct PacketBuffers<const TX: usize = 1024, const RX: usize = 1024> {
+    /// the transmit buffer
     pub tx_buf: [u8; TX],
+    /// thereceive buffer
     pub rx_buf: [u8; RX],
 }
 
 impl<const TX: usize, const RX: usize> PacketBuffers<TX, RX> {
+    /// Create new empty buffers
     pub const fn new() -> Self {
         Self {
             tx_buf: [0u8; TX],

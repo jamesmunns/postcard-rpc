@@ -1,11 +1,14 @@
-use core::fmt::Display;
+//! A Client implementation using channels for testing
 
+use crate::{
+    header::VarSeqKind,
+    host_client::{HostClient, WireRx, WireSpawn, WireTx},
+    standard_icd::WireError,
+};
+use core::fmt::Display;
 use tokio::sync::mpsc;
 
-use crate::{header::VarSeqKind, standard_icd::WireError};
-
-use super::{HostClient, WireRx, WireSpawn, WireTx};
-
+/// Create a new HostClient from the given server channels
 pub fn new_from_channels(
     tx: mpsc::Sender<Vec<u8>>,
     rx: mpsc::Receiver<Vec<u8>>,
@@ -21,9 +24,12 @@ pub fn new_from_channels(
     )
 }
 
+/// Server error kinds
 #[derive(Debug)]
 pub enum ChannelError {
+    /// Rx was closed
     RxClosed,
+    /// Tx was closed
     TxClosed,
 }
 
@@ -35,12 +41,15 @@ impl Display for ChannelError {
 
 impl std::error::Error for ChannelError {}
 
+/// Trait impl for channels
 pub struct ChannelRx {
     rx: mpsc::Receiver<Vec<u8>>,
 }
+/// Trait impl for channels
 pub struct ChannelTx {
     tx: mpsc::Sender<Vec<u8>>,
 }
+/// Trait impl for channels
 pub struct ChannelSpawn;
 
 impl WireRx for ChannelRx {

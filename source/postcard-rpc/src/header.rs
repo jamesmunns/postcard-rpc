@@ -325,7 +325,9 @@ pub enum VarSeqKind {
 /// non-postcard-compatible format (externally tagged)
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct VarHeader {
+    /// The variably sized Key
     pub key: VarKey,
+    /// The variably sized Sequence Number
     pub seq_no: VarSeq,
 }
 

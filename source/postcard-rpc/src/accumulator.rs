@@ -9,6 +9,7 @@
 pub mod raw {
     use cobs::decode_in_place;
 
+    /// A header-aware COBS accumulator
     pub struct CobsAccumulator<const N: usize> {
         buf: [u8; N],
         idx: usize,
