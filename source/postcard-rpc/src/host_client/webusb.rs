@@ -7,8 +7,8 @@ use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{UsbDevice, UsbInTransferResult, UsbTransferStatus};
 
-use crate::host_client::{HostClient, WireRx, WireSpawn, WireTx};
 use crate::header::VarSeqKind;
+use crate::host_client::{HostClient, WireRx, WireSpawn, WireTx};
 
 #[derive(Clone)]
 pub struct WebUsbWire {

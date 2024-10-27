@@ -8,8 +8,8 @@ use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
 use crate::{
     accumulator::raw::{CobsAccumulator, FeedResult},
-    host_client::{HostClient, WireRx, WireSpawn, WireTx},
     header::VarSeqKind,
+    host_client::{HostClient, WireRx, WireSpawn, WireTx},
 };
 
 /// # Serial Constructor Methods
@@ -97,7 +97,8 @@ where
         baud: u32,
         seq_no_kind: VarSeqKind,
     ) -> Self {
-        Self::try_new_serial_cobs(serial_path, err_uri_path, outgoing_depth, baud, seq_no_kind).unwrap()
+        Self::try_new_serial_cobs(serial_path, err_uri_path, outgoing_depth, baud, seq_no_kind)
+            .unwrap()
     }
 }
 

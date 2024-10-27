@@ -1,9 +1,8 @@
 #![no_std]
 
-use postcard_schema::Schema;
 use postcard_rpc::{endpoints, topics};
+use postcard_schema::Schema;
 use serde::{Deserialize, Serialize};
-
 
 // ---
 
@@ -42,7 +41,7 @@ pub struct SingleLed {
 pub struct Rgb8 {
     pub r: u8,
     pub g: u8,
-    pub b: u8
+    pub b: u8,
 }
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]

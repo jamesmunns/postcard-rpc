@@ -20,7 +20,10 @@ use postcard_schema::Schema;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{
     select,
-    sync::{mpsc::{Receiver, Sender}, Mutex},
+    sync::{
+        mpsc::{Receiver, Sender},
+        Mutex,
+    },
 };
 use util::Subscriptions;
 

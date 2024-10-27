@@ -7,7 +7,10 @@ use nusb::{
 use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
 
-use crate::{header::VarSeqKind, host_client::{HostClient, WireRx, WireSpawn, WireTx}};
+use crate::{
+    header::VarSeqKind,
+    host_client::{HostClient, WireRx, WireSpawn, WireTx},
+};
 
 // TODO: These should all be configurable, PRs welcome
 

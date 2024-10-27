@@ -16,8 +16,7 @@ use tracing::{debug, trace, warn};
 use crate::{
     header::{VarHeader, VarKey, VarSeqKind},
     host_client::{
-        HostClient, HostContext, ProcessError, RpcFrame, WireContext, WireRx, WireSpawn,
-        WireTx,
+        HostClient, HostContext, ProcessError, RpcFrame, WireContext, WireRx, WireSpawn, WireTx,
     },
     Key,
 };
@@ -25,9 +24,8 @@ use crate::{
 #[derive(Default, Debug)]
 pub(crate) struct Subscriptions {
     pub(crate) list: Vec<(Key, Sender<RpcFrame>)>,
-    pub(crate) stopped: bool
+    pub(crate) stopped: bool,
 }
-
 
 /// A basic cancellation-token
 ///
@@ -90,10 +88,7 @@ where
     {
         let (me, wire_ctx) = Self::new_manual_priv(err_uri_path, outgoing_depth, seq_kind);
 
-        let WireContext {
-            outgoing,
-            incoming,
-        } = wire_ctx;
+        let WireContext { outgoing, incoming } = wire_ctx;
 
         sp.spawn(out_worker(tx, outgoing, me.stopper.clone()));
         sp.spawn(in_worker(
@@ -195,29 +190,32 @@ async fn in_worker_inner<W>(
             let key = hdr.key;
 
             // Remove if sending fails
-            let remove_sub =
-                if let Some((_h, m)) = subs_guard.list.iter().find(|(k, _)| VarKey::Key8(*k) == key) {
-                    handled = true;
-                    let frame = RpcFrame {
-                        header: hdr,
-                        body: body.to_vec(),
-                    };
-                    let res = m.try_send(frame);
-
-                    match res {
-                        Ok(()) => {
-                            trace!("Handled message via subscription");
-                            false
-                        }
-                        Err(TrySendError::Full(_)) => {
-                            tracing::error!("Subscription channel full! Message dropped.");
-                            false
-                        }
-                        Err(TrySendError::Closed(_)) => true,
-                    }
-                } else {
-                    false
+            let remove_sub = if let Some((_h, m)) = subs_guard
+                .list
+                .iter()
+                .find(|(k, _)| VarKey::Key8(*k) == key)
+            {
+                handled = true;
+                let frame = RpcFrame {
+                    header: hdr,
+                    body: body.to_vec(),
                 };
+                let res = m.try_send(frame);
+
+                match res {
+                    Ok(()) => {
+                        trace!("Handled message via subscription");
+                        false
+                    }
+                    Err(TrySendError::Full(_)) => {
+                        tracing::error!("Subscription channel full! Message dropped.");
+                        false
+                    }
+                    Err(TrySendError::Closed(_)) => true,
+                }
+            } else {
+                false
+            };
 
             if remove_sub {
                 debug!("Dropping subscription");

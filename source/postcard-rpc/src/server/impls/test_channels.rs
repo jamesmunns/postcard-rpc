@@ -61,9 +61,7 @@ pub struct ChannelWireTx {
 
 impl ChannelWireTx {
     pub fn new(tx: mpsc::Sender<Vec<u8>>) -> Self {
-        Self {
-            tx
-        }
+        Self { tx }
     }
 }
 
@@ -118,9 +116,7 @@ pub struct ChannelWireRx {
 
 impl ChannelWireRx {
     pub fn new(rx: mpsc::Receiver<Vec<u8>>) -> Self {
-        Self {
-            rx
-        }
+        Self { rx }
     }
 }
 

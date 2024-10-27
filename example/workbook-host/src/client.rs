@@ -1,8 +1,14 @@
-use std::convert::Infallible;
 use postcard_rpc::{
-    header::VarSeqKind, host_client::{HostClient, HostErr}, standard_icd::{WireError, ERROR_PATH}
+    header::VarSeqKind,
+    host_client::{HostClient, HostErr},
+    standard_icd::{WireError, ERROR_PATH},
 };
-use workbook_icd::{AccelRange, BadPositionError, GetUniqueIdEndpoint, PingEndpoint, Rgb8, SetAllLedEndpoint, SetSingleLedEndpoint, SingleLed, StartAccel, StartAccelerationEndpoint, StopAccelerationEndpoint};
+use std::convert::Infallible;
+use workbook_icd::{
+    AccelRange, BadPositionError, GetUniqueIdEndpoint, PingEndpoint, Rgb8, SetAllLedEndpoint,
+    SetSingleLedEndpoint, SingleLed, StartAccel, StartAccelerationEndpoint,
+    StopAccelerationEndpoint,
+};
 
 pub struct WorkbookClient {
     pub client: HostClient<WireError>,
