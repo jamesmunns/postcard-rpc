@@ -1,3 +1,5 @@
+//! Implementation of transport using nusb
+
 use std::future::Future;
 
 use nusb::{
@@ -7,7 +9,10 @@ use nusb::{
 use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
 
-use crate::host_client::{HostClient, WireRx, WireSpawn, WireTx};
+use crate::{
+    header::VarSeqKind,
+    host_client::{HostClient, WireRx, WireSpawn, WireTx},
+};
 
 // TODO: These should all be configurable, PRs welcome
 
@@ -48,6 +53,7 @@ where
     ///
     /// ```rust,no_run
     /// use postcard_rpc::host_client::HostClient;
+    /// use postcard_rpc::header::VarSeqKind;
     /// use serde::{Serialize, Deserialize};
     /// use postcard_schema::Schema;
     ///
@@ -65,12 +71,15 @@ where
     ///     "error",
     ///     // Outgoing queue depth in messages
     ///     8,
+    ///     // Use one-byte sequence numbers
+    ///     VarSeqKind::Seq1,
     /// ).unwrap();
     /// ```
     pub fn try_new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
         func: F,
         err_uri_path: &str,
         outgoing_depth: usize,
+        seq_no_kind: VarSeqKind,
     ) -> Result<Self, String> {
         let x = nusb::list_devices()
             .map_err(|e| format!("Error listing devices: {e:?}"))?
@@ -93,6 +102,7 @@ where
                 consecutive_errs: 0,
             },
             NusbSpawn,
+            seq_no_kind,
             err_uri_path,
             outgoing_depth,
         ))
@@ -108,6 +118,7 @@ where
     ///
     /// ```rust,no_run
     /// use postcard_rpc::host_client::HostClient;
+    /// use postcard_rpc::header::VarSeqKind;
     /// use serde::{Serialize, Deserialize};
     /// use postcard_schema::Schema;
     ///
@@ -125,14 +136,17 @@ where
     ///     "error",
     ///     // Outgoing queue depth in messages
     ///     8,
+    ///     // Use one-byte sequence numbers
+    ///     VarSeqKind::Seq1,
     /// );
     /// ```
     pub fn new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
         func: F,
         err_uri_path: &str,
         outgoing_depth: usize,
+        seq_no_kind: VarSeqKind,
     ) -> Self {
-        Self::try_new_raw_nusb(func, err_uri_path, outgoing_depth)
+        Self::try_new_raw_nusb(func, err_uri_path, outgoing_depth, seq_no_kind)
             .expect("should have found nusb device")
     }
 }

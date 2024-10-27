@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use workbook_host_client::client::WorkbookClient;
 use tokio::time::interval;
+use workbook_host_client::client::WorkbookClient;
 
 #[tokio::main]
 pub async fn main() {

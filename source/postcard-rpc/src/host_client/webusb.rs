@@ -1,3 +1,5 @@
+//! Implementation of transport using webusb
+
 use gloo::utils::format::JsValueSerdeExt;
 use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
@@ -7,8 +9,10 @@ use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{UsbDevice, UsbInTransferResult, UsbTransferStatus};
 
+use crate::header::VarSeqKind;
 use crate::host_client::{HostClient, WireRx, WireSpawn, WireTx};
 
+/// Implementation of the wire interface for WebUsb
 #[derive(Clone)]
 pub struct WebUsbWire {
     device: UsbDevice,
@@ -17,10 +21,13 @@ pub struct WebUsbWire {
     ep_out: u8,
 }
 
+/// WebUsb Error type
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum Error {
+    /// Error originating from the browser
     #[error("Browser error: {0}")]
     Browser(String),
+    /// Error originating from the USB stack
     #[error("USB transfer error: {0}")]
     UsbTransfer(&'static str),
 }
@@ -49,6 +56,7 @@ impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
 {
+    /// Create a new webusb connection instance
     pub async fn try_new_webusb(
         vendor_id: u16,
         interface: u8,
@@ -57,6 +65,7 @@ where
         ep_out: u8,
         err_uri_path: &str,
         outgoing_depth: usize,
+        seq_no_len: VarSeqKind,
     ) -> Result<Self, Error> {
         let wire =
             WebUsbWire::new(vendor_id, interface, transfer_max_length, ep_in, ep_out).await?;
@@ -64,6 +73,7 @@ where
             wire.clone(),
             wire.clone(),
             wire,
+            seq_no_len,
             err_uri_path,
             outgoing_depth,
         ))
@@ -71,6 +81,7 @@ where
 }
 
 /// # Example usage ()
+///
 /// ```no_run
 /// let wire = WebUsbWire::new(0x16c0, 0, 1000, 1, 1)
 ///         .await
@@ -82,10 +93,12 @@ where
 ///     wire,
 ///     crate::standard_icd::ERROR_PATH,
 ///     8,
+///     VarSeqKind::Seq1,
 /// )
 /// .expect("could not create HostClient");
 /// ```
 impl WebUsbWire {
+    /// Create a new instance of [`WebUsbWire`]
     pub async fn new(
         vendor_id: u16,
         interface: u8,
@@ -146,11 +159,7 @@ impl WireTx for WebUsbWire {
         let data: js_sys::Uint8Array = data.as_slice().into();
         // TODO for reasons unknown, web-sys wants mutable access to the send buffer.
         // tracking issue: https://github.com/rustwasm/wasm-bindgen/issues/3963
-        JsFuture::from(
-            self.device
-                .transfer_out_with_u8_array(self.ep_out, &data)?,
-        )
-        .await?;
+        JsFuture::from(self.device.transfer_out_with_u8_array(self.ep_out, &data)?).await?;
         Ok(())
     }
 }

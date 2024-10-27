@@ -1,9 +1,14 @@
-use std::convert::Infallible;
 use postcard_rpc::{
+    header::VarSeqKind,
     host_client::{HostClient, HostErr},
     standard_icd::{WireError, ERROR_PATH},
 };
-use workbook_icd::{AccelRange, BadPositionError, GetUniqueIdEndpoint, PingEndpoint, Rgb8, SetAllLedEndpoint, SetSingleLedEndpoint, SingleLed, StartAccel, StartAccelerationEndpoint, StopAccelerationEndpoint};
+use std::convert::Infallible;
+use workbook_icd::{
+    AccelRange, BadPositionError, GetUniqueIdEndpoint, PingEndpoint, Rgb8, SetAllLedEndpoint,
+    SetSingleLedEndpoint, SingleLed, StartAccel, StartAccelerationEndpoint,
+    StopAccelerationEndpoint,
+};
 
 pub struct WorkbookClient {
     pub client: HostClient<WireError>,
@@ -39,8 +44,12 @@ impl<T, E> FlattenErr for Result<T, E> {
 
 impl WorkbookClient {
     pub fn new() -> Self {
-        let client =
-            HostClient::new_raw_nusb(|d| d.product_string() == Some("ov-twin"), ERROR_PATH, 8);
+        let client = HostClient::new_raw_nusb(
+            |d| d.product_string() == Some("ov-twin"),
+            ERROR_PATH,
+            8,
+            VarSeqKind::Seq2,
+        );
         Self { client }
     }
 

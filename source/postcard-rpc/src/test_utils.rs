@@ -2,11 +2,11 @@
 
 use core::{fmt::Display, future::Future};
 
+use crate::header::{VarHeader, VarKey, VarSeq, VarSeqKind};
 use crate::host_client::util::Stopper;
 use crate::{
-    headered::extract_header_from_bytes,
     host_client::{HostClient, RpcFrame, WireRx, WireSpawn, WireTx},
-    Endpoint, Topic, WireHeader,
+    Endpoint, Topic,
 };
 use postcard_schema::Schema;
 use serde::{de::DeserializeOwned, Serialize};
@@ -15,25 +15,32 @@ use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
 };
 
+/// Rx Helper type
 pub struct LocalRx {
     fake_error: Stopper,
     from_server: Receiver<Vec<u8>>,
 }
+/// Tx Helper type
 pub struct LocalTx {
     fake_error: Stopper,
     to_server: Sender<Vec<u8>>,
 }
+/// Spawn helper type
 pub struct LocalSpawn;
+/// Server type
 pub struct LocalFakeServer {
     fake_error: Stopper,
+    /// from client to server
     pub from_client: Receiver<Vec<u8>>,
+    /// from server to client
     pub to_client: Sender<Vec<u8>>,
 }
 
 impl LocalFakeServer {
+    /// receive a frame
     pub async fn recv_from_client(&mut self) -> Result<RpcFrame, LocalError> {
         let msg = self.from_client.recv().await.ok_or(LocalError::TxClosed)?;
-        let Ok((hdr, body)) = extract_header_from_bytes(&msg) else {
+        let Some((hdr, body)) = VarHeader::take_from_slice(&msg) else {
             return Err(LocalError::BadFrame);
         };
         Ok(RpcFrame {
@@ -42,6 +49,7 @@ impl LocalFakeServer {
         })
     }
 
+    /// Reply
     pub async fn reply<E: Endpoint>(
         &mut self,
         seq_no: u32,
@@ -51,9 +59,9 @@ impl LocalFakeServer {
         E::Response: Serialize,
     {
         let frame = RpcFrame {
-            header: WireHeader {
-                key: E::RESP_KEY,
-                seq_no,
+            header: VarHeader {
+                key: VarKey::Key8(E::RESP_KEY),
+                seq_no: VarSeq::Seq4(seq_no),
             },
             body: postcard::to_stdvec(data).unwrap(),
         };
@@ -63,6 +71,7 @@ impl LocalFakeServer {
             .map_err(|_| LocalError::RxClosed)
     }
 
+    /// Publish
     pub async fn publish<T: Topic>(
         &mut self,
         seq_no: u32,
@@ -72,9 +81,9 @@ impl LocalFakeServer {
         T::Message: Serialize,
     {
         let frame = RpcFrame {
-            header: WireHeader {
-                key: T::TOPIC_KEY,
-                seq_no,
+            header: VarHeader {
+                key: VarKey::Key8(T::TOPIC_KEY),
+                seq_no: VarSeq::Seq4(seq_no),
             },
             body: postcard::to_stdvec(data).unwrap(),
         };
@@ -84,16 +93,22 @@ impl LocalFakeServer {
             .map_err(|_| LocalError::RxClosed)
     }
 
+    /// oops
     pub fn cause_fatal_error(&self) {
         self.fake_error.stop();
     }
 }
 
+/// Local error type
 #[derive(Debug, PartialEq)]
 pub enum LocalError {
+    /// RxClosed
     RxClosed,
+    /// TxClosed
     TxClosed,
+    /// BadFrame
     BadFrame,
+    /// FatalError
     FatalError,
 }
 
@@ -187,6 +202,7 @@ where
             fake_error: fake_error.clone(),
         },
         LocalSpawn,
+        VarSeqKind::Seq2,
         err_uri_path,
         bound,
     );

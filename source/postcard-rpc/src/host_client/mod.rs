@@ -8,7 +8,7 @@ use std::{
     marker::PhantomData,
     sync::{
         atomic::{AtomicU32, Ordering},
-        Arc,
+        Arc, RwLock,
     },
 };
 
@@ -20,10 +20,17 @@ use postcard_schema::Schema;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{
     select,
-    sync::mpsc::{Receiver, Sender},
+    sync::{
+        mpsc::{Receiver, Sender},
+        Mutex,
+    },
 };
+use util::Subscriptions;
 
-use crate::{Endpoint, Key, Topic, WireHeader};
+use crate::{
+    header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind},
+    Endpoint, Key, Topic,
+};
 
 use self::util::Stopper;
 
@@ -37,6 +44,9 @@ mod serial;
 pub mod webusb;
 
 pub(crate) mod util;
+
+#[cfg(feature = "test-utils")]
+pub mod test_channels;
 
 /// Host Error Kind
 #[derive(Debug, PartialEq)]
@@ -76,7 +86,9 @@ impl<T> From<WaitError> for HostErr<T> {
 /// be returned to the caller.
 #[cfg(target_family = "wasm")]
 pub trait WireTx: 'static {
-    type Error: std::error::Error; // or std?
+    /// Transmit error type
+    type Error: std::error::Error;
+    /// Send a single frame
     fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
@@ -89,7 +101,9 @@ pub trait WireTx: 'static {
 /// be returned to the caller.
 #[cfg(target_family = "wasm")]
 pub trait WireRx: 'static {
+    /// Receive error type
     type Error: std::error::Error; // or std?
+    /// Receive a single frame
     fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>>;
 }
 
@@ -98,6 +112,7 @@ pub trait WireRx: 'static {
 /// Should be suitable for spawning a task in the host executor.
 #[cfg(target_family = "wasm")]
 pub trait WireSpawn: 'static {
+    /// Spawn a task
     fn spawn(&mut self, fut: impl Future<Output = ()> + 'static);
 }
 
@@ -113,7 +128,9 @@ pub trait WireSpawn: 'static {
 /// be returned to the caller.
 #[cfg(not(target_family = "wasm"))]
 pub trait WireTx: Send + 'static {
-    type Error: std::error::Error; // or std?
+    /// Transmit error type
+    type Error: std::error::Error;
+    /// Send a single frame
     fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
@@ -126,7 +143,9 @@ pub trait WireTx: Send + 'static {
 /// be returned to the caller.
 #[cfg(not(target_family = "wasm"))]
 pub trait WireRx: Send + 'static {
-    type Error: std::error::Error; // or std?
+    /// Receive error type
+    type Error: std::error::Error;
+    /// Receive a single frame
     fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send;
 }
 
@@ -135,6 +154,7 @@ pub trait WireRx: Send + 'static {
 /// Should be suitable for spawning a task in the host executor.
 #[cfg(not(target_family = "wasm"))]
 pub trait WireSpawn: 'static {
+    /// Spawn a task
     fn spawn(&mut self, fut: impl Future<Output = ()> + Send + 'static);
 }
 
@@ -153,9 +173,10 @@ pub trait WireSpawn: 'static {
 pub struct HostClient<WireErr> {
     ctx: Arc<HostContext>,
     out: Sender<RpcFrame>,
-    subber: Sender<SubInfo>,
+    subscriptions: Arc<Mutex<Subscriptions>>,
     err_key: Key,
     stopper: Stopper,
+    seq_kind: VarSeqKind,
     _pd: PhantomData<fn() -> WireErr>,
 }
 
@@ -164,23 +185,16 @@ impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
 {
-    /// Create a new manually implemented [HostClient].
-    ///
-    /// This is now deprecated, it is recommended to use [`HostClient::new_with_wire`] instead.
-    #[deprecated = "HostClient::new_manual will become private in the future, use HostClient::new_with_wire instead"]
-    pub fn new_manual(err_uri_path: &str, outgoing_depth: usize) -> (Self, WireContext) {
-        Self::new_manual_priv(err_uri_path, outgoing_depth)
-    }
-
     /// Private method for creating internal context
     pub(crate) fn new_manual_priv(
         err_uri_path: &str,
         outgoing_depth: usize,
+        seq_kind: VarSeqKind,
     ) -> (Self, WireContext) {
         let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(outgoing_depth);
-        let (tx_si, rx_si) = tokio::sync::mpsc::channel(outgoing_depth);
 
         let ctx = Arc::new(HostContext {
+            kkind: RwLock::new(VarKeyKind::Key8),
             map: WaitMap::new(),
             seq: AtomicU32::new(0),
         });
@@ -192,14 +206,14 @@ where
             out: tx_pc,
             err_key,
             _pd: PhantomData,
-            subber: tx_si.clone(),
+            subscriptions: Arc::new(Mutex::new(Subscriptions::default())),
             stopper: Stopper::new(),
+            seq_kind,
         };
 
         let wire = WireContext {
             outgoing: rx_pc,
             incoming: ctx,
-            new_subs: rx_si,
         };
 
         (me, wire)
@@ -224,11 +238,14 @@ where
         E::Response: DeserializeOwned + Schema,
     {
         let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
+
         let msg = postcard::to_stdvec(&t).expect("Allocations should not ever fail");
         let frame = RpcFrame {
-            header: WireHeader {
-                key: E::REQ_KEY,
-                seq_no,
+            // NOTE: send_resp_raw automatically shrinks down key and sequence
+            // kinds to the appropriate amount
+            header: VarHeader {
+                key: VarKey::Key8(E::REQ_KEY),
+                seq_no: VarSeq::Seq4(seq_no),
             },
             body: msg,
         };
@@ -237,33 +254,47 @@ where
         Ok(r)
     }
 
+    /// Perform an endpoint request/response,but without handling the
+    /// Ser/De automatically
     pub async fn send_resp_raw(
         &self,
-        rqst: RpcFrame,
+        mut rqst: RpcFrame,
         resp_key: Key,
     ) -> Result<RpcFrame, HostErr<WireErr>> {
         let cancel_fut = self.stopper.wait_stopped();
+        let kkind: VarKeyKind = *self.ctx.kkind.read().unwrap();
+        rqst.header.key.shrink_to(kkind);
+        rqst.header.seq_no.resize(self.seq_kind);
+        let mut resp_key = VarKey::Key8(resp_key);
+        let mut err_key = VarKey::Key8(self.err_key);
+        resp_key.shrink_to(kkind);
+        err_key.shrink_to(kkind);
 
         // TODO: Do I need something like a .subscribe method to ensure this is enqueued?
-        let ok_resp = self.ctx.map.wait(WireHeader {
+        let ok_resp = self.ctx.map.wait(VarHeader {
             seq_no: rqst.header.seq_no,
             key: resp_key,
         });
-        let err_resp = self.ctx.map.wait(WireHeader {
+        let err_resp = self.ctx.map.wait(VarHeader {
             seq_no: rqst.header.seq_no,
-            key: self.err_key,
+            key: err_key,
         });
-        let seq_no = rqst.header.seq_no;
         self.out.send(rqst).await.map_err(|_| HostErr::Closed)?;
 
         select! {
             _c = cancel_fut => Err(HostErr::Closed),
             o = ok_resp => {
-                let resp = o?;
-                Ok(RpcFrame { header: WireHeader { key: resp_key, seq_no }, body: resp })
+                let (hdr, resp) = o?;
+                if hdr.key.kind() != kkind {
+                    *self.ctx.kkind.write().unwrap() = hdr.key.kind();
+                }
+                Ok(RpcFrame { header: hdr, body: resp })
             },
             e = err_resp => {
-                let resp = e?;
+                let (hdr, resp) = e?;
+                if hdr.key.kind() != kkind {
+                    *self.ctx.kkind.write().unwrap() = hdr.key.kind();
+                }
                 let r = postcard::from_bytes::<WireErr>(&resp)?;
                 Err(HostErr::Wire(r))
             },
@@ -274,14 +305,14 @@ where
     ///
     /// There is no feedback if the server received our message. If the I/O worker is
     /// closed, an error is returned.
-    pub async fn publish<T: Topic>(&self, seq_no: u32, msg: &T::Message) -> Result<(), IoClosed>
+    pub async fn publish<T: Topic>(&self, seq_no: VarSeq, msg: &T::Message) -> Result<(), IoClosed>
     where
         T::Message: Serialize,
     {
         let smsg = postcard::to_stdvec(msg).expect("alloc should never fail");
         let frame = RpcFrame {
-            header: WireHeader {
-                key: T::TOPIC_KEY,
+            header: VarHeader {
+                key: VarKey::Key8(T::TOPIC_KEY),
                 seq_no,
             },
             body: smsg,
@@ -289,7 +320,12 @@ where
         self.publish_raw(frame).await
     }
 
-    pub async fn publish_raw(&self, frame: RpcFrame) -> Result<(), IoClosed> {
+    /// Publish the given raw frame
+    pub async fn publish_raw(&self, mut frame: RpcFrame) -> Result<(), IoClosed> {
+        let kkind: VarKeyKind = *self.ctx.kkind.read().unwrap();
+        frame.header.key.shrink_to(kkind);
+        frame.header.seq_no.resize(self.seq_kind);
+
         let cancel_fut = self.stopper.wait_stopped();
         let operate_fut = self.out.send(frame);
 
@@ -330,19 +366,25 @@ where
         T::Message: DeserializeOwned,
     {
         let (tx, rx) = tokio::sync::mpsc::channel(depth);
-        self.subber
-            .send(SubInfo {
-                key: T::TOPIC_KEY,
-                tx,
-            })
-            .await
-            .map_err(|_| IoClosed)?;
+        {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(IoClosed);
+            }
+            if let Some(entry) = guard.list.iter_mut().find(|(k, _)| *k == T::TOPIC_KEY) {
+                tracing::warn!("replacing subscription for topic path '{}'", T::PATH);
+                entry.1 = tx;
+            } else {
+                guard.list.push((T::TOPIC_KEY, tx));
+            }
+        }
         Ok(Subscription {
             rx,
             _pd: PhantomData,
         })
     }
 
+    /// Subscribe to the given [`Key`], without automatically handling deserialization
     pub async fn subscribe_raw(&self, key: Key, depth: usize) -> Result<RawSubscription, IoClosed> {
         let cancel_fut = self.stopper.wait_stopped();
         let operate_fut = self.subscribe_inner_raw(key, depth);
@@ -359,10 +401,18 @@ where
         depth: usize,
     ) -> Result<RawSubscription, IoClosed> {
         let (tx, rx) = tokio::sync::mpsc::channel(depth);
-        self.subber
-            .send(SubInfo { key, tx })
-            .await
-            .map_err(|_| IoClosed)?;
+        {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(IoClosed);
+            }
+            if let Some(entry) = guard.list.iter_mut().find(|(k, _)| *k == key) {
+                tracing::warn!("replacing subscription for raw topic key '{:?}'", key);
+                entry.1 = tx;
+            } else {
+                guard.list.push((key, tx));
+            }
+        }
         Ok(RawSubscription { rx })
     }
 
@@ -388,6 +438,8 @@ where
     }
 }
 
+/// Like Subscription, but receives Raw frames that are not
+/// automatically deserialized
 pub struct RawSubscription {
     rx: Receiver<RpcFrame>,
 }
@@ -432,16 +484,11 @@ impl<WireErr> Clone for HostClient<WireErr> {
             out: self.out.clone(),
             err_key: self.err_key,
             _pd: PhantomData,
-            subber: self.subber.clone(),
+            subscriptions: self.subscriptions.clone(),
             stopper: self.stopper.clone(),
+            seq_kind: self.seq_kind,
         }
     }
-}
-
-/// A new subscription that should be accounted for
-pub struct SubInfo {
-    pub key: Key,
-    pub tx: Sender<RpcFrame>,
 }
 
 /// Items necessary for implementing a custom I/O Task
@@ -452,14 +499,12 @@ pub struct WireContext {
     /// This shared information contains the WaitMap used for replying to
     /// open requests.
     pub incoming: Arc<HostContext>,
-    /// This is a stream of new subscriptions that should be tracked
-    pub new_subs: Receiver<SubInfo>,
 }
 
 /// A single postcard-rpc frame
 pub struct RpcFrame {
     /// The wire header
-    pub header: WireHeader,
+    pub header: VarHeader,
     /// The serialized message payload
     pub body: Vec<u8>,
 }
@@ -467,7 +512,7 @@ pub struct RpcFrame {
 impl RpcFrame {
     /// Serialize the `RpcFrame` into a Vec of bytes
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = postcard::to_stdvec(&self.header).expect("Alloc should never fail");
+        let mut out = self.header.write_to_vec();
         out.extend_from_slice(&self.body);
         out
     }
@@ -475,7 +520,8 @@ impl RpcFrame {
 
 /// Shared context between [HostClient] and the I/O worker task
 pub struct HostContext {
-    map: WaitMap<WireHeader, Vec<u8>>,
+    kkind: RwLock<VarKeyKind>,
+    map: WaitMap<VarHeader, (VarHeader, Vec<u8>)>,
     seq: AtomicU32,
 }
 
@@ -495,7 +541,7 @@ impl HostContext {
     /// Like `HostContext::process` but tells you if we processed the message or
     /// nobody wanted it
     pub fn process_did_wake(&self, frame: RpcFrame) -> Result<bool, ProcessError> {
-        match self.map.wake(&frame.header, frame.body) {
+        match self.map.wake(&frame.header, (frame.header, frame.body)) {
             WakeOutcome::Woke => Ok(true),
             WakeOutcome::NoMatch(_) => Ok(false),
             WakeOutcome::Closed(_) => Err(ProcessError::Closed),
@@ -506,7 +552,7 @@ impl HostContext {
     ///
     /// Returns an Err if the map was closed.
     pub fn process(&self, frame: RpcFrame) -> Result<(), ProcessError> {
-        if let WakeOutcome::Closed(_) = self.map.wake(&frame.header, frame.body) {
+        if let WakeOutcome::Closed(_) = self.map.wake(&frame.header, (frame.header, frame.body)) {
             Err(ProcessError::Closed)
         } else {
             Ok(())
