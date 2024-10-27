@@ -3,7 +3,7 @@
 /// Used to define a single Endpoint marker type that implements the
 /// [Endpoint][crate::Endpoint] trait.
 ///
-/// Prefer the [`endpoints!()`][crate::endpoints]` macro instead.
+/// Prefer the [`endpoints!()`][crate::endpoints] macro instead.
 ///
 /// ```rust
 /// # use postcard_schema::Schema;
@@ -135,7 +135,7 @@ macro_rules! endpoints {
 /// Used to define a single Topic marker type that implements the
 /// [Topic][crate::Topic] trait.
 ///
-/// Prefer the [`topics!()` macro](crate::topics) macro.
+/// Prefer the [`topics!()` macro](crate::topics) macro instead.
 ///
 /// ```rust
 /// # use postcard_schema::Schema;
