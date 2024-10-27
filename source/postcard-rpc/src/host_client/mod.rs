@@ -86,7 +86,9 @@ impl<T> From<WaitError> for HostErr<T> {
 /// be returned to the caller.
 #[cfg(target_family = "wasm")]
 pub trait WireTx: 'static {
+    /// Transmit error type
     type Error: std::error::Error;
+    /// Send a single frame
     fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
@@ -99,7 +101,9 @@ pub trait WireTx: 'static {
 /// be returned to the caller.
 #[cfg(target_family = "wasm")]
 pub trait WireRx: 'static {
+    /// Receive error type
     type Error: std::error::Error; // or std?
+    /// Receive a single frame
     fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>>;
 }
 
@@ -108,6 +112,7 @@ pub trait WireRx: 'static {
 /// Should be suitable for spawning a task in the host executor.
 #[cfg(target_family = "wasm")]
 pub trait WireSpawn: 'static {
+    /// Spawn a task
     fn spawn(&mut self, fut: impl Future<Output = ()> + 'static);
 }
 

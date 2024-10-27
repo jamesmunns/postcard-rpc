@@ -112,11 +112,10 @@
 //! * A string "path", like an HTTP URI that uniquely identifies the topic.
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
-#![warn(missing_docs)]
-#![warn(rustdoc::broken_intra_doc_links)]
+#![deny(missing_docs)]
+#![deny(rustdoc::broken_intra_doc_links)]
 
 use header::{VarKey, VarKeyKind};
-// use headered::extract_header_from_bytes;
 use postcard_schema::{schema::NamedType, Schema};
 use serde::{Deserialize, Serialize};
 

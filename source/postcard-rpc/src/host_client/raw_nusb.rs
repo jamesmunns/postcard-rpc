@@ -1,3 +1,5 @@
+//! Implementation of transport using nusb
+
 use std::future::Future;
 
 use nusb::{

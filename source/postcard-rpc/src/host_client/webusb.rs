@@ -1,3 +1,5 @@
+//! Implementation of transport using webusb
+
 use gloo::utils::format::JsValueSerdeExt;
 use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
@@ -10,6 +12,7 @@ use web_sys::{UsbDevice, UsbInTransferResult, UsbTransferStatus};
 use crate::header::VarSeqKind;
 use crate::host_client::{HostClient, WireRx, WireSpawn, WireTx};
 
+/// Implementation of the wire interface for WebUsb
 #[derive(Clone)]
 pub struct WebUsbWire {
     device: UsbDevice,
@@ -18,10 +21,13 @@ pub struct WebUsbWire {
     ep_out: u8,
 }
 
+/// WebUsb Error type
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum Error {
+    /// Error originating from the browser
     #[error("Browser error: {0}")]
     Browser(String),
+    /// Error originating from the USB stack
     #[error("USB transfer error: {0}")]
     UsbTransfer(&'static str),
 }
@@ -50,6 +56,7 @@ impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
 {
+    /// Create a new webusb connection instance
     pub async fn try_new_webusb(
         vendor_id: u16,
         interface: u8,
@@ -91,6 +98,7 @@ where
 /// .expect("could not create HostClient");
 /// ```
 impl WebUsbWire {
+    /// Create a new instance of [`WebUsbWire`]
     pub async fn new(
         vendor_id: u16,
         interface: u8,

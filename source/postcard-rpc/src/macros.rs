@@ -81,9 +81,8 @@ macro_rules! endpoint {
 ///     d: u32,
 /// }
 ///
-/// endpoint!(Endpoint1, Req1, Resp1, "endpoint/1");
 /// endpoints!{
-///     list: ENDPOINTS_LIST:
+///     list = ENDPOINTS_LIST;
 ///     | EndpointTy     | RequestTy     | ResponseTy    | Path              |
 ///     | ----------     | ---------     | ----------    | ----              |
 ///     | Endpoint1      | Req1          | Resp1         | "endpoints/one"   |
