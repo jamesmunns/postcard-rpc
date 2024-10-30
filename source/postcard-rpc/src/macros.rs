@@ -502,7 +502,7 @@ mod endpoints_test {
         }
         assert_eq!(TOPICS_IN_LIST.types.len(), 1);
         assert_eq!(TOPICS_IN_LIST.topics.len(), 3);
-        assert_eq!(TOPICS_OUT_LIST.types.len(), 5);
+        assert_eq!(TOPICS_OUT_LIST.types.len(), 6);
         assert_eq!(TOPICS_OUT_LIST.topics.len(), 2);
     }
 }

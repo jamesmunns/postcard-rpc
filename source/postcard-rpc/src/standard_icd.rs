@@ -2,7 +2,7 @@
 //!
 //! This is used by [`define_dispatch!()`] as well.
 
-use crate::{endpoints, topics, Key};
+use crate::{endpoints, topics, Key, TopicDirection};
 use postcard_schema::Schema;
 use serde::{Deserialize, Serialize};
 
@@ -84,6 +84,8 @@ pub enum SchemaData<'a> {
         path: &'a str,
         /// The key of the Message type + path
         key: Key,
+        /// The direction of the Topic
+        direction: TopicDirection,
     },
 }
 
@@ -108,6 +110,8 @@ pub enum OwnedSchemaData {
         path: String,
         /// The key of the Message type + path
         key: Key,
+        /// The direction of the Topic
+        direction: TopicDirection,
     },
 }
 
@@ -119,7 +123,9 @@ pub struct SchemaTotals {
     /// A count of the number of (Owned)SchemaData::Endpoint messages sent
     pub endpoints_sent: u32,
     /// A count of the number of (Owned)SchemaData::Topic messages sent
-    pub topics_sent: u32,
+    pub topics_in_sent: u32,
+    /// A count of the number of (Owned)SchemaData::Topic messages sent
+    pub topics_out_sent: u32,
     /// A count of the number of messages (any of the above) that failed to send
     pub errors: u32,
 }

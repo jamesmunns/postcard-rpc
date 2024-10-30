@@ -34,7 +34,7 @@ use serde::Serialize;
 
 use crate::{
     header::{VarHeader, VarKey, VarKeyKind, VarSeq},
-    Key,
+    DeviceMap, Key, TopicDirection,
 };
 
 //////////////////////////////////////////////////////////////////////////////
@@ -222,6 +222,103 @@ impl<Tx: WireTx> Sender<Tx> {
     ) -> Result<(), Tx::Error> {
         self.reply_keyed(seq_no, crate::standard_icd::ERROR_KEY, &error)
             .await
+    }
+
+    /// Implements the [`GetAllSchemas`][crate::standard_icd::GetAllSchemas] endpoint
+    pub async fn send_all_schemas(
+        &self,
+        hdr: &VarHeader,
+        device_map: &DeviceMap,
+    ) -> Result<(), Tx::Error> {
+        #[cfg(feature = "use-std")]
+        use crate::standard_icd::OwnedSchemaData as SchemaData;
+        #[cfg(not(feature = "use-std"))]
+        use crate::standard_icd::SchemaData;
+        use crate::standard_icd::{GetAllSchemaData, GetAllSchemas, SchemaTotals};
+
+        let mut msg_ctr = 0;
+        let mut err_ctr = 0;
+
+        // First, send all types
+        for ty in device_map.types {
+            let res = self
+                .publish::<GetAllSchemaData>(VarSeq::Seq2(msg_ctr), &SchemaData::Type((*ty).into()))
+                .await;
+            if res.is_err() {
+                err_ctr += 1;
+            };
+            msg_ctr += 1;
+        }
+
+        // Then all endpoints
+        for ep in device_map.endpoints {
+            let res = self
+                .publish::<GetAllSchemaData>(
+                    VarSeq::Seq2(msg_ctr),
+                    &SchemaData::Endpoint {
+                        path: ep.0.into(),
+                        request_key: ep.1,
+                        response_key: ep.2,
+                    },
+                )
+                .await;
+            if res.is_err() {
+                err_ctr += 1;
+            }
+
+            msg_ctr += 1;
+        }
+
+        // Then output topics
+        for to in device_map.topics_out {
+            let res = self
+                .publish::<GetAllSchemaData>(
+                    VarSeq::Seq2(msg_ctr),
+                    &SchemaData::Topic {
+                        direction: TopicDirection::ToClient,
+                        path: to.0.into(),
+                        key: to.1,
+                    },
+                )
+                .await;
+            if res.is_err() {
+                err_ctr += 1;
+            }
+            msg_ctr += 1;
+        }
+
+        // Then input topics
+        for ti in device_map.topics_in {
+            let res = self
+                .publish::<GetAllSchemaData>(
+                    VarSeq::Seq2(msg_ctr),
+                    &SchemaData::Topic {
+                        direction: TopicDirection::ToServer,
+                        path: ti.0.into(),
+                        key: ti.1,
+                    },
+                )
+                .await;
+            if res.is_err() {
+                err_ctr += 1;
+            }
+            msg_ctr += 1;
+        }
+
+        // Finally, reply with the totals
+        self.reply::<GetAllSchemas>(
+            hdr.seq_no,
+            &SchemaTotals {
+                types_sent: device_map.types.len() as u32,
+                endpoints_sent: device_map.endpoints.len() as u32,
+                topics_in_sent: device_map.topics_in.len() as u32,
+                topics_out_sent: device_map.topics_out.len() as u32,
+                errors: err_ctr,
+            },
+        )
+        .await?;
+
+        Ok(())
     }
 }
 

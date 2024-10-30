@@ -3,7 +3,9 @@
 //! This library is meant to be used with the `Dispatch` type and the
 //! postcard-rpc wire protocol.
 
+use core::time::Duration;
 use std::{
+    collections::HashSet,
     future::Future,
     marker::PhantomData,
     sync::{
@@ -16,8 +18,8 @@ use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,
 };
-use postcard_schema::Schema;
-use serde::{de::DeserializeOwned, Serialize};
+use postcard_schema::{schema::owned::OwnedNamedType, Schema};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
     select,
     sync::{
@@ -29,7 +31,8 @@ use util::Subscriptions;
 
 use crate::{
     header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind},
-    Endpoint, Key, Topic,
+    standard_icd::{GetAllSchemaData, GetAllSchemas, OwnedSchemaData},
+    Endpoint, Key, Topic, TopicDirection,
 };
 
 use self::util::Stopper;
@@ -220,11 +223,103 @@ where
     }
 }
 
+/// .
+#[derive(Debug)]
+pub enum SchemaError<WireErr> {
+    /// .
+    Comms(HostErr<WireErr>),
+    /// .
+    TaskError,
+    /// .
+    InvalidReportData,
+    /// .
+    LostData,
+}
+
+impl<WireErr> From<UnableToFindType> for SchemaError<WireErr> {
+    fn from(_: UnableToFindType) -> Self {
+        Self::InvalidReportData
+    }
+}
+
 /// # Interface Methods
 impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
 {
+    /// .
+    pub async fn get_schema_report(&self) -> Result<SchemaReport, SchemaError<WireErr>> {
+        let Ok(mut sub) = self.subscribe::<GetAllSchemaData>(64).await else {
+            return Err(SchemaError::Comms(HostErr::Closed));
+        };
+
+        let collect_task = tokio::task::spawn({
+            async move {
+                let mut got = vec![];
+                while let Ok(Some(val)) =
+                    tokio::time::timeout(Duration::from_millis(100), sub.recv()).await
+                {
+                    got.push(val);
+                }
+                got
+            }
+        });
+        let trigger_task = self.send_resp::<GetAllSchemas>(&()).await;
+        let data = collect_task.await;
+        let (resp, data) = match (trigger_task, data) {
+            (Ok(a), Ok(b)) => (a, b),
+            (Ok(_), Err(_)) => return Err(SchemaError::TaskError),
+            (Err(e), Ok(_)) => return Err(SchemaError::Comms(e)),
+            (Err(e1), Err(_e2)) => return Err(SchemaError::Comms(e1)),
+        };
+        let mut rpt = SchemaReport::default();
+        let mut e_and_t = vec![];
+
+        for d in data {
+            match d {
+                OwnedSchemaData::Type(d) => {
+                    rpt.add_type(d);
+                }
+                e @ OwnedSchemaData::Endpoint { .. } => e_and_t.push(e),
+                t @ OwnedSchemaData::Topic { .. } => e_and_t.push(t),
+            }
+        }
+
+        for e in e_and_t {
+            match e {
+                OwnedSchemaData::Type(_) => unreachable!(),
+                OwnedSchemaData::Endpoint {
+                    path,
+                    request_key,
+                    response_key,
+                } => {
+                    rpt.add_endpoint(path, request_key, response_key)?;
+                }
+                OwnedSchemaData::Topic {
+                    path,
+                    key,
+                    direction,
+                } => match direction {
+                    TopicDirection::ToServer => rpt.add_topic_in(path, key)?,
+                    TopicDirection::ToClient => rpt.add_topic_out(path, key)?,
+                },
+            }
+        }
+
+        let mut data_matches = true;
+        data_matches &= resp.endpoints_sent as usize == rpt.endpoints.len();
+        data_matches &= resp.topics_in_sent as usize == rpt.topics_in.len();
+        data_matches &= resp.topics_out_sent as usize == rpt.topics_out.len();
+        data_matches &= resp.errors == 0;
+
+        if data_matches {
+            // TODO: filter primitive types out?
+            Ok(rpt)
+        } else {
+            Err(SchemaError::LostData)
+        }
+    }
+
     /// Send a message of type [Endpoint::Request][Endpoint] to `path`, and await
     /// a response of type [Endpoint::Response][Endpoint] (or WireErr) to `path`.
     ///
@@ -557,5 +652,186 @@ impl HostContext {
         } else {
             Ok(())
         }
+    }
+}
+
+/// .
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Schema)]
+pub struct SchemaReport {
+    /// .
+    pub types: HashSet<OwnedNamedType>,
+    /// .
+    pub topics_in: Vec<TopicReport>,
+    /// .
+    pub topics_out: Vec<TopicReport>,
+    /// .
+    pub endpoints: Vec<EndpointReport>,
+}
+
+impl Default for SchemaReport {
+    fn default() -> Self {
+        let mut me = Self {
+            types: Default::default(),
+            topics_in: Default::default(),
+            topics_out: Default::default(),
+            endpoints: Default::default(),
+        };
+
+        // We need to pre-populate all of the types we consider primitives:
+        // DataModelType::Bool
+        me.add_type(OwnedNamedType::from(<bool as Schema>::SCHEMA));
+        // DataModelType::I8
+        me.add_type(OwnedNamedType::from(<i8 as Schema>::SCHEMA));
+        // DataModelType::U8
+        me.add_type(OwnedNamedType::from(<u8 as Schema>::SCHEMA));
+        // DataModelType::I16
+        me.add_type(OwnedNamedType::from(<i16 as Schema>::SCHEMA));
+        // DataModelType::I32
+        me.add_type(OwnedNamedType::from(<i32 as Schema>::SCHEMA));
+        // DataModelType::I64
+        me.add_type(OwnedNamedType::from(<i64 as Schema>::SCHEMA));
+        // DataModelType::I128
+        me.add_type(OwnedNamedType::from(<i128 as Schema>::SCHEMA));
+        // DataModelType::U16
+        me.add_type(OwnedNamedType::from(<u16 as Schema>::SCHEMA));
+        // DataModelType::U32
+        me.add_type(OwnedNamedType::from(<u32 as Schema>::SCHEMA));
+        // DataModelType::U64
+        me.add_type(OwnedNamedType::from(<u64 as Schema>::SCHEMA));
+        // DataModelType::U128
+        me.add_type(OwnedNamedType::from(<u128 as Schema>::SCHEMA));
+        // // DataModelType::Usize
+        // me.add_type(OwnedNamedType::from(<usize as Schema>::SCHEMA));
+        // // DataModelType::Isize
+        // me.add_type(OwnedNamedType::from(<isize as Schema>::SCHEMA));
+        // DataModelType::F32
+        me.add_type(OwnedNamedType::from(<f32 as Schema>::SCHEMA));
+        // DataModelType::F64
+        me.add_type(OwnedNamedType::from(<f64 as Schema>::SCHEMA));
+        // DataModelType::Char
+        me.add_type(OwnedNamedType::from(<char as Schema>::SCHEMA));
+        // DataModelType::String
+        me.add_type(OwnedNamedType::from(<String as Schema>::SCHEMA));
+        // DataModelType::ByteArray
+        me.add_type(OwnedNamedType::from(<Vec<u8> as Schema>::SCHEMA));
+        // DataModelType::Unit
+        me.add_type(OwnedNamedType::from(<() as Schema>::SCHEMA));
+        // DataModelType::Schema
+        me.add_type(OwnedNamedType::from(<OwnedNamedType as Schema>::SCHEMA));
+
+        me
+    }
+}
+
+/// .
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Schema)]
+pub struct TopicReport {
+    /// .
+    pub path: String,
+    /// .
+    pub key: Key,
+    /// .
+    pub ty: OwnedNamedType,
+}
+
+/// .
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Schema)]
+pub struct EndpointReport {
+    /// .
+    pub path: String,
+    /// .
+    pub req_key: Key,
+    /// .
+    pub req_ty: OwnedNamedType,
+    /// .
+    pub resp_key: Key,
+    /// .
+    pub resp_ty: OwnedNamedType,
+}
+
+/// .
+#[derive(Debug)]
+pub struct UnableToFindType;
+
+impl SchemaReport {
+    /// .
+    pub fn add_type(&mut self, t: OwnedNamedType) {
+        self.types.insert(t);
+    }
+
+    /// .
+    pub fn add_topic_in(&mut self, path: String, key: Key) -> Result<(), UnableToFindType> {
+        // We need to figure out which type goes with this topic
+        for ty in self.types.iter() {
+            let calc_key = Key::for_owned_schema_path(&path, ty);
+            if calc_key == key {
+                self.topics_in.push(TopicReport {
+                    path,
+                    key,
+                    ty: ty.clone(),
+                });
+                return Ok(());
+            }
+        }
+        Err(UnableToFindType)
+    }
+
+    /// .
+    pub fn add_topic_out(&mut self, path: String, key: Key) -> Result<(), UnableToFindType> {
+        // We need to figure out which type goes with this topic
+        for ty in self.types.iter() {
+            let calc_key = Key::for_owned_schema_path(&path, ty);
+            if calc_key == key {
+                self.topics_out.push(TopicReport {
+                    path,
+                    key,
+                    ty: ty.clone(),
+                });
+                return Ok(());
+            }
+        }
+        Err(UnableToFindType)
+    }
+
+    /// .
+    pub fn add_endpoint(
+        &mut self,
+        path: String,
+        req_key: Key,
+        resp_key: Key,
+    ) -> Result<(), UnableToFindType> {
+        // We need to figure out which types go with this endpoint
+        let mut req_ty = None;
+        for ty in self.types.iter() {
+            let calc_key = Key::for_owned_schema_path(&path, ty);
+            if calc_key == req_key {
+                req_ty = Some(ty.clone());
+                break;
+            }
+        }
+        let Some(req_ty) = req_ty else {
+            return Err(UnableToFindType);
+        };
+
+        let mut resp_ty = None;
+        for ty in self.types.iter() {
+            let calc_key = Key::for_owned_schema_path(&path, ty);
+            if calc_key == resp_key {
+                resp_ty = Some(ty.clone());
+                break;
+            }
+        }
+        let Some(resp_ty) = resp_ty else {
+            return Err(UnableToFindType);
+        };
+
+        self.endpoints.push(EndpointReport {
+            path,
+            req_key,
+            req_ty,
+            resp_key,
+            resp_ty,
+        });
+        Ok(())
     }
 }

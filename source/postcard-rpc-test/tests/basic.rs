@@ -11,7 +11,7 @@ use tokio::{sync::mpsc, task::yield_now};
 use postcard_rpc::{
     define_dispatch, endpoints,
     header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind},
-    host_client::test_channels as client,
+    host_client::{test_channels as client, HostClient},
     server::{
         impls::test_channels::{
             dispatch_impl::{new_server, spawn_fn, Settings, WireSpawnImpl, WireTxImpl},
@@ -407,6 +407,57 @@ async fn end_to_end() {
     assert_eq!(resp.0, 42);
     let resp = cli.send_resp::<BetaEndpoint>(&BReq(1234)).await.unwrap();
     assert_eq!(resp.0, 1234);
+}
+
+#[tokio::test]
+async fn end_to_end_schema() {
+    let (client_tx, server_rx) = mpsc::channel(16);
+    let (server_tx, client_rx) = mpsc::channel(16);
+    let topic_ctr = Arc::new(AtomicUsize::new(0));
+
+    let app = SingleDispatcher::new(
+        TestContext {
+            ctr: Arc::new(AtomicUsize::new(0)),
+            topic_ctr: topic_ctr.clone(),
+            msg: String::from("hello"),
+        },
+        ChannelWireSpawn {},
+    );
+
+    let cwrx = ChannelWireRx::new(server_rx);
+    let cwtx = ChannelWireTx::new(server_tx);
+
+    let kkind = app.min_key_len();
+    let report = app.device_map;
+    let mut server = new_server(
+        app,
+        Settings {
+            tx: cwtx,
+            rx: cwrx,
+            buf: 1024,
+            kkind,
+        },
+    );
+    tokio::task::spawn(async move {
+        server.run().await;
+    });
+
+    let cli: HostClient<_> = client::new_from_channels(client_tx, client_rx, VarSeqKind::Seq1);
+    let schema = cli.get_schema_report().await.unwrap();
+
+    for ep in &schema.endpoints {
+        println!("'{}': {} -> {}", ep.path, ep.req_ty, ep.resp_ty);
+    }
+    for tp in &schema.topics_in {
+        println!("'{}' ---> {}", tp.path, tp.ty);
+    }
+    for tp in &schema.topics_out {
+        println!("'{}' <--- {}", tp.path, tp.ty);
+    }
+
+    assert_eq!(schema.endpoints.len(), report.endpoints.len());
+    assert_eq!(schema.topics_in.len(), report.topics_in.len());
+    assert_eq!(schema.topics_out.len(), report.topics_out.len());
 }
 
 #[tokio::test]

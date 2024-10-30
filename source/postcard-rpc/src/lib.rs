@@ -223,7 +223,7 @@ mod key_owned {
 ///
 /// * Key8 bytes (`[u8; 8]`): `[a, b, c, d, e, f, g, h]`
 /// * Key4 bytes (`u8`): `a ^ b ^ c ^ d ^ e ^ f ^ g ^ h`
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Key1(u8);
 
 /// A compacted 2-byte key
@@ -232,7 +232,7 @@ pub struct Key1(u8);
 ///
 /// * Key8 bytes (`[u8; 8]`): `[a, b, c, d, e, f, g, h]`
 /// * Key4 bytes (`[u8; 2]`): `[a ^ b ^ c ^ d, e ^ f ^ g ^ h]`
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Key2([u8; 2]);
 
 /// A compacted 4-byte key
@@ -241,7 +241,7 @@ pub struct Key2([u8; 2]);
 ///
 /// * Key8 bytes (`[u8; 8]`): `[a, b, c, d, e, f, g, h]`
 /// * Key4 bytes (`[u8; 4]`): `[a ^ b, c ^ d, e ^ f, g ^ h]`
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Key4([u8; 4]);
 
 impl Key1 {
@@ -429,8 +429,20 @@ pub trait Endpoint {
     const PATH: &'static str;
     /// The unique [Key] identifying the Request
     const REQ_KEY: Key;
+    /// The unique [Key4] identifying the Request
+    const REQ_KEY4: Key4 = Key4::from_key8(Self::REQ_KEY);
+    /// The unique [Key2] identifying the Request
+    const REQ_KEY2: Key2 = Key2::from_key8(Self::REQ_KEY);
+    /// The unique [Key1] identifying the Request
+    const REQ_KEY1: Key1 = Key1::from_key8(Self::REQ_KEY);
     /// The unique [Key] identifying the Response
     const RESP_KEY: Key;
+    /// The unique [Key4] identifying the Response
+    const RESP_KEY4: Key4 = Key4::from_key8(Self::RESP_KEY);
+    /// The unique [Key2] identifying the Response
+    const RESP_KEY2: Key2 = Key2::from_key8(Self::RESP_KEY);
+    /// The unique [Key1] identifying the Response
+    const RESP_KEY1: Key1 = Key1::from_key8(Self::RESP_KEY);
 }
 
 /// A marker trait denoting a single topic
@@ -447,10 +459,16 @@ pub trait Topic {
     const PATH: &'static str;
     /// The unique [Key] identifying the Message
     const TOPIC_KEY: Key;
+    /// The unique [Key4] identifying the Message
+    const TOPIC_KEY4: Key4 = Key4::from_key8(Self::TOPIC_KEY);
+    /// The unique [Key2] identifying the Message
+    const TOPIC_KEY2: Key2 = Key2::from_key8(Self::TOPIC_KEY);
+    /// The unique [Key2] identifying the Message
+    const TOPIC_KEY1: Key1 = Key1::from_key8(Self::TOPIC_KEY);
 }
 
 /// The direction of topic messages
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy, Schema, Serialize, Deserialize)]
 pub enum TopicDirection {
     /// Topic messages sent TO the SERVER, FROM the CLIENT
     ToServer,

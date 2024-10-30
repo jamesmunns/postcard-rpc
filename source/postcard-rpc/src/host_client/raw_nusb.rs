@@ -305,7 +305,6 @@ impl NusbWireRx {
                 self.consecutive_errs = 0;
             }
 
-            println!("Returning Frame");
             return Ok(res.data);
         }
     }
