@@ -119,23 +119,21 @@ use header::{VarKey, VarKeyKind};
 use postcard_schema::{schema::NamedType, Schema};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "cobs")]
-pub mod accumulator;
-
 pub mod hash;
 pub mod header;
+mod macros;
+pub mod server;
+pub mod standard_icd;
+pub mod uniques;
+
+#[cfg(feature = "cobs")]
+pub mod accumulator;
 
 #[cfg(feature = "use-std")]
 pub mod host_client;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
-
-mod macros;
-
-pub mod server;
-
-pub mod uniques;
 
 /// The `Key` uniquely identifies what "kind" of message this is.
 ///
@@ -451,64 +449,13 @@ pub trait Topic {
     const TOPIC_KEY: Key;
 }
 
-/// These are items you can use for your error path and error key.
-///
-/// This is used by [`define_dispatch!()`] as well.
-pub mod standard_icd {
-    use crate::Key;
-    use postcard_schema::Schema;
-    use serde::{Deserialize, Serialize};
-
-    /// The calculated Key for the type [`WireError`] and the path [`ERROR_PATH`]
-    pub const ERROR_KEY: Key = Key::for_path::<WireError>(ERROR_PATH);
-
-    /// The path string used for the error type
-    pub const ERROR_PATH: &str = "error";
-
-    /// The given frame was too long
-    #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
-    pub struct FrameTooLong {
-        /// The length of the too-long frame
-        pub len: u32,
-        /// The maximum frame length supported
-        pub max: u32,
-    }
-
-    /// The given frame was too short
-    #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
-    pub struct FrameTooShort {
-        /// The length of the too-short frame
-        pub len: u32,
-    }
-
-    /// A protocol error that is handled outside of the normal request type, usually
-    /// indicating a protocol-level error
-    #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
-    pub enum WireError {
-        /// The frame exceeded the buffering capabilities of the server
-        FrameTooLong(FrameTooLong),
-        /// The frame was shorter than the minimum frame size and was rejected
-        FrameTooShort(FrameTooShort),
-        /// Deserialization of a message failed
-        DeserFailed,
-        /// Serialization of a message failed, usually due to a lack of space to
-        /// buffer the serialized form
-        SerFailed,
-        /// The key associated with this request was unknown
-        UnknownKey,
-        /// The server was unable to spawn the associated handler, typically due
-        /// to an exhaustion of resources
-        FailedToSpawn,
-        /// The provided key is below the minimum key size calculated to avoid hash
-        /// collisions, and was rejected to avoid potential misunderstanding
-        KeyTooSmall,
-    }
-
-    #[cfg(not(feature = "use-std"))]
-    crate::topic!(Logging, [u8], "logs/formatted");
-
-    #[cfg(feature = "use-std")]
-    crate::topic!(Logging, Vec<u8>, "logs/formatted");
+/// The direction of topic messages
+#[derive(Debug)]
+pub enum TopicDirection {
+    /// Topic messages sent TO the SERVER, FROM the CLIENT
+    ToServer,
+    /// Topic messages sent TO the CLIENT, FROM the SERVER
+    ToClient,
 }
 
 /// An overview of all topics (in and out) and endpoints
@@ -551,6 +498,8 @@ pub struct EndpointMap {
 /// by path and key
 #[derive(Debug)]
 pub struct TopicMap {
+    /// The direction of these topic messages
+    pub direction: TopicDirection,
     /// The set of unique types used by all topics in this map
     pub types: &'static [&'static NamedType],
     /// The list of topics by path string and topic key

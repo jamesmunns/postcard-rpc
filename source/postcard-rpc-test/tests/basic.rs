@@ -80,6 +80,7 @@ endpoints! {
 
 topics! {
     list = TOPICS_IN_LIST;
+    direction = postcard_rpc::TopicDirection::ToServer;
     | TopicTy       | MessageTy             | Path      | Cfg                           |
     | ----------    | ---------             | ----      | ---                           |
     | ZetaTopic1    | ZMsg                  | "zeta1"   |                               |
@@ -93,6 +94,7 @@ topics! {
 
 topics! {
     list = TOPICS_OUT_LIST;
+    direction = postcard_rpc::TopicDirection::ToClient;
     | TopicTy           | MessageTy     | Path              |
     | ----------        | ---------     | ----              |
     | ZetaTopic10       | ZMsg          | "zeta10"          |
@@ -157,11 +159,13 @@ fn test_borrowep_blocking2(
     _header: VarHeader,
     _body: (),
 ) -> Message<'_> {
-    Message { data: context.msg.as_str() }
+    Message {
+        data: context.msg.as_str(),
+    }
 }
 
 fn test_borrowep_blocking(
-    context: &mut TestContext,
+    _context: &mut TestContext,
     _header: VarHeader,
     _body: Message<'_>,
 ) -> u8 {

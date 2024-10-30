@@ -91,14 +91,82 @@ macro_rules! endpoint {
 /// ```
 #[macro_export]
 macro_rules! endpoints {
+    (@ep_tys $([[$($meta:meta)?] $ep_name:ident])*) => {
+        $crate::endpoints!(@ep_tys omit_std=false; $([[$($meta)?] $ep_name])*)
+    };
+    (@ep_tys omit_std=true; $([[$($meta:meta)?] $ep_name:ident])*) => {
+        const {
+            const LISTS: &[&[&'static postcard_schema::schema::NamedType]] = &[
+                $(
+                    $(#[$meta])?
+                    $crate::unique_types!(<$ep_name as $crate::Endpoint>::Request),
+                    $(#[$meta])?
+                    $crate::unique_types!(<$ep_name as $crate::Endpoint>::Response),
+                )*
+            ];
+
+            const TTL_COUNT: usize = $crate::uniques::total_len(LISTS);
+            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
+            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            SMALL_RPT.as_slice()
+        }
+    };
+    (@ep_tys omit_std=false; $([[$($meta:meta)?] $ep_name:ident])*) => {
+        const {
+            const USER_TYS: &[&'static postcard_schema::schema::NamedType] =
+                $crate::endpoints!(@ep_tys omit_std=true; $([[$($meta)?] $ep_name])*);
+            const STD_TYS: &[&'static postcard_schema::schema::NamedType]
+                = $crate::standard_icd::STANDARD_ICD_ENDPOINTS.types;
+
+            const BOTH: &[&[&'static postcard_schema::schema::NamedType]] = &[
+                USER_TYS, STD_TYS,
+            ];
+            const TTL_COUNT: usize = $crate::uniques::total_len(BOTH);
+            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(BOTH);
+            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            SMALL_RPT.as_slice()
+        }
+    };
+    (@ep_eps $([[$($meta:meta)?] $ep_name:ident])*) => {
+        $crate::endpoints!(@ep_eps omit_std=false; $([[$($meta)?] $ep_name])*)
+    };
+    (@ep_eps omit_std=true; $([[$($meta:meta)?] $ep_name:ident])*) => {
+        &[
+            $(
+                $(#[$meta])?
+                (
+                    <$ep_name as $crate::Endpoint>::PATH,
+                    <$ep_name as $crate::Endpoint>::REQ_KEY,
+                    <$ep_name as $crate::Endpoint>::RESP_KEY,
+                ),
+            )*
+        ]
+    };
+    (@ep_eps omit_std=false; $([[$($meta:meta)?] $ep_name:ident])*) => {
+        const {
+            const USER_EPS: &[(&str, $crate::Key, $crate::Key)] =
+                $crate::endpoints!(@ep_eps omit_std=true; $([[$($meta)?] $ep_name])*);
+            const NULL_KEY: $crate::Key = unsafe { $crate::Key::from_bytes([0u8; 8]) };
+            const STD_EPS: &[(&str, $crate::Key, $crate::Key)] =
+                $crate::standard_icd::STANDARD_ICD_ENDPOINTS.endpoints;
+
+            $crate::concat_arrays! {
+                init = ("", NULL_KEY, NULL_KEY);
+                ty = (&str, $crate::Key, $crate::Key);
+                [STD_EPS, USER_EPS]
+            }
+        }
+    };
     (
            list = $list_name:ident;
+           $(omit_std = $omit:tt;)?
            | EndpointTy     | RequestTy                                | ResponseTy                                  | Path              | $( Cfg           |)?
            | $(-)*          | $(-)*                                    | $(-)*                                       | $(-)*             | $($(-)*          |)?
         $( | $ep_name:ident | $req_ty:tt $(< $($req_lt:lifetime),+ >)? | $resp_ty:tt $(< $($resp_lt:lifetime),+ >)?  | $path_str:literal | $($meta:meta)? $(|)? )*
     ) => {
         // struct definitions and trait impls
         $(
+            /// Macro Generated Marker Type
             $(#[$meta])?
             pub struct $ep_name < $($($req_lt,)+)? $($($resp_lt,)+)? > {
                 $(
@@ -120,25 +188,10 @@ macro_rules! endpoints {
             }
         )*
 
+        /// Macro Generated Endpoint Map
         pub const $list_name: $crate::EndpointMap = $crate::EndpointMap {
-            types: &[
-                $(
-                    $(#[$meta])?
-                    <$ep_name as $crate::Endpoint>::Request::SCHEMA,
-                    $(#[$meta])?
-                    <$ep_name as $crate::Endpoint>::Response::SCHEMA,
-                )*
-            ],
-            endpoints: &[
-                $(
-                    $(#[$meta])?
-                    (
-                        <$ep_name as $crate::Endpoint>::PATH,
-                        <$ep_name as $crate::Endpoint>::REQ_KEY,
-                        <$ep_name as $crate::Endpoint>::RESP_KEY,
-                    ),
-                )*
-            ],
+            types: $crate::endpoints!(@ep_tys $(omit_std = $omit;)? $([[$($meta)?] $ep_name])*),
+            endpoints: $crate::endpoints!(@ep_eps $(omit_std = $omit;)? $([[$($meta)?] $ep_name])*),
         };
     };
 }
@@ -195,7 +248,7 @@ macro_rules! topic {
 /// ```rust
 /// # use postcard_schema::Schema;
 /// # use serde::{Serialize, Deserialize};
-/// use postcard_rpc::topics;
+/// use postcard_rpc::{topics, TopicDirection};
 ///
 /// #[derive(Debug, Serialize, Deserialize, Schema)]
 /// pub struct Message1 {
@@ -211,6 +264,7 @@ macro_rules! topic {
 ///
 /// topics!{
 ///    list = TOPIC_LIST_NAME;
+///    direction = TopicDirection::ToServer;
 ///    | TopicTy        | MessageTy     | Path              |
 ///    | -------        | ---------     | ----              |
 ///    | Topic1         | Message1      | "topics/one"      |
@@ -220,8 +274,81 @@ macro_rules! topic {
 
 #[macro_export]
 macro_rules! topics {
+    (@tp_tys ( $dir:expr ) $([[$($meta:meta)?] $tp_name:ident])*) => {
+        $crate::topics!(@tp_tys ( $dir ) omit_std=false; $([[$($meta)?] $tp_name])*)
+    };
+    (@tp_tys ( $dir:expr ) omit_std=true; $([[$($meta:meta)?] $tp_name:ident])*) => {
+        const {
+            const LISTS: &[&[&'static postcard_schema::schema::NamedType]] = &[
+                $(
+                    $(#[$meta])?
+                    $crate::unique_types!(<$tp_name as $crate::Topic>::Message),
+                )*
+            ];
+
+            const TTL_COUNT: usize = $crate::uniques::total_len(LISTS);
+            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
+            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            SMALL_RPT.as_slice()
+        }
+    };
+    (@tp_tys ( $dir:expr ) omit_std=false; $([[$($meta:meta)?] $tp_name:ident])*) => {
+        const {
+            const USER_TYS: &[&'static postcard_schema::schema::NamedType] =
+                $crate::topics!(@tp_tys ( $dir ) omit_std=true; $([[$($meta)?] $tp_name])*);
+            const STD_TYS: &[&'static postcard_schema::schema::NamedType] = const {
+                match $dir {
+                    $crate::TopicDirection::ToServer => $crate::standard_icd::STANDARD_ICD_TOPICS_IN.types,
+                    $crate::TopicDirection::ToClient => $crate::standard_icd::STANDARD_ICD_TOPICS_OUT.types,
+                }
+            };
+
+            const BOTH: &[&[&'static postcard_schema::schema::NamedType]] = &[
+                STD_TYS, USER_TYS,
+            ];
+            const TTL_COUNT: usize = $crate::uniques::total_len(BOTH);
+            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(BOTH);
+            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            SMALL_RPT.as_slice()
+        }
+    };
+    (@tp_tps ( $dir:expr ) $([[$($meta:meta)?] $tp_name:ident])*) => {
+        $crate::topics!(@tp_tps ( $dir ) omit_std=false; $([[$($meta)?] $tp_name])*)
+    };
+    (@tp_tps ( $dir:expr ) omit_std=true; $([[$($meta:meta)?] $tp_name:ident])*) => {
+        &[
+            $(
+                $(#[$meta])?
+                (
+                    <$tp_name as $crate::Topic>::PATH,
+                    <$tp_name as $crate::Topic>::TOPIC_KEY,
+                ),
+            )*
+        ]
+    };
+    (@tp_tps ( $dir:expr ) omit_std=false; $([[$($meta:meta)?] $tp_name:ident])*) => {
+        const {
+            const USER_TPS: &[(&str, $crate::Key)] =
+                $crate::topics!(@tp_tps ( $dir ) omit_std=true; $([[$($meta)?] $tp_name])*);
+            const NULL_KEY: $crate::Key = unsafe { $crate::Key::from_bytes([0u8; 8]) };
+            const STD_TPS: &[(&str, $crate::Key)] = const {
+                match $dir {
+                    $crate::TopicDirection::ToServer => $crate::standard_icd::STANDARD_ICD_TOPICS_IN.topics,
+                    $crate::TopicDirection::ToClient => $crate::standard_icd::STANDARD_ICD_TOPICS_OUT.topics,
+                }
+            };
+
+            $crate::concat_arrays! {
+                init = ("", NULL_KEY);
+                ty = (&str, $crate::Key);
+                [STD_TPS, USER_TPS]
+            }
+        }
+    };
     (
         list = $list_name:ident;
+        direction = $direction:expr;
+        $(omit_std = $omit:tt;)?
         | TopicTy        | MessageTy                                | Path              | $( Cfg           |)?
         | $(-)*          | $(-)*                                    | $(-)*             | $($(-)*          |)?
       $(| $tp_name:ident | $msg_ty:tt $(< $($msg_lt:lifetime),+ >)? | $path_str:literal | $($meta:meta)? $(|)?)*
@@ -247,24 +374,48 @@ macro_rules! topics {
             }
         )*
 
+        /// Macro Generated Topic Map
         pub const $list_name: $crate::TopicMap = $crate::TopicMap {
-            types: &[
-                $(
-                    $(#[$meta])?
-                    <$tp_name as $crate::Topic>::Message::SCHEMA,
-                )*
-            ],
-            topics: &[
-                $(
-                    $(#[$meta])?
-                    (
-                        <$tp_name as $crate::Topic>::PATH,
-                        <$tp_name as $crate::Topic>::TOPIC_KEY,
-                    ),
-                )*
-            ],
+            direction: $direction,
+            types: $crate::topics!(@tp_tys ( $direction ) $(omit_std = $omit;)? $([[$($meta)?] $tp_name])*),
+            topics: $crate::topics!(@tp_tps ( $direction ) $(omit_std = $omit;)? $([[$($meta)?] $tp_name])*),
         };
     };
+}
+
+/// A macro for turning `&[&[T]]` into `&[T]`
+#[macro_export]
+macro_rules! concat_arrays {
+    (
+        init = $init:expr;
+        ty = $tyname:ty;
+        [$($arr:ident),+]
+    ) => {
+        const {
+            const SLI: &[&[$tyname]] = &[
+                $($arr,)+
+            ];
+            const LEN: usize = $crate::uniques::total_len(SLI);
+            const ARR: [$tyname; LEN] = $crate::uniques::combine_with_copy(SLI, $init);
+
+            ARR.as_slice()
+        }
+    };
+}
+
+#[cfg(test)]
+mod concat_test {
+    #[test]
+    fn concats() {
+        const A: &[u32] = &[1, 2, 3];
+        const B: &[u32] = &[4, 5, 6];
+        const BOTH: &[u32] = concat_arrays!(
+            init = 0xFFFF_FFFF;
+            ty = u32;
+            [A, B]
+        );
+        assert_eq!(BOTH, [1, 2, 3, 4, 5, 6]);
+    }
 }
 
 // TODO: bring this back when I sort out how to do formatting in the sender!
@@ -286,7 +437,7 @@ macro_rules! topics {
 
 #[cfg(test)]
 mod endpoints_test {
-    use postcard_schema::Schema;
+    use postcard_schema::{schema::owned::OwnedNamedType, Schema};
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Schema)]
@@ -307,22 +458,51 @@ mod endpoints_test {
 
     topics! {
         list = TOPICS_IN_LIST;
+        direction = crate::TopicDirection::ToServer;
         | TopicTy        | MessageTy     | Path              |
         | ----------     | ---------     | ----              |
-        | BetaTopic1     | BTopic        | "test/beta1"      |
-        | BetaTopic2     | BTopic        | "test/beta2"      |
-        | BetaTopic3     | BTopic        | "test/beta3"      |
+        | BetaTopic1     | BTopic        | "test/in/beta1"   |
+        | BetaTopic2     | BTopic        | "test/in/beta2"   |
+        | BetaTopic3     | BTopic        | "test/in/beta3"   |
+    }
+
+    topics! {
+        list = TOPICS_OUT_LIST;
+        direction = crate::TopicDirection::ToClient;
+        | TopicTy        | MessageTy     | Path              |
+        | ----------     | ---------     | ----              |
+        | BetaTopic4     | BTopic        | "test/out/beta1"  |
     }
 
     #[test]
     fn eps() {
-        assert_eq!(ENDPOINT_LIST.types.len(), 6);
-        assert_eq!(ENDPOINT_LIST.endpoints.len(), 3);
+        for ep in ENDPOINT_LIST.types {
+            println!("{}", OwnedNamedType::from(*ep));
+        }
+        assert_eq!(ENDPOINT_LIST.types.len(), 3);
+        for ep in ENDPOINT_LIST.endpoints {
+            println!("{}", ep.0);
+        }
+        assert_eq!(ENDPOINT_LIST.endpoints.len(), 5);
     }
 
     #[test]
     fn tps() {
-        assert_eq!(TOPICS_IN_LIST.types.len(), 3);
+        for tp in TOPICS_IN_LIST.types {
+            println!("TY IN:  {}", OwnedNamedType::from(*tp));
+        }
+        for tp in TOPICS_IN_LIST.topics {
+            println!("TP IN:  {}", tp.0);
+        }
+        for tp in TOPICS_OUT_LIST.types {
+            println!("TY OUT: {}", OwnedNamedType::from(*tp));
+        }
+        for tp in TOPICS_OUT_LIST.topics {
+            println!("TP OUT: {}", tp.0);
+        }
+        assert_eq!(TOPICS_IN_LIST.types.len(), 1);
         assert_eq!(TOPICS_IN_LIST.topics.len(), 3);
+        assert_eq!(TOPICS_OUT_LIST.types.len(), 5);
+        assert_eq!(TOPICS_OUT_LIST.topics.len(), 2);
     }
 }

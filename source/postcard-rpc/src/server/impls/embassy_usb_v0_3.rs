@@ -404,6 +404,7 @@ pub mod fake {
 
     topics! {
         list = TOPICS_IN_LIST;
+        direction = crate::TopicDirection::ToServer;
         | TopicTy           | MessageTy     | Path              |
         | ----------        | ---------     | ----              |
         | ZetaTopic1        | ZMsg          | "zeta1"           |
@@ -413,6 +414,7 @@ pub mod fake {
 
     topics! {
         list = TOPICS_OUT_LIST;
+        direction = crate::TopicDirection::ToClient;
         | TopicTy           | MessageTy     | Path              |
         | ----------        | ---------     | ----              |
         | ZetaTopic10       | ZMsg          | "zeta10"          |
