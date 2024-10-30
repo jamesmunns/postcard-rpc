@@ -34,7 +34,7 @@ static_cell         = "2.1"
 [profile.release]
 debug = 2
 lto = true
-opt-level = 's'
+opt-level = 'z'
 codegen-units = 1
 incremental = false
 
