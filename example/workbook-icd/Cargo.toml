@@ -9,7 +9,7 @@ features = ["derive"]
 default-features = false
 
 [dependencies.postcard-rpc]
-version = "0.9"
+version = "0.10"
 
 [dependencies.postcard-schema]
 version = "0.1"

@@ -8,7 +8,7 @@ path = "../workbook-icd"
 features = ["use-std"]
 
 [dependencies.postcard-rpc]
-version = "0.9"
+version = "0.10"
 features = [
     "use-std",
     "raw-nusb",
