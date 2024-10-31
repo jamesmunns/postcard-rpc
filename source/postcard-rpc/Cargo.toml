@@ -1,6 +1,6 @@
 [package]
 name = "postcard-rpc"
-version = "0.10.0"
+version = "0.10.1"
 authors = ["James Munns <james@onevariable.com>"]
 edition = "2021"
 repository = "https://github.com/jamesmunns/postcard-rpc"
@@ -152,7 +152,7 @@ features = ["std"]
 
 
 [features]
-default = ["embassy-usb-0_3-server"]
+default = []
 test-utils = ["use-std", "postcard-schema/use-std"]
 use-std = [
     "dep:maitake-sync",
