@@ -157,7 +157,7 @@ macro_rules! define_dispatch {
 
                         tx.reply::<$crate::standard_icd::PingEndpoint>(hdr.seq_no, &req).await
                     },
-                    <$crate::standard_icd::GetAllSchemas as $crate::Endpoint>::$req_key_name => {
+                    <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::$req_key_name => {
                         tx.send_all_schemas(hdr, self.device_map).await
                     }
                     // end

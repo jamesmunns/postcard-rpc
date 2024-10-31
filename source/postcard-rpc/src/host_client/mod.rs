@@ -31,7 +31,7 @@ use util::Subscriptions;
 
 use crate::{
     header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind},
-    standard_icd::{GetAllSchemaData, GetAllSchemas, OwnedSchemaData},
+    standard_icd::{GetAllSchemaDataTopic, GetAllSchemasEndpoint, OwnedSchemaData},
     Endpoint, Key, Topic, TopicDirection,
 };
 
@@ -223,16 +223,18 @@ where
     }
 }
 
-/// .
+/// Errors related to retrieving the schema
 #[derive(Debug)]
 pub enum SchemaError<WireErr> {
-    /// .
+    /// Some kind of communication error occurred
     Comms(HostErr<WireErr>),
-    /// .
+    /// An error occurred internally. Please open an issue.
     TaskError,
-    /// .
+    /// Invalid report data was received, including endpoints or
+    /// tasks that referred to unknown types. Please open an issue
     InvalidReportData,
-    /// .
+    /// Data was lost while transmitting. If a retry does not solve
+    /// this, please open an issue.
     LostData,
 }
 
@@ -247,9 +249,9 @@ impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
 {
-    /// .
+    /// Obtain a [`SchemaReport`] describing the connected device
     pub async fn get_schema_report(&self) -> Result<SchemaReport, SchemaError<WireErr>> {
-        let Ok(mut sub) = self.subscribe::<GetAllSchemaData>(64).await else {
+        let Ok(mut sub) = self.subscribe::<GetAllSchemaDataTopic>(64).await else {
             return Err(SchemaError::Comms(HostErr::Closed));
         };
 
@@ -264,7 +266,7 @@ where
                 got
             }
         });
-        let trigger_task = self.send_resp::<GetAllSchemas>(&()).await;
+        let trigger_task = self.send_resp::<GetAllSchemasEndpoint>(&()).await;
         let data = collect_task.await;
         let (resp, data) = match (trigger_task, data) {
             (Ok(a), Ok(b)) => (a, b),
@@ -655,16 +657,18 @@ impl HostContext {
     }
 }
 
-/// .
+/// A report describing the schema spoken by the connected device
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Schema)]
 pub struct SchemaReport {
-    /// .
+    /// All custom types spoken by the device (on any endpoint or topic),
+    /// as well as all primitive types. In the future, primitive types may
+    /// be removed.
     pub types: HashSet<OwnedNamedType>,
-    /// .
+    /// All incoming (client to server) topics reported by the device
     pub topics_in: Vec<TopicReport>,
-    /// .
+    /// All outgoing (server to client) topics reported by the device
     pub topics_out: Vec<TopicReport>,
-    /// .
+    /// All endpoints reported by the device
     pub endpoints: Vec<EndpointReport>,
 }
 
@@ -723,43 +727,45 @@ impl Default for SchemaReport {
     }
 }
 
-/// .
+/// A description of a single Topic
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Schema)]
 pub struct TopicReport {
-    /// .
+    /// The human readable path of the topic
     pub path: String,
-    /// .
+    /// The Key of the topic (which hashes the path and type)
     pub key: Key,
-    /// .
+    /// The schema of the type of the message
     pub ty: OwnedNamedType,
 }
 
-/// .
+/// A description of a single Endpoint
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Schema)]
 pub struct EndpointReport {
-    /// .
+    /// The human readable path of the endpoint
     pub path: String,
-    /// .
+    /// The Key of the request (which hashes the path and type)
     pub req_key: Key,
-    /// .
+    /// The schema of the request type
     pub req_ty: OwnedNamedType,
-    /// .
+    /// The Key of the response (which hashes the path and type)
     pub resp_key: Key,
-    /// .
+    /// The schema of the response type
     pub resp_ty: OwnedNamedType,
 }
 
-/// .
+/// An error that denotes we were unable to resolve the type used by a given key
 #[derive(Debug)]
 pub struct UnableToFindType;
 
 impl SchemaReport {
-    /// .
+    /// Insert a new type
     pub fn add_type(&mut self, t: OwnedNamedType) {
         self.types.insert(t);
     }
 
-    /// .
+    /// Insert a new incoming (client to server) topic
+    ///
+    /// Returns an error if we are unable to find the type used for this topic
     pub fn add_topic_in(&mut self, path: String, key: Key) -> Result<(), UnableToFindType> {
         // We need to figure out which type goes with this topic
         for ty in self.types.iter() {
@@ -776,7 +782,9 @@ impl SchemaReport {
         Err(UnableToFindType)
     }
 
-    /// .
+    /// Insert a new outgoing (server to client) topic
+    ///
+    /// Returns an error if we are unable to find the type used for this topic
     pub fn add_topic_out(&mut self, path: String, key: Key) -> Result<(), UnableToFindType> {
         // We need to figure out which type goes with this topic
         for ty in self.types.iter() {
@@ -793,7 +801,9 @@ impl SchemaReport {
         Err(UnableToFindType)
     }
 
-    /// .
+    /// Insert a new endpoint
+    ///
+    /// Returns an error if we are unable to find the type used for the request/response
     pub fn add_endpoint(
         &mut self,
         path: String,

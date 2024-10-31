@@ -57,12 +57,6 @@ pub enum WireError {
     KeyTooSmall,
 }
 
-#[cfg(not(feature = "use-std"))]
-crate::topic!(Logging, [u8], "logs/formatted");
-
-#[cfg(feature = "use-std")]
-crate::topic!(Logging, Vec<u8>, "logs/formatted");
-
 /// A single element of schema information
 #[cfg(not(feature = "use-std"))]
 #[derive(Serialize, Schema, Debug, PartialEq, Copy, Clone)]
@@ -133,20 +127,22 @@ pub struct SchemaTotals {
 endpoints! {
     list = STANDARD_ICD_ENDPOINTS;
     omit_std = true;
-    | EndpointTy     | RequestTy     | ResponseTy    | Path                       |
-    | ----------     | ---------     | ----------    | ----                       |
-    | PingEndpoint   | u32           | u32           | "postcard-rpc/ping"        |
-    | GetAllSchemas  | ()            | SchemaTotals  | "postcard-rpc/schemas/get" |
+    | EndpointTy            | RequestTy     | ResponseTy    | Path                       |
+    | ----------            | ---------     | ----------    | ----                       |
+    | PingEndpoint          | u32           | u32           | "postcard-rpc/ping"        |
+    | GetAllSchemasEndpoint | ()            | SchemaTotals  | "postcard-rpc/schemas/get" |
 }
 
 topics! {
     list = STANDARD_ICD_TOPICS_OUT;
     direction = crate::TopicDirection::ToClient;
     omit_std = true;
-    | TopicTy           | MessageTy         | Path                          | Cfg                           |
-    | -------           | ---------         | ----                          | ---                           |
-    | GetAllSchemaData  | SchemaData<'a>    | "postcard-rpc/schema/data"    | cfg(not(feature = "use-std")) |
-    | GetAllSchemaData  | OwnedSchemaData   | "postcard-rpc/schema/data"    | cfg(feature = "use-std")      |
+    | TopicTy               | MessageTy         | Path                          | Cfg                           |
+    | -------               | ---------         | ----                          | ---                           |
+    | GetAllSchemaDataTopic | SchemaData<'a>    | "postcard-rpc/schema/data"    | cfg(not(feature = "use-std")) |
+    | GetAllSchemaDataTopic | OwnedSchemaData   | "postcard-rpc/schema/data"    | cfg(feature = "use-std")      |
+    | LoggingTopic          | str               | "postcard-rpc/logging"        | cfg(not(feature = "use-std")) |
+    | LoggingTopic          | String            | "postcard-rpc/logging"        | cfg(feature = "use-std")      |
 }
 
 topics! {

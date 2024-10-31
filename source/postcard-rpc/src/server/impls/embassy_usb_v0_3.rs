@@ -1,14 +1,18 @@
 //! Implementation using `embassy-usb` and bulk interfaces
 
+use core::fmt::Arguments;
 use embassy_executor::{SpawnError, SpawnToken, Spawner};
+use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
-use embassy_usb_driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
-use futures_util::FutureExt;
+use embassy_time::Timer;
+use embassy_usb_driver::{Driver, EndpointError, EndpointIn, EndpointOut};
 use serde::Serialize;
 
 use crate::{
-    header::VarHeader,
+    header::{VarHeader, VarKey, VarKeyKind, VarSeq},
     server::{WireRx, WireRxErrorKind, WireSpawn, WireTx, WireTxErrorKind},
+    standard_icd::LoggingTopic,
+    Topic,
 };
 
 /// A collection of types and aliases useful for importing the correct types
@@ -112,9 +116,9 @@ pub mod dispatch_impl {
 
             let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
                 ep_in,
-                _log_seq: 0,
+                log_seq: 0,
                 tx_buf,
-                _max_log_len: 0,
+                pending_frame: false,
             }));
 
             // Build the builder.
@@ -132,9 +136,9 @@ pub mod dispatch_impl {
 /// Implementation detail, holding the endpoint and scratch buffer used for sending
 pub struct EUsbWireTxInner<D: Driver<'static>> {
     ep_in: D::EndpointIn,
-    _log_seq: u32,
+    log_seq: u16,
     tx_buf: &'static mut [u8],
-    _max_log_len: usize,
+    pending_frame: bool,
 }
 
 /// A [`WireTx`] implementation for embassy-usb 0.3.
@@ -161,9 +165,9 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
 
         let EUsbWireTxInner {
             ep_in,
-            _log_seq: _,
+            log_seq: _,
             tx_buf,
-            _max_log_len: _,
+            pending_frame,
         }: &mut EUsbWireTxInner<D> = &mut inner;
 
         let (hdr_used, remain) = hdr.write_to_slice(tx_buf).ok_or(WireTxErrorKind::Other)?;
@@ -171,7 +175,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         let used_ttl = hdr_used.len() + bdy_used.len();
 
         if let Some(used) = tx_buf.get(..used_ttl) {
-            send_all::<D>(ep_in, used).await
+            send_all::<D>(ep_in, used, pending_frame).await
         } else {
             Err(WireTxErrorKind::Other)
         }
@@ -179,38 +183,252 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
 
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error> {
         let mut inner = self.inner.lock().await;
-        send_all::<D>(&mut inner.ep_in, buf).await
+        let EUsbWireTxInner {
+            ep_in,
+            pending_frame,
+            ..
+        }: &mut EUsbWireTxInner<D> = &mut inner;
+        send_all::<D>(ep_in, buf, pending_frame).await
+    }
+
+    async fn send_log_str(&self, kkind: VarKeyKind, s: &str) -> Result<(), Self::Error> {
+        let mut inner = self.inner.lock().await;
+
+        let EUsbWireTxInner {
+            ep_in,
+            log_seq,
+            tx_buf,
+            pending_frame,
+        }: &mut EUsbWireTxInner<D> = &mut inner;
+
+        let key = match kkind {
+            VarKeyKind::Key1 => VarKey::Key1(LoggingTopic::TOPIC_KEY1),
+            VarKeyKind::Key2 => VarKey::Key2(LoggingTopic::TOPIC_KEY2),
+            VarKeyKind::Key4 => VarKey::Key4(LoggingTopic::TOPIC_KEY4),
+            VarKeyKind::Key8 => VarKey::Key8(LoggingTopic::TOPIC_KEY),
+        };
+        let ctr = *log_seq;
+        *log_seq = log_seq.wrapping_add(1);
+        let wh = VarHeader {
+            key,
+            seq_no: VarSeq::Seq2(ctr),
+        };
+
+        let (hdr_used, remain) = wh.write_to_slice(tx_buf).ok_or(WireTxErrorKind::Other)?;
+        let bdy_used = postcard::to_slice::<str>(s, remain).map_err(|_| WireTxErrorKind::Other)?;
+        let used_ttl = hdr_used.len() + bdy_used.len();
+
+        if let Some(used) = tx_buf.get(..used_ttl) {
+            send_all::<D>(ep_in, used, pending_frame).await
+        } else {
+            Err(WireTxErrorKind::Other)
+        }
+    }
+
+    async fn send_log_fmt<'a>(
+        &self,
+        kkind: VarKeyKind,
+        args: Arguments<'a>,
+    ) -> Result<(), Self::Error> {
+        let mut inner = self.inner.lock().await;
+
+        let EUsbWireTxInner {
+            ep_in,
+            log_seq,
+            tx_buf,
+            pending_frame,
+        }: &mut EUsbWireTxInner<D> = &mut inner;
+        let ttl_len = tx_buf.len();
+
+        let key = match kkind {
+            VarKeyKind::Key1 => VarKey::Key1(LoggingTopic::TOPIC_KEY1),
+            VarKeyKind::Key2 => VarKey::Key2(LoggingTopic::TOPIC_KEY2),
+            VarKeyKind::Key4 => VarKey::Key4(LoggingTopic::TOPIC_KEY4),
+            VarKeyKind::Key8 => VarKey::Key8(LoggingTopic::TOPIC_KEY),
+        };
+        let ctr = *log_seq;
+        *log_seq = log_seq.wrapping_add(1);
+        let wh = VarHeader {
+            key,
+            seq_no: VarSeq::Seq2(ctr),
+        };
+        let Some((_hdr, remaining)) = wh.write_to_slice(tx_buf) else {
+            return Err(WireTxErrorKind::Other);
+        };
+        let max_log_len = actual_varint_max_len(remaining.len());
+
+        // Then, reserve space for non-canonical length fields
+        // We also set all but the last bytes to be "continuation"
+        // bytes
+        if remaining.len() < max_log_len {
+            return Err(WireTxErrorKind::Other);
+        }
+
+        let (len_field, body) = remaining.split_at_mut(max_log_len);
+        for b in len_field.iter_mut() {
+            *b = 0x80;
+        }
+        if let Some(b) = len_field.last_mut() {
+            *b = 0x00;
+        }
+
+        // Then, do the formatting
+        let body_len = body.len();
+        let mut sw = SliceWriter(body);
+        let res = core::fmt::write(&mut sw, args);
+
+        // Calculate the number of bytes used *for formatting*.
+        let remain = sw.0.len();
+        let used = body_len - remain;
+
+        // If we had an error, that's probably because we ran out
+        // of room. If we had an error, AND there is at least three
+        // bytes, then replace those with '.'s like ...
+        if res.is_err() && (body.len() >= 3) {
+            let start = body.len() - 3;
+            body[start..].iter_mut().for_each(|b| *b = b'.');
+        }
+
+        // then go back and fill in the len - we write the len
+        // directly to the reserved bytes, and if we DIDN'T use
+        // the full space, we mark the end of the real length as
+        // a continuation field. This will result in a non-canonical
+        // "extended" length in postcard, and will "spill into" the
+        // bytes we wrote previously above
+        let mut len_bytes = [0u8; varint_max::<usize>()];
+        let len_used = varint_usize(used, &mut len_bytes);
+        if len_used.len() != len_field.len() {
+            if let Some(b) = len_used.last_mut() {
+                *b |= 0x80;
+            }
+        }
+        len_field[..len_used.len()].copy_from_slice(len_used);
+
+        // Calculate the TOTAL amount
+        let act_used = ttl_len - remain;
+
+        send_all::<D>(ep_in, &tx_buf[..act_used], pending_frame).await
     }
 }
 
 #[inline]
-async fn send_all<D>(ep_in: &mut D::EndpointIn, out: &[u8]) -> Result<(), WireTxErrorKind>
+async fn send_all<D>(
+    ep_in: &mut D::EndpointIn,
+    out: &[u8],
+    pending_frame: &mut bool,
+) -> Result<(), WireTxErrorKind>
 where
     D: Driver<'static>,
 {
     if out.is_empty() {
         return Ok(());
     }
-    // TODO: Timeout?
-    if ep_in.wait_enabled().now_or_never().is_none() {
-        return Ok(());
-    }
 
-    // write in segments of 64. The last chunk may
-    // be 0 < len <= 64.
-    for ch in out.chunks(64) {
-        if ep_in.write(ch).await.is_err() {
+    // Calculate an estimated timeout based on the number of frames we need to send
+    // For now, we use 2ms/frame
+    let frames = out.len() / 64;
+    let timeout_ms = frames * 2;
+
+    let send_fut = async {
+        // If we left off a pending frame, send one now so we don't leave an unterminated
+        // message
+        if *pending_frame && ep_in.write(&[]).await.is_err() {
             return Err(WireTxErrorKind::ConnectionClosed);
         }
-    }
-    // If the total we sent was a multiple of 64, send an
-    // empty message to "flush" the transaction. We already checked
-    // above that the len != 0.
-    if (out.len() & (64 - 1)) == 0 && ep_in.write(&[]).await.is_err() {
-        return Err(WireTxErrorKind::ConnectionClosed);
-    }
+        *pending_frame = true;
 
-    Ok(())
+        // write in segments of 64. The last chunk may
+        // be 0 < len <= 64.
+        for ch in out.chunks(64) {
+            if ep_in.write(ch).await.is_err() {
+                return Err(WireTxErrorKind::ConnectionClosed);
+            }
+        }
+        // If the total we sent was a multiple of 64, send an
+        // empty message to "flush" the transaction. We already checked
+        // above that the len != 0.
+        if (out.len() & (64 - 1)) == 0 && ep_in.write(&[]).await.is_err() {
+            return Err(WireTxErrorKind::ConnectionClosed);
+        }
+
+        *pending_frame = false;
+        Ok(())
+    };
+
+    match select(send_fut, Timer::after_millis(timeout_ms as u64)).await {
+        Either::First(res) => res,
+        Either::Second(()) => Err(WireTxErrorKind::Timeout),
+    }
+}
+
+struct SliceWriter<'a>(&'a mut [u8]);
+
+impl<'a> core::fmt::Write for SliceWriter<'a> {
+    fn write_str(&mut self, s: &str) -> Result<(), core::fmt::Error> {
+        let sli = core::mem::take(&mut self.0);
+
+        // If this write would overflow us, note that, but still take
+        // as much as we possibly can here
+        let bad = s.len() > sli.len();
+        let to_write = s.len().min(sli.len());
+        let (now, later) = sli.split_at_mut(to_write);
+        now.copy_from_slice(s.as_bytes());
+        self.0 = later;
+
+        // Now, report whether we overflowed or not
+        if bad {
+            Err(core::fmt::Error)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Returns the maximum number of bytes required to encode T.
+const fn varint_max<T: Sized>() -> usize {
+    const BITS_PER_BYTE: usize = 8;
+    const BITS_PER_VARINT_BYTE: usize = 7;
+
+    // How many data bits do we need for this type?
+    let bits = core::mem::size_of::<T>() * BITS_PER_BYTE;
+
+    // We add (BITS_PER_VARINT_BYTE - 1), to ensure any integer divisions
+    // with a remainder will always add exactly one full byte, but
+    // an evenly divided number of bits will be the same
+    let roundup_bits = bits + (BITS_PER_VARINT_BYTE - 1);
+
+    // Apply division, using normal "round down" integer division
+    roundup_bits / BITS_PER_VARINT_BYTE
+}
+
+#[inline]
+fn varint_usize(n: usize, out: &mut [u8; varint_max::<usize>()]) -> &mut [u8] {
+    let mut value = n;
+    for i in 0..varint_max::<usize>() {
+        out[i] = value.to_le_bytes()[0];
+        if value < 128 {
+            return &mut out[..=i];
+        }
+
+        out[i] |= 0x80;
+        value >>= 7;
+    }
+    debug_assert_eq!(value, 0);
+    &mut out[..]
+}
+
+fn actual_varint_max_len(largest: usize) -> usize {
+    if largest < (2 << 7) {
+        1
+    } else if largest < (2 << 14) {
+        2
+    } else if largest < (2 << 21) {
+        3
+    } else if largest < (2 << 28) {
+        4
+    } else {
+        varint_max::<usize>()
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////

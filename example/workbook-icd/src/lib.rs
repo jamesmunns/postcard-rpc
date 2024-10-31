@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "use-std"), no_std)]
 
 use postcard_rpc::{endpoints, topics, TopicDirection};
 use postcard_schema::Schema;
@@ -32,9 +32,9 @@ topics! {
 topics! {
     list = TOPICS_OUT_LIST;
     direction = TopicDirection::ToClient;
-    | TopicTy                   | MessageTy     | Path              |
-    | -------                   | ---------     | ----              |
-    | AccelTopic                | Acceleration  | "accel/data"      |
+    | TopicTy                   | MessageTy     | Path              | Cfg                           |
+    | -------                   | ---------     | ----              | ---                           |
+    | AccelTopic                | Acceleration  | "accel/data"      |                               |
 }
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]

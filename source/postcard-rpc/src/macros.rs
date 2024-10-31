@@ -418,22 +418,16 @@ mod concat_test {
     }
 }
 
-// TODO: bring this back when I sort out how to do formatting in the sender!
-// This might require WireTx impls
-//
-// #[cfg(feature = "embassy-usb-0_3-server")]
-// #[macro_export]
-// macro_rules! sender_log {
-//     ($sender:ident, $($arg:tt)*) => {
-//         $sender.fmt_publish::<$crate::standard_icd::Logging>(format_args!($($arg)*))
-//     };
-//     ($sender:ident, $s:expr) => {
-//         $sender.str_publish::<$crate::standard_icd::Logging>($s)
-//     };
-//     ($($arg:tt)*) => {
-//         compile_error!("You must pass the sender to `sender_log`!");
-//     }
-// }
+/// A helper function for logging with the [Sender][crate::server::Sender]
+#[macro_export]
+macro_rules! sender_fmt {
+    ($sender:ident, $($arg:tt)*) => {
+        $sender.log_fmt(format_args!($($arg)*))
+    };
+    ($($arg:tt)*) => {
+        compile_error!("You must pass the sender to `sender_log`!");
+    }
+}
 
 #[cfg(test)]
 mod endpoints_test {
@@ -503,6 +497,6 @@ mod endpoints_test {
         assert_eq!(TOPICS_IN_LIST.types.len(), 1);
         assert_eq!(TOPICS_IN_LIST.topics.len(), 3);
         assert_eq!(TOPICS_OUT_LIST.types.len(), 6);
-        assert_eq!(TOPICS_OUT_LIST.topics.len(), 2);
+        assert_eq!(TOPICS_OUT_LIST.topics.len(), 3);
     }
 }

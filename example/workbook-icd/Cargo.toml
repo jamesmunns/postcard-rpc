@@ -17,3 +17,6 @@ features = ["derive"]
 
 [patch.crates-io]
 postcard-rpc = { path = "../../source/postcard-rpc" }
+
+[features]
+use-std = []
