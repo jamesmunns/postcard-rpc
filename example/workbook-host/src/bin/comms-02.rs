@@ -7,7 +7,7 @@ use workbook_host_client::{client::WorkbookClient, icd, read_line};
 
 #[tokio::main]
 async fn main() {
-    println!("Connecting...");
+    println!("Connecting to USB device...");
     let client = WorkbookClient::new();
     println!("Connected! Pinging 42");
     let ping = client.ping(42).await.unwrap();
@@ -102,6 +102,35 @@ async fn main() {
             ["accel", "stop"] => {
                 let res = client.stop_accelerometer().await.unwrap();
                 println!("Stopped: {res}");
+            }
+            ["schema"] => {
+                let schema = client.client.get_schema_report().await.unwrap();
+
+                println!();
+                println!("# Endpoints");
+                println!();
+                for ep in &schema.endpoints {
+                    println!("* '{}'", ep.path);
+                    println!("  * Request:  {}", ep.req_ty);
+                    println!("  * Response: {}", ep.resp_ty);
+                }
+
+                println!();
+                println!("# Topics Client -> Server");
+                println!();
+                for tp in &schema.topics_in {
+                    println!("* '{}'", tp.path);
+                    println!("  * Message: {}", tp.ty);
+                }
+
+                println!();
+                println!("# Topics Client <- Server");
+                println!();
+                for tp in &schema.topics_out {
+                    println!("* '{}'", tp.path);
+                    println!("  * Message: {}", tp.ty);
+                }
+                println!();
             }
             other => {
                 println!("Error, didn't understand '{other:?};");

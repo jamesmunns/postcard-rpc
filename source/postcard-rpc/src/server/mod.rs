@@ -27,14 +27,14 @@ pub mod dispatch_macro;
 
 pub mod impls;
 
-use core::ops::DerefMut;
+use core::{fmt::Arguments, ops::DerefMut};
 
 use postcard_schema::Schema;
 use serde::Serialize;
 
 use crate::{
     header::{VarHeader, VarKey, VarKeyKind, VarSeq},
-    Key,
+    DeviceMap, Key, TopicDirection,
 };
 
 //////////////////////////////////////////////////////////////////////////////
@@ -55,6 +55,20 @@ pub trait WireTx: Clone {
 
     /// Send a single frame to the client, without handling serialization
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error>;
+
+    /// Send a logging message on the [`LoggingTopic`][crate::standard_icd::LoggingTopic]
+    ///
+    /// This message is simpler as it does not do any formatting
+    async fn send_log_str(&self, kkind: VarKeyKind, s: &str) -> Result<(), Self::Error>;
+
+    /// Send a logging message on the [`LoggingTopic`][crate::standard_icd::LoggingTopic]
+    ///
+    /// This version formats to the outgoing buffer
+    async fn send_log_fmt<'a>(
+        &self,
+        kkind: VarKeyKind,
+        a: Arguments<'a>,
+    ) -> Result<(), Self::Error>;
 }
 
 /// The base [`WireTx`] Error Kind
@@ -67,6 +81,8 @@ pub enum WireTxErrorKind {
     ConnectionClosed,
     /// Other unspecified errors
     Other,
+    /// Timeout (WireTx impl specific) reached
+    Timeout,
 }
 
 /// A conversion trait to convert a user error into a base Kind type
@@ -193,6 +209,7 @@ impl<Tx: WireTx> Sender<Tx> {
     #[inline]
     pub async fn reply_keyed<T>(&self, seq_no: VarSeq, key: Key, resp: &T) -> Result<(), Tx::Error>
     where
+        T: ?Sized,
         T: Serialize + Schema,
     {
         let mut key = VarKey::Key8(key);
@@ -205,6 +222,7 @@ impl<Tx: WireTx> Sender<Tx> {
     #[inline]
     pub async fn publish<T>(&self, seq_no: VarSeq, msg: &T::Message) -> Result<(), Tx::Error>
     where
+        T: ?Sized,
         T: crate::Topic,
         T::Message: Serialize + Schema,
     {
@@ -212,6 +230,18 @@ impl<Tx: WireTx> Sender<Tx> {
         key.shrink_to(self.kkind);
         let wh = VarHeader { key, seq_no };
         self.tx.send::<T::Message>(wh, msg).await
+    }
+
+    /// Log a `str` directly to the [`LoggingTopic`][crate::standard_idc::LoggingTopic]
+    #[inline]
+    pub async fn log_str(&self, msg: &str) -> Result<(), Tx::Error> {
+        self.tx.send_log_str(self.kkind, msg).await
+    }
+
+    /// Format a message to the [`LoggingTopic`][crate::standard_idc::LoggingTopic]
+    #[inline]
+    pub async fn log_fmt(&self, msg: Arguments<'_>) -> Result<(), Tx::Error> {
+        self.tx.send_log_fmt(self.kkind, msg).await
     }
 
     /// Send a single error message
@@ -222,6 +252,106 @@ impl<Tx: WireTx> Sender<Tx> {
     ) -> Result<(), Tx::Error> {
         self.reply_keyed(seq_no, crate::standard_icd::ERROR_KEY, &error)
             .await
+    }
+
+    /// Implements the [`GetAllSchemasEndpoint`][crate::standard_icd::GetAllSchemasEndpoint] endpoint
+    pub async fn send_all_schemas(
+        &self,
+        hdr: &VarHeader,
+        device_map: &DeviceMap,
+    ) -> Result<(), Tx::Error> {
+        #[cfg(feature = "use-std")]
+        use crate::standard_icd::OwnedSchemaData as SchemaData;
+        #[cfg(not(feature = "use-std"))]
+        use crate::standard_icd::SchemaData;
+        use crate::standard_icd::{GetAllSchemaDataTopic, GetAllSchemasEndpoint, SchemaTotals};
+
+        let mut msg_ctr = 0;
+        let mut err_ctr = 0;
+
+        // First, send all types
+        for ty in device_map.types {
+            let res = self
+                .publish::<GetAllSchemaDataTopic>(
+                    VarSeq::Seq2(msg_ctr),
+                    &SchemaData::Type((*ty).into()),
+                )
+                .await;
+            if res.is_err() {
+                err_ctr += 1;
+            };
+            msg_ctr += 1;
+        }
+
+        // Then all endpoints
+        for ep in device_map.endpoints {
+            let res = self
+                .publish::<GetAllSchemaDataTopic>(
+                    VarSeq::Seq2(msg_ctr),
+                    &SchemaData::Endpoint {
+                        path: ep.0.into(),
+                        request_key: ep.1,
+                        response_key: ep.2,
+                    },
+                )
+                .await;
+            if res.is_err() {
+                err_ctr += 1;
+            }
+
+            msg_ctr += 1;
+        }
+
+        // Then output topics
+        for to in device_map.topics_out {
+            let res = self
+                .publish::<GetAllSchemaDataTopic>(
+                    VarSeq::Seq2(msg_ctr),
+                    &SchemaData::Topic {
+                        direction: TopicDirection::ToClient,
+                        path: to.0.into(),
+                        key: to.1,
+                    },
+                )
+                .await;
+            if res.is_err() {
+                err_ctr += 1;
+            }
+            msg_ctr += 1;
+        }
+
+        // Then input topics
+        for ti in device_map.topics_in {
+            let res = self
+                .publish::<GetAllSchemaDataTopic>(
+                    VarSeq::Seq2(msg_ctr),
+                    &SchemaData::Topic {
+                        direction: TopicDirection::ToServer,
+                        path: ti.0.into(),
+                        key: ti.1,
+                    },
+                )
+                .await;
+            if res.is_err() {
+                err_ctr += 1;
+            }
+            msg_ctr += 1;
+        }
+
+        // Finally, reply with the totals
+        self.reply::<GetAllSchemasEndpoint>(
+            hdr.seq_no,
+            &SchemaTotals {
+                types_sent: device_map.types.len() as u32,
+                endpoints_sent: device_map.endpoints.len() as u32,
+                topics_in_sent: device_map.topics_in.len() as u32,
+                topics_out_sent: device_map.topics_out.len() as u32,
+                errors: err_ctr,
+            },
+        )
+        .await?;
+
+        Ok(())
     }
 }
 
@@ -283,6 +413,11 @@ where
         }
     }
 
+    /// Get a copy of the [`Sender`] to pass to tasks that need it
+    pub fn sender(&self) -> Sender<Tx> {
+        self.tx.clone()
+    }
+
     /// Run until a fatal error occurs
     ///
     /// The server will receive frames, and dispatch them. When a fatal error occurs,
@@ -320,6 +455,7 @@ where
                 match kind {
                     WireTxErrorKind::ConnectionClosed => return ServerError::TxFatal(e),
                     WireTxErrorKind::Other => {}
+                    WireTxErrorKind::Timeout => return ServerError::TxFatal(e),
                 }
             }
         }

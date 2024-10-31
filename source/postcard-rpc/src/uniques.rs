@@ -547,7 +547,7 @@ const fn type_chewer_dmt<const MAX: usize>(
             // For each type in the variant...
             while i < nvars.len() {
                 match nvars[i].ty {
-                    DataModelVariant::UnitVariant => continue,
+                    DataModelVariant::UnitVariant => {}
                     DataModelVariant::NewtypeVariant(nt) => {
                         let mut k = 0;
                         let mut found = false;
@@ -722,6 +722,37 @@ pub const fn merge_nty_lists<const M: usize>(
 // STAGE 6-9 (macro op)
 //////////////////////////////////////////////////////////////////////////////
 
+/// Get the sum of the length of all arrays
+pub const fn total_len<T>(arrs: &[&[T]]) -> usize {
+    let mut i = 0;
+    let mut ct = 0;
+    while i < arrs.len() {
+        ct += arrs[i].len();
+        i += 1;
+    }
+    ct
+}
+
+/// ,
+pub const fn combine_with_copy<T: Sized + Copy, const N: usize>(arrs: &[&[T]], init: T) -> [T; N] {
+    let mut out = [init; N];
+    let mut outidx = 0;
+    let mut i = 0;
+    while i < arrs.len() {
+        let mut j = 0;
+        while j < arrs[i].len() {
+            out[outidx] = arrs[i][j];
+            outidx += 1;
+            j += 1;
+        }
+        i += 1;
+    }
+
+    assert!(outidx == N);
+
+    out
+}
+
 /// `merge_unique_types` collects all unique, non-primitive types contained by
 /// the given comma separated types. It can be used with any types that implement
 /// the [`Schema`] trait, and returns a `&'static [&'static NamedType]`.
@@ -734,15 +765,7 @@ macro_rules! merge_unique_types {
                     $crate::unique_types!($t),
                 )*
             ];
-            const TTL_COUNT: usize = const {
-                let mut i = 0;
-                let mut ct = 0;
-                while i < LISTS.len() {
-                    ct += LISTS[i].len();
-                    i += 1;
-                }
-                ct
-            };
+            const TTL_COUNT: usize = $crate::uniques::total_len(LISTS);
             const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
             const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
@@ -790,6 +813,14 @@ mod test {
         c: Example2,
         d: Example2,
         e: Example2,
+    }
+
+    #[derive(Schema)]
+    enum Example4 {
+        A,
+        B,
+        C,
+        D,
     }
 
     #[test]
@@ -884,6 +915,17 @@ mod test {
         println!();
         println!("Example3");
         let (arr3, used): ([Option<_>; MAX3], usize) = type_chewer_nty(Example3::SCHEMA);
+        println!("max: {MAX3} used: {used}");
+        for a in arr3 {
+            match a {
+                Some(a) => println!("Some({})", OwnedNamedType::from(a)),
+                None => println!("None"),
+            }
+        }
+
+        println!();
+        println!("Example4");
+        let (arr3, used): ([Option<_>; MAX3], usize) = type_chewer_nty(Example4::SCHEMA);
         println!("max: {MAX3} used: {used}");
         for a in arr3 {
             match a {

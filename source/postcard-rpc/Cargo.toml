@@ -30,7 +30,6 @@ heapless = "0.8.0"
 postcard = { version = "1.0.8" }
 serde = { version = "1.0.192", default-features = false, features = ["derive"] }
 postcard-schema = { version = "0.1.0", features = ["derive"] }
-paste = "1.0.15"
 
 #
 # std-only features
@@ -50,7 +49,7 @@ optional = true
 
 [dependencies.tokio]
 version = "1.33.0"
-features = ["sync", "rt", "macros", "io-util"]
+features = ["sync", "rt", "macros", "io-util", "time"]
 optional = true
 
 [dependencies.tracing]
@@ -128,9 +127,16 @@ optional = true
 version = "0.6"
 optional = true
 
-[dependencies.futures-util]
+[dependencies.embassy-futures]
+version = "0.1"
+optional = true
+
+[dependencies.embassy-time]
 version = "0.3"
 optional = true
+
+[dependencies.portable-atomic]
+version = "1.0"
 default-features = false
 
 [dev-dependencies]
@@ -146,7 +152,7 @@ features = ["std"]
 
 
 [features]
-default = []
+default = ["embassy-usb-0_3-server"]
 test-utils = ["use-std", "postcard-schema/use-std"]
 use-std = [
     "dep:maitake-sync",
@@ -198,7 +204,8 @@ embassy-usb-0_3-server = [
     "dep:static_cell",
     "dep:embassy-usb-driver",
     "dep:embassy-executor",
-    "dep:futures-util",
+    "dep:embassy-time",
+    "dep:embassy-futures",
 ]
 
 # NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal

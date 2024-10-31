@@ -1,11 +1,22 @@
 //! Implementation that uses channels for local testing
 
-use core::{convert::Infallible, future::Future};
-
-use crate::server::{
-    AsWireRxErrorKind, AsWireTxErrorKind, WireRx, WireRxErrorKind, WireSpawn, WireTx,
-    WireTxErrorKind,
+use core::{
+    convert::Infallible,
+    future::Future,
+    sync::atomic::{AtomicU32, Ordering},
 };
+use std::sync::Arc;
+
+use crate::{
+    header::{VarHeader, VarKey, VarKeyKind, VarSeq},
+    server::{
+        AsWireRxErrorKind, AsWireTxErrorKind, WireRx, WireRxErrorKind, WireSpawn, WireTx,
+        WireTxErrorKind,
+    },
+    standard_icd::LoggingTopic,
+    Topic,
+};
+use core::fmt::Arguments;
 use tokio::sync::mpsc;
 
 //////////////////////////////////////////////////////////////////////////////
@@ -69,12 +80,16 @@ pub mod dispatch_impl {
 #[derive(Clone)]
 pub struct ChannelWireTx {
     tx: mpsc::Sender<Vec<u8>>,
+    log_ctr: Arc<AtomicU32>,
 }
 
 impl ChannelWireTx {
     /// Create a new [`ChannelWireTx`]
     pub fn new(tx: mpsc::Sender<Vec<u8>>) -> Self {
-        Self { tx }
+        Self {
+            tx,
+            log_ctr: Arc::new(AtomicU32::new(0)),
+        }
     }
 }
 
@@ -98,6 +113,51 @@ impl WireTx for ChannelWireTx {
 
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error> {
         let buf = buf.to_vec();
+        self.tx
+            .send(buf)
+            .await
+            .map_err(|_| ChannelWireTxError::ChannelClosed)?;
+        Ok(())
+    }
+
+    async fn send_log_str(&self, kkind: VarKeyKind, s: &str) -> Result<(), Self::Error> {
+        let ctr = self.log_ctr.fetch_add(1, Ordering::Relaxed);
+        let key = match kkind {
+            VarKeyKind::Key1 => VarKey::Key1(LoggingTopic::TOPIC_KEY1),
+            VarKeyKind::Key2 => VarKey::Key2(LoggingTopic::TOPIC_KEY2),
+            VarKeyKind::Key4 => VarKey::Key4(LoggingTopic::TOPIC_KEY4),
+            VarKeyKind::Key8 => VarKey::Key8(LoggingTopic::TOPIC_KEY),
+        };
+        let wh = VarHeader {
+            key,
+            seq_no: VarSeq::Seq4(ctr),
+        };
+        let msg = s.to_string();
+
+        self.send::<<LoggingTopic as Topic>::Message>(wh, &msg)
+            .await
+    }
+
+    async fn send_log_fmt<'a>(
+        &self,
+        kkind: VarKeyKind,
+        a: Arguments<'a>,
+    ) -> Result<(), Self::Error> {
+        let ctr = self.log_ctr.fetch_add(1, Ordering::Relaxed);
+        let key = match kkind {
+            VarKeyKind::Key1 => VarKey::Key1(LoggingTopic::TOPIC_KEY1),
+            VarKeyKind::Key2 => VarKey::Key2(LoggingTopic::TOPIC_KEY2),
+            VarKeyKind::Key4 => VarKey::Key4(LoggingTopic::TOPIC_KEY4),
+            VarKeyKind::Key8 => VarKey::Key8(LoggingTopic::TOPIC_KEY),
+        };
+        let wh = VarHeader {
+            key,
+            seq_no: VarSeq::Seq4(ctr),
+        };
+        let mut buf = wh.write_to_vec();
+        let msg = format!("{a}");
+        let msg = postcard::to_stdvec(&msg).unwrap();
+        buf.extend_from_slice(&msg);
         self.tx
             .send(buf)
             .await

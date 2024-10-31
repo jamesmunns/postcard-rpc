@@ -290,20 +290,14 @@ impl NusbWireRx {
 
                 if fatal {
                     tracing::error!("Fatal Error, exiting");
-                    // TODO we should notify sub worker!
-                    // ctxt.map.close();
+                    // When we close the channel, all pending receivers and subscribers
+                    // will be notified
                     return Err(e.into());
                 } else {
                     tracing::info!("Potential recovery, resuming NusbWireRx::recv_inner");
                     continue;
                 }
             }
-
-            // TODO: Min size of a header is 9 bytes, 8 for key, 1 for seq_no.
-            if res.data.len() < 9 {
-                tracing::warn!("Header decode error!");
-                continue;
-            };
 
             // If we get a good decode, clear the error flag
             if self.consecutive_errs != 0 {

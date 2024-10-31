@@ -11,7 +11,7 @@ use tokio::{sync::mpsc, task::yield_now};
 use postcard_rpc::{
     define_dispatch, endpoints,
     header::{VarHeader, VarKey, VarKeyKind, VarSeq, VarSeqKind},
-    host_client::test_channels as client,
+    host_client::{test_channels as client, HostClient},
     server::{
         impls::test_channels::{
             dispatch_impl::{new_server, spawn_fn, Settings, WireSpawnImpl, WireTxImpl},
@@ -45,28 +45,56 @@ pub struct EResp;
 #[derive(Serialize, Deserialize, Schema)]
 pub struct ZMsg(pub i16);
 
+#[cfg(feature = "alpha")]
+#[derive(Serialize, Deserialize, Schema)]
+pub struct Message<'a> {
+    data: &'a str,
+}
+
+#[cfg(not(feature = "alpha"))]
+#[derive(Serialize, Deserialize, Schema)]
+pub struct Message {
+    data: String,
+}
+
+#[derive(Serialize, Deserialize, Schema)]
+pub struct DoubleMessage<'a, 'b> {
+    data1: &'a str,
+    data2: &'b str,
+}
+
 endpoints! {
     list = ENDPOINT_LIST;
-    | EndpointTy        | RequestTy     | ResponseTy    | Path              |
-    | ----------        | ---------     | ----------    | ----              |
-    | AlphaEndpoint     | AReq          | AResp         | "alpha"           |
-    | BetaEndpoint      | BReq          | BResp         | "beta"            |
-    | GammaEndpoint     | GReq          | GResp         | "gamma"           |
-    | DeltaEndpoint     | DReq          | DResp         | "delta"           |
-    | EpsilonEndpoint   | EReq          | EResp         | "epsilon"         |
+    | EndpointTy        | RequestTy             | ResponseTy            | Path              | Cfg                    |
+    | ----------        | ---------             | ----------            | ----              | ---                    |
+    | AlphaEndpoint     | AReq                  | AResp                 | "alpha"           |                        |
+    | BetaEndpoint      | BReq                  | BResp                 | "beta"            |                        |
+    | GammaEndpoint     | GReq                  | GResp                 | "gamma"           |                        |
+    | DeltaEndpoint     | DReq                  | DResp                 | "delta"           |                        |
+    | EpsilonEndpoint   | EReq                  | EResp                 | "epsilon"         |                        |
+    | BorrowEndpoint1   | Message<'a>           | u8                    | "borrow1"         | cfg(feature = "alpha") |
+    | BorrowEndpoint2   | ()                    | Message<'a>           | "borrow2"         |                        |
+    | BorrowEndpoint3   | Message<'a>           | Message<'b>           | "borrow3"         |                        |
+    | BorrowEndpoint4   | DoubleMessage<'a, 'b> | DoubleMessage<'c, 'd> | "borrow4"         |                        |
 }
 
 topics! {
     list = TOPICS_IN_LIST;
-    | TopicTy           | MessageTy     | Path              |
-    | ----------        | ---------     | ----              |
-    | ZetaTopic1        | ZMsg          | "zeta1"           |
-    | ZetaTopic2        | ZMsg          | "zeta2"           |
-    | ZetaTopic3        | ZMsg          | "zeta3"           |
+    direction = postcard_rpc::TopicDirection::ToServer;
+    | TopicTy       | MessageTy             | Path      | Cfg                           |
+    | ----------    | ---------             | ----      | ---                           |
+    | ZetaTopic1    | ZMsg                  | "zeta1"   |                               |
+    | ZetaTopic2    | ZMsg                  | "zeta2"   |                               |
+    | ZetaTopic3    | ZMsg                  | "zeta3"   |                               |
+    | BorrowTopic   | Message<'a>           | "msg1"    | cfg(feature = "alpha")        |
+    | BorrowTopic   | DoubleMessage<'a, 'b> | "msg1"    | cfg(not(feature = "alpha"))   |
+    | BerpTopic1    | u8                    | "empty"   |                               |
+    | BerpTopic2    | ()                    | "empty"   |                               |
 }
 
 topics! {
     list = TOPICS_OUT_LIST;
+    direction = postcard_rpc::TopicDirection::ToClient;
     | TopicTy           | MessageTy     | Path              |
     | ----------        | ---------     | ----              |
     | ZetaTopic10       | ZMsg          | "zeta10"          |
@@ -75,6 +103,7 @@ topics! {
 pub struct TestContext {
     pub ctr: Arc<AtomicUsize>,
     pub topic_ctr: Arc<AtomicUsize>,
+    pub msg: String,
 }
 
 pub struct TestSpawnContext {
@@ -103,10 +132,12 @@ define_dispatch! {
     endpoints: {
         list: ENDPOINT_LIST;
 
-        | EndpointTy        | kind      | handler               |
-        | ----------        | ----      | -------               |
-        | AlphaEndpoint     | async     | test_alpha_handler    |
-        | BetaEndpoint      | spawn     | test_beta_handler     |
+        | EndpointTy        | kind      | handler                   |
+        | ----------        | ----      | -------                   |
+        | AlphaEndpoint     | async     | test_alpha_handler        |
+        | BetaEndpoint      | spawn     | test_beta_handler         |
+        | BorrowEndpoint1   | blocking  | test_borrowep_blocking    |
+        | BorrowEndpoint2   | blocking  | test_borrowep_blocking2   |
     };
     topics_in: {
         list: TOPICS_IN_LIST;
@@ -116,16 +147,44 @@ define_dispatch! {
         | ZetaTopic1        | blocking  | test_zeta_blocking    |
         | ZetaTopic2        | async     | test_zeta_async       |
         | ZetaTopic3        | spawn     | test_zeta_spawn       |
+        | BorrowTopic       | blocking  | test_borrow_blocking  |
     };
     topics_out: {
         list: TOPICS_OUT_LIST;
     };
 }
 
+fn test_borrowep_blocking2(
+    context: &mut TestContext,
+    _header: VarHeader,
+    _body: (),
+) -> Message<'_> {
+    Message {
+        data: context.msg.as_str(),
+    }
+}
+
+fn test_borrowep_blocking(
+    _context: &mut TestContext,
+    _header: VarHeader,
+    _body: Message<'_>,
+) -> u8 {
+    0
+}
+
 fn test_zeta_blocking(
     context: &mut TestContext,
     _header: VarHeader,
     _body: ZMsg,
+    _out: &Sender<ChannelWireTx>,
+) {
+    context.topic_ctr.fetch_add(1, Ordering::Relaxed);
+}
+
+fn test_borrow_blocking(
+    context: &mut TestContext,
+    _header: VarHeader,
+    _body: Message,
     _out: &Sender<ChannelWireTx>,
 ) {
     context.topic_ctr.fetch_add(1, Ordering::Relaxed);
@@ -176,6 +235,7 @@ async fn smoke() {
         TestContext {
             ctr: Arc::new(AtomicUsize::new(0)),
             topic_ctr: topic_ctr.clone(),
+            msg: String::from("hello"),
         },
         ChannelWireSpawn {},
     );
@@ -319,6 +379,7 @@ async fn end_to_end() {
         TestContext {
             ctr: Arc::new(AtomicUsize::new(0)),
             topic_ctr: topic_ctr.clone(),
+            msg: String::from("hello"),
         },
         ChannelWireSpawn {},
     );
@@ -349,6 +410,57 @@ async fn end_to_end() {
 }
 
 #[tokio::test]
+async fn end_to_end_schema() {
+    let (client_tx, server_rx) = mpsc::channel(16);
+    let (server_tx, client_rx) = mpsc::channel(16);
+    let topic_ctr = Arc::new(AtomicUsize::new(0));
+
+    let app = SingleDispatcher::new(
+        TestContext {
+            ctr: Arc::new(AtomicUsize::new(0)),
+            topic_ctr: topic_ctr.clone(),
+            msg: String::from("hello"),
+        },
+        ChannelWireSpawn {},
+    );
+
+    let cwrx = ChannelWireRx::new(server_rx);
+    let cwtx = ChannelWireTx::new(server_tx);
+
+    let kkind = app.min_key_len();
+    let report = app.device_map;
+    let mut server = new_server(
+        app,
+        Settings {
+            tx: cwtx,
+            rx: cwrx,
+            buf: 1024,
+            kkind,
+        },
+    );
+    tokio::task::spawn(async move {
+        server.run().await;
+    });
+
+    let cli: HostClient<_> = client::new_from_channels(client_tx, client_rx, VarSeqKind::Seq1);
+    let schema = cli.get_schema_report().await.unwrap();
+
+    for ep in &schema.endpoints {
+        println!("'{}': {} -> {}", ep.path, ep.req_ty, ep.resp_ty);
+    }
+    for tp in &schema.topics_in {
+        println!("'{}' ---> {}", tp.path, tp.ty);
+    }
+    for tp in &schema.topics_out {
+        println!("'{}' <--- {}", tp.path, tp.ty);
+    }
+
+    assert_eq!(schema.endpoints.len(), report.endpoints.len());
+    assert_eq!(schema.topics_in.len(), report.topics_in.len());
+    assert_eq!(schema.topics_out.len(), report.topics_out.len());
+}
+
+#[tokio::test]
 async fn end_to_end_force8() {
     let (client_tx, server_rx) = mpsc::channel(16);
     let (server_tx, client_rx) = mpsc::channel(16);
@@ -358,6 +470,7 @@ async fn end_to_end_force8() {
         TestContext {
             ctr: Arc::new(AtomicUsize::new(0)),
             topic_ctr: topic_ctr.clone(),
+            msg: String::from("hello"),
         },
         ChannelWireSpawn {},
     );
@@ -394,6 +507,7 @@ fn device_map() {
         TestContext {
             ctr: Arc::new(AtomicUsize::new(0)),
             topic_ctr: topic_ctr.clone(),
+            msg: String::from("hello"),
         },
         ChannelWireSpawn {},
     );

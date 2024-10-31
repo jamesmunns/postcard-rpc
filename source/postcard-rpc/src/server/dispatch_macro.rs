@@ -1,8 +1,3 @@
-#[doc(hidden)]
-pub mod export {
-    pub use paste::paste;
-}
-
 /// Define Dispatch Macro
 ///
 /// # Example
@@ -120,12 +115,15 @@ macro_rules! define_dispatch {
         }
     };
 
+
+
     //////////////////////////////////////////////////////////////////////////////
     // Implementation of the dispatch trait for the app, where the Key length
     // is N, where N is 1, 2, 4, or 8
     //////////////////////////////////////////////////////////////////////////////
     (@matcher
         $n:literal $app_name:ident $tx_impl:ty; $spawn_fn:ident $key_ty:ty; $key_kind:expr;
+        $req_key_name:ident / $topic_key_name:ident = $bytes_ty:ty;
         ($($endpoint:ty | $ep_flavor:tt | $ep_handler:ident)*)
         ($($topic_in:ty | $tp_flavor:tt | $tp_handler:ident)*)
     ) => {
@@ -148,11 +146,23 @@ macro_rules! define_dispatch {
                     let err = $crate::standard_icd::WireError::KeyTooSmall;
                     return tx.error(hdr.seq_no, err).await;
                 };
-                let keyb = keyb.to_bytes();
-                use consts::*;
                 match keyb {
+                    // Standard ICD endpoints
+                    <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$req_key_name => {
+                        // Can we deserialize the request?
+                        let Ok(req) = postcard::from_bytes::<<$crate::standard_icd::PingEndpoint as $crate::Endpoint>::Request>(body) else {
+                            let err = $crate::standard_icd::WireError::DeserFailed;
+                            return tx.error(hdr.seq_no, err).await;
+                        };
+
+                        tx.reply::<$crate::standard_icd::PingEndpoint>(hdr.seq_no, &req).await
+                    },
+                    <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::$req_key_name => {
+                        tx.send_all_schemas(hdr, self.device_map).await
+                    }
+                    // end
                     $(
-                        $crate::server::dispatch_macro::export::paste! { [<$endpoint:upper _KEY $n>] } => {
+                        <$endpoint as $crate::Endpoint>::$req_key_name => {
                             // Can we deserialize the request?
                             let Ok(req) = postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
                                 let err = $crate::standard_icd::WireError::DeserFailed;
@@ -173,7 +183,7 @@ macro_rules! define_dispatch {
                         }
                     )*
                     $(
-                        $crate::server::dispatch_macro::export::paste! { [<$topic_in:upper _KEY $n>] } => {
+                        <$topic_in as $crate::Topic>::$topic_key_name => {
                             // Can we deserialize the request?
                             let Ok(msg) = postcard::from_bytes::<<$topic_in as $crate::Topic>::Message>(body) else {
                                 // This is a topic, not much to be done
@@ -189,7 +199,6 @@ macro_rules! define_dispatch {
                             #[allow(unused)]
                             let spawninfo = &dispatch.spawn;
 
-                            // (@tp_arm async $handler:ident $context:ident $header:ident $req:ident $outputter:ident)
                             $crate::define_dispatch!(@tp_arm $tp_flavor $tp_handler context hdr msg tx ($spawn_fn) spawninfo);
                             Ok(())
                         }
@@ -365,53 +374,6 @@ macro_rules! define_dispatch {
             };
         }
 
-
-        // Here, we calculate at const time the keys we need to match against. This is done with
-        // paste, which is unfortunate, but allows us to match on this correctly later.
-        mod consts {
-            use super::*;
-            $(
-                $crate::server::dispatch_macro::export::paste! {
-                    pub const [<$endpoint:upper _KEY1>]: u8 = $crate::Key1::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).to_bytes();
-                }
-            )*
-            $(
-                $crate::server::dispatch_macro::export::paste! {
-                    pub const [<$topic_in:upper _KEY1>]: u8 = $crate::Key1::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).to_bytes();
-                }
-            )*
-            $(
-                $crate::server::dispatch_macro::export::paste! {
-                    pub const [<$endpoint:upper _KEY2>]: [u8; 2] = $crate::Key2::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).to_bytes();
-                }
-            )*
-            $(
-                $crate::server::dispatch_macro::export::paste! {
-                    pub const [<$topic_in:upper _KEY2>]: [u8; 2] = $crate::Key2::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).to_bytes();
-                }
-            )*
-            $(
-                $crate::server::dispatch_macro::export::paste! {
-                    pub const [<$endpoint:upper _KEY4>]: [u8; 4] = $crate::Key4::from_key8(<$endpoint as $crate::Endpoint>::REQ_KEY).to_bytes();
-                }
-            )*
-            $(
-                $crate::server::dispatch_macro::export::paste! {
-                    pub const [<$topic_in:upper _KEY4>]: [u8; 4] = $crate::Key4::from_key8(<$topic_in as $crate::Topic>::TOPIC_KEY).to_bytes();
-                }
-            )*
-            $(
-                $crate::server::dispatch_macro::export::paste! {
-                    pub const [<$endpoint:upper _KEY8>]: [u8; 8] = <$endpoint as $crate::Endpoint>::REQ_KEY.to_bytes();
-                }
-            )*
-            $(
-                $crate::server::dispatch_macro::export::paste! {
-                    pub const [<$topic_in:upper _KEY8>]: [u8; 8] = <$topic_in as $crate::Topic>::TOPIC_KEY.to_bytes();
-                }
-            )*
-        }
-
         // This is the fun part.
         //
         // For... reasons, we need to generate a match function to allow for dispatching
@@ -426,8 +388,6 @@ macro_rules! define_dispatch {
         // macro-time capabilities. I'm very open to other suggestions that achieve the
         // same outcome.
         pub type $app_name = impls::$app_name<{ sizer::NEEDED_SZ }>;
-
-
 
         mod impls {
             use super::*;
@@ -480,21 +440,25 @@ macro_rules! define_dispatch {
 
             $crate::define_dispatch! {
                 @matcher 1 $app_name $tx_impl; $spawn_fn $crate::Key1; $crate::header::VarKeyKind::Key1;
+                REQ_KEY1 / TOPIC_KEY1 = u8;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
             $crate::define_dispatch! {
                 @matcher 2 $app_name $tx_impl; $spawn_fn $crate::Key2; $crate::header::VarKeyKind::Key2;
+                REQ_KEY2 / TOPIC_KEY2 = [u8; 2];
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
             $crate::define_dispatch! {
                 @matcher 4 $app_name $tx_impl; $spawn_fn $crate::Key4; $crate::header::VarKeyKind::Key4;
+                REQ_KEY4 / TOPIC_KEY4 = [u8; 4];
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
             $crate::define_dispatch! {
                 @matcher 8 $app_name $tx_impl; $spawn_fn $crate::Key; $crate::header::VarKeyKind::Key8;
+                REQ_KEY / TOPIC_KEY = [u8; 8];
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }

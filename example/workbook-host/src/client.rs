@@ -1,11 +1,11 @@
 use postcard_rpc::{
     header::VarSeqKind,
     host_client::{HostClient, HostErr},
-    standard_icd::{WireError, ERROR_PATH},
+    standard_icd::{PingEndpoint, WireError, ERROR_PATH},
 };
 use std::convert::Infallible;
 use workbook_icd::{
-    AccelRange, BadPositionError, GetUniqueIdEndpoint, PingEndpoint, Rgb8, SetAllLedEndpoint,
+    AccelRange, BadPositionError, GetUniqueIdEndpoint, Rgb8, SetAllLedEndpoint,
     SetSingleLedEndpoint, SingleLed, StartAccel, StartAccelerationEndpoint,
     StopAccelerationEndpoint,
 };
