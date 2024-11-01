@@ -2,13 +2,14 @@
 
 use core::{
     convert::Infallible,
-    future::Future,
+    future::{pending, Future},
     sync::atomic::{AtomicU32, Ordering},
 };
 use std::sync::Arc;
 
 use crate::{
     header::{VarHeader, VarKey, VarKeyKind, VarSeq},
+    host_client::util::Stopper,
     server::{
         AsWireRxErrorKind, AsWireTxErrorKind, WireRx, WireRxErrorKind, WireSpawn, WireTx,
         WireTxErrorKind,
@@ -17,7 +18,7 @@ use crate::{
     Topic,
 };
 use core::fmt::Arguments;
-use tokio::sync::mpsc;
+use tokio::{select, sync::mpsc};
 
 //////////////////////////////////////////////////////////////////////////////
 // DISPATCH IMPL
@@ -25,6 +26,7 @@ use tokio::sync::mpsc;
 
 /// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
+    pub use crate::host_client::util::Stopper;
     use crate::{
         header::VarKeyKind,
         server::{Dispatch, Server},
@@ -70,6 +72,33 @@ pub mod dispatch_impl {
             settings.kkind,
         )
     }
+
+    /// Create a new server using the [`Settings`] and [`Dispatch`] implementation
+    ///
+    /// Also returns a [`Stopper`] that can be used to halt the server's operation
+    pub fn new_server_stoppable<D>(
+        dispatch: D,
+        mut settings: Settings,
+    ) -> (
+        crate::server::Server<WireTxImpl, WireRxImpl, WireRxBuf, D>,
+        Stopper,
+    )
+    where
+        D: Dispatch<Tx = WireTxImpl>,
+    {
+        let stopper = Stopper::new();
+        settings.tx.set_stopper(stopper.clone());
+        settings.rx.set_stopper(stopper.clone());
+        let buf = vec![0; settings.buf];
+        let me = Server::new(
+            &settings.tx,
+            settings.rx,
+            buf.into_boxed_slice(),
+            dispatch,
+            settings.kkind,
+        );
+        (me, stopper)
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -81,6 +110,7 @@ pub mod dispatch_impl {
 pub struct ChannelWireTx {
     tx: mpsc::Sender<Vec<u8>>,
     log_ctr: Arc<AtomicU32>,
+    stopper: Option<Stopper>,
 }
 
 impl ChannelWireTx {
@@ -89,6 +119,33 @@ impl ChannelWireTx {
         Self {
             tx,
             log_ctr: Arc::new(AtomicU32::new(0)),
+            stopper: None,
+        }
+    }
+
+    /// Add a stopper to listen for "close" methods
+    pub fn set_stopper(&mut self, stopper: Stopper) {
+        self.stopper = Some(stopper);
+    }
+
+    async fn inner_send(&self, msg: Vec<u8>) -> Result<(), ChannelWireTxError> {
+        let stop_fut = async {
+            if let Some(s) = self.stopper.as_ref() {
+                s.wait_stopped().await;
+            } else {
+                pending::<()>().await;
+            }
+        };
+        select! {
+            _ = stop_fut => {
+                Err(ChannelWireTxError::ChannelClosed)
+            }
+            res = self.tx.send(msg) => {
+                match res {
+                    Ok(()) => Ok(()),
+                    Err(_) => Err(ChannelWireTxError::ChannelClosed)
+                }
+            }
         }
     }
 }
@@ -104,20 +161,12 @@ impl WireTx for ChannelWireTx {
         let mut hdr_ser = hdr.write_to_vec();
         let bdy_ser = postcard::to_stdvec(msg).unwrap();
         hdr_ser.extend_from_slice(&bdy_ser);
-        self.tx
-            .send(hdr_ser)
-            .await
-            .map_err(|_| ChannelWireTxError::ChannelClosed)?;
-        Ok(())
+        self.inner_send(hdr_ser).await
     }
 
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error> {
         let buf = buf.to_vec();
-        self.tx
-            .send(buf)
-            .await
-            .map_err(|_| ChannelWireTxError::ChannelClosed)?;
-        Ok(())
+        self.inner_send(buf).await
     }
 
     async fn send_log_str(&self, kkind: VarKeyKind, s: &str) -> Result<(), Self::Error> {
@@ -158,11 +207,7 @@ impl WireTx for ChannelWireTx {
         let msg = format!("{a}");
         let msg = postcard::to_stdvec(&msg).unwrap();
         buf.extend_from_slice(&msg);
-        self.tx
-            .send(buf)
-            .await
-            .map_err(|_| ChannelWireTxError::ChannelClosed)?;
-        Ok(())
+        self.inner_send(buf).await
     }
 }
 
@@ -188,12 +233,18 @@ impl AsWireTxErrorKind for ChannelWireTxError {
 /// A [`WireRx`] impl using tokio mpsc channels
 pub struct ChannelWireRx {
     rx: mpsc::Receiver<Vec<u8>>,
+    stopper: Option<Stopper>,
 }
 
 impl ChannelWireRx {
     /// Create a new [`ChannelWireRx`]
     pub fn new(rx: mpsc::Receiver<Vec<u8>>) -> Self {
-        Self { rx }
+        Self { rx, stopper: None }
+    }
+
+    /// Add a stopper to listen for "close" methods
+    pub fn set_stopper(&mut self, stopper: Stopper) {
+        self.stopper = Some(stopper);
     }
 }
 
@@ -202,13 +253,28 @@ impl WireRx for ChannelWireRx {
 
     async fn receive<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a mut [u8], Self::Error> {
         // todo: some kind of receive_owned?
-        let msg = self.rx.recv().await;
-        let msg = msg.ok_or(ChannelWireRxError::ChannelClosed)?;
-        let out = buf
-            .get_mut(..msg.len())
-            .ok_or(ChannelWireRxError::MessageTooLarge)?;
-        out.copy_from_slice(&msg);
-        Ok(out)
+        let ChannelWireRx { rx, stopper } = self;
+        let stop_fut = async {
+            if let Some(s) = stopper.as_ref() {
+                s.wait_stopped().await;
+            } else {
+                pending::<()>().await;
+            }
+        };
+
+        select! {
+            _ = stop_fut => {
+                Err(ChannelWireRxError::ChannelClosed)
+            }
+            msg = rx.recv() => {
+                let msg = msg.ok_or(ChannelWireRxError::ChannelClosed)?;
+                let out = buf
+                    .get_mut(..msg.len())
+                    .ok_or(ChannelWireRxError::MessageTooLarge)?;
+                out.copy_from_slice(&msg);
+                Ok(out)
+            }
+        }
     }
 }
 

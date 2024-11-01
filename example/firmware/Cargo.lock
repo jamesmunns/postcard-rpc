@@ -1135,7 +1135,7 @@ dependencies = [
 
 [[package]]
 name = "postcard-rpc"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "embassy-executor",
  "embassy-futures 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",

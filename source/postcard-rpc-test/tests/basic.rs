@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Instant};
 
 use postcard_schema::{schema::owned::OwnedNamedType, Schema};
 use serde::{Deserialize, Serialize};
-use tokio::{sync::mpsc, task::yield_now};
+use tokio::{sync::mpsc, task::yield_now, time::timeout};
 
 use postcard_rpc::{
     define_dispatch, endpoints,
@@ -14,7 +14,7 @@ use postcard_rpc::{
     host_client::{test_channels as client, HostClient},
     server::{
         impls::test_channels::{
-            dispatch_impl::{new_server, spawn_fn, Settings, WireSpawnImpl, WireTxImpl},
+            dispatch_impl::{new_server, new_server_stoppable, spawn_fn, Settings, WireSpawnImpl, WireTxImpl},
             ChannelWireRx, ChannelWireSpawn, ChannelWireTx,
         },
         Dispatch, Sender, SpawnContext,
@@ -560,4 +560,48 @@ fn device_map() {
     println!();
     println!("{:?}", app.device_map.min_key_len);
     println!();
+}
+
+#[tokio::test]
+async fn end_to_end_stoppable() {
+    let (client_tx, server_rx) = mpsc::channel(16);
+    let (server_tx, client_rx) = mpsc::channel(16);
+    let topic_ctr = Arc::new(AtomicUsize::new(0));
+
+    let app = SingleDispatcher::new(
+        TestContext {
+            ctr: Arc::new(AtomicUsize::new(0)),
+            topic_ctr: topic_ctr.clone(),
+            msg: String::from("hello"),
+        },
+        ChannelWireSpawn {},
+    );
+
+    let cwrx = ChannelWireRx::new(server_rx);
+    let cwtx = ChannelWireTx::new(server_tx);
+
+    let kkind = app.min_key_len();
+    let (mut server, stopper) = new_server_stoppable(
+        app,
+        Settings {
+            tx: cwtx,
+            rx: cwrx,
+            buf: 1024,
+            kkind,
+        },
+    );
+    let hdl = tokio::task::spawn(async move {
+        server.run().await;
+    });
+
+    let cli = client::new_from_channels(client_tx, client_rx, VarSeqKind::Seq1);
+
+    let resp = cli.send_resp::<AlphaEndpoint>(&AReq(42)).await.unwrap();
+    assert_eq!(resp.0, 42);
+    stopper.stop();
+    match timeout(Duration::from_millis(100), hdl).await {
+        Ok(Ok(())) => {},
+        Ok(Err(e)) => panic!("Server task panicked? {e:?}"),
+        Err(_) => panic!("Server task did not stop!"),
+    }
 }
