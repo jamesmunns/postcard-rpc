@@ -1,29 +1,25 @@
 //! Implementation using `embassy-usb` and bulk interfaces
 
-use core::fmt::Arguments;
-use embassy_executor::{SpawnError, SpawnToken, Spawner};
-use embassy_futures::select::{select, Either};
-use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
-use embassy_time::Timer;
-use embassy_usb_driver::{Driver, EndpointError, EndpointIn, EndpointOut};
-use serde::Serialize;
-
 use crate::{
     header::{VarHeader, VarKey, VarKeyKind, VarSeq},
     server::{WireRx, WireRxErrorKind, WireSpawn, WireTx, WireTxErrorKind},
     standard_icd::LoggingTopic,
     Topic,
 };
-
-use core::sync::atomic::{Ordering, AtomicU8};
+use core::fmt::Arguments;
+use core::sync::atomic::{AtomicU8, Ordering};
+use embassy_executor::{SpawnError, SpawnToken, Spawner};
+use embassy_futures::select::{select, Either};
+use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
+use embassy_time::Timer;
+use embassy_usb_driver::{Driver, EndpointError, EndpointIn, EndpointOut};
+use serde::Serialize;
 use static_cell::ConstStaticCell;
 
-struct PoststationHandler {
-
-}
+struct PoststationHandler {}
 
 static STINDX: AtomicU8 = AtomicU8::new(0xFF);
-static HDLR: ConstStaticCell<PoststationHandler> = ConstStaticCell::new(PoststationHandler { });
+static HDLR: ConstStaticCell<PoststationHandler> = ConstStaticCell::new(PoststationHandler {});
 
 impl embassy_usb::Handler for PoststationHandler {
     fn get_string(&mut self, index: embassy_usb::types::StringIndex, lang_id: u16) -> Option<&str> {
@@ -412,8 +408,8 @@ where
     }
 
     // Calculate an estimated timeout based on the number of frames we need to send
-    // For now, we use 2ms/frame
-    let frames = out.len() / 64;
+    // For now, we use 2ms/frame, rounded UP
+    let frames = (out.len() + 63) / 64;
     let timeout_ms = frames * 2;
 
     let send_fut = async {
