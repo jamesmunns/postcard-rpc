@@ -15,6 +15,32 @@ use crate::{
     Topic,
 };
 
+use core::sync::atomic::{Ordering, AtomicU8};
+use static_cell::ConstStaticCell;
+
+struct PoststationHandler {
+
+}
+
+static STINDX: AtomicU8 = AtomicU8::new(0xFF);
+static HDLR: ConstStaticCell<PoststationHandler> = ConstStaticCell::new(PoststationHandler { });
+
+impl embassy_usb::Handler for PoststationHandler {
+    fn get_string(&mut self, index: embassy_usb::types::StringIndex, lang_id: u16) -> Option<&str> {
+        use embassy_usb::descriptor::lang_id;
+
+        let stindx = STINDX.load(Ordering::Relaxed);
+        if stindx == 0xFF {
+            return None;
+        }
+        if lang_id == lang_id::ENGLISH_US && index.0 == stindx {
+            Some("Poststation")
+        } else {
+            None
+        }
+    }
+}
+
 /// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
     pub use super::embassy_spawn as spawn_fn;
@@ -70,6 +96,67 @@ pub mod dispatch_impl {
                 bufs_usb: ConstStaticCell::new(UsbDeviceBuffers::new()),
                 cell: StaticCell::new(),
             }
+        }
+
+        /// Initialize the static storage, reporting as poststation compatible
+        ///
+        /// This must only be called once.
+        pub fn init_poststation(
+            &'static self,
+            driver: D,
+            config: Config<'static>,
+            tx_buf: &'static mut [u8],
+        ) -> (UsbDevice<'static, D>, WireTxImpl<M, D>, WireRxImpl<D>) {
+            let bufs = self.bufs_usb.take();
+
+            let mut builder = Builder::new(
+                driver,
+                config,
+                &mut bufs.config_descriptor,
+                &mut bufs.bos_descriptor,
+                &mut bufs.msos_descriptor,
+                &mut bufs.control_buf,
+            );
+
+            // Register a poststation-compatible string handler
+            let hdlr = super::HDLR.take();
+            builder.handler(hdlr);
+
+            // Add the Microsoft OS Descriptor (MSOS/MOD) descriptor.
+            // We tell Windows that this entire device is compatible with the "WINUSB" feature,
+            // which causes it to use the built-in WinUSB driver automatically, which in turn
+            // can be used by libusb/rusb software without needing a custom driver or INF file.
+            // In principle you might want to call msos_feature() just on a specific function,
+            // if your device also has other functions that still use standard class drivers.
+            builder.msos_descriptor(windows_version::WIN8_1, 0);
+            builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+            builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+                "DeviceInterfaceGUIDs",
+                msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+            ));
+
+            // Add a vendor-specific function (class 0xFF), and corresponding interface,
+            // that uses our custom handler.
+            let mut function = builder.function(0xFF, 0, 0);
+            let mut interface = function.interface();
+            let stindx = interface.string();
+            super::STINDX.store(stindx.0, core::sync::atomic::Ordering::Relaxed);
+            let mut alt = interface.alt_setting(0xFF, 0xCA, 0x7D, Some(stindx));
+            let ep_out = alt.endpoint_bulk_out(64);
+            let ep_in = alt.endpoint_bulk_in(64);
+            drop(function);
+
+            let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
+                ep_in,
+                log_seq: 0,
+                tx_buf,
+                pending_frame: false,
+            }));
+
+            // Build the builder.
+            let usb = builder.build();
+
+            (usb, EUsbWireTx { inner: wtx }, EUsbWireRx { ep_out })
         }
 
         /// Initialize the static storage.
