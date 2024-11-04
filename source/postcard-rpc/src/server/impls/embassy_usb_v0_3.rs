@@ -50,7 +50,7 @@ pub mod dispatch_impl {
         const MSOS: usize = 256,
     > {
         /// Usb buffer storage
-        pub bufs_usb: ConstStaticCell<UsbDeviceBuffers<CONFIG, BOS, CONTROL, CONFIG>>,
+        pub bufs_usb: ConstStaticCell<UsbDeviceBuffers<CONFIG, BOS, CONTROL, MSOS>>,
         /// WireTx/Sender static storage
         pub cell: StaticCell<Mutex<M, EUsbWireTxInner<D>>>,
     }
