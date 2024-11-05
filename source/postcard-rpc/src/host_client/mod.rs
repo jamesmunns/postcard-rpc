@@ -22,10 +22,7 @@ use postcard_schema::{schema::owned::OwnedNamedType, Schema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
     select,
-    sync::{
-        mpsc::{Receiver, Sender},
-        Mutex,
-    },
+    sync::{broadcast, mpsc, Mutex},
 };
 use util::Subscriptions;
 
@@ -175,7 +172,7 @@ pub trait WireSpawn: 'static {
 /// 2. With cobs CDC-ACM transfers: [`HostClient::new_serial_cobs()`]
 pub struct HostClient<WireErr> {
     ctx: Arc<HostContext>,
-    out: Sender<RpcFrame>,
+    out: mpsc::Sender<RpcFrame>,
     subscriptions: Arc<Mutex<Subscriptions>>,
     err_key: Key,
     stopper: Stopper,
@@ -251,14 +248,14 @@ where
 {
     /// Obtain a [`SchemaReport`] describing the connected device
     pub async fn get_schema_report(&self) -> Result<SchemaReport, SchemaError<WireErr>> {
-        let Ok(mut sub) = self.subscribe::<GetAllSchemaDataTopic>(64).await else {
+        let Ok(mut sub) = self.subscribe_multi::<GetAllSchemaDataTopic>(64).await else {
             return Err(SchemaError::Comms(HostErr::Closed));
         };
 
         let collect_task = tokio::task::spawn({
             async move {
                 let mut got = vec![];
-                while let Ok(Some(val)) =
+                while let Ok(Ok(val)) =
                     tokio::time::timeout(Duration::from_millis(100), sub.recv()).await
                 {
                     got.push(val);
@@ -433,12 +430,65 @@ where
     }
 
     /// Begin listening to a [Topic], receiving a [Subscription] that will give a
+    /// stream of [Message][Topic::Message]s. Unlike `subscribe`, multiple subscribers
+    /// to the same stream are allowed, and behave as a broadcast channel.
+    ///
+    /// Returns an Error if the I/O worker is closed.
+    pub async fn subscribe_multi<T: Topic>(
+        &self,
+        depth: usize,
+    ) -> Result<MultiSubscription<T::Message>, IoClosed>
+    where
+        T::Message: DeserializeOwned,
+    {
+        let cancel_fut = self.stopper.wait_stopped();
+        let operate_fut = self.subscribe_multi_inner::<T>(depth);
+        select! {
+            _ = cancel_fut => Err(IoClosed),
+            res = operate_fut => res,
+        }
+    }
+
+    /// Inner function version of [Self::subscribe_multi]
+    async fn subscribe_multi_inner<T: Topic>(
+        &self,
+        depth: usize,
+    ) -> Result<MultiSubscription<T::Message>, IoClosed>
+    where
+        T::Message: DeserializeOwned,
+    {
+        let rx = {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(IoClosed);
+            }
+            if let Some(entry) = guard
+                .broadcast_list
+                .iter_mut()
+                .find(|(k, _)| *k == T::TOPIC_KEY)
+            {
+                entry.1.subscribe()
+            } else {
+                let (tx, rx) = broadcast::channel(depth);
+                guard.broadcast_list.push((T::TOPIC_KEY, tx));
+                rx
+            }
+        };
+        Ok(MultiSubscription {
+            rx,
+            _pd: PhantomData,
+        })
+    }
+
+    /// Begin listening to a [Topic], receiving a [Subscription] that will give a
     /// stream of [Message][Topic::Message]s.
     ///
     /// If you subscribe to the same topic multiple times, the previous subscription
-    /// will be closed (there can be only one).
+    /// will be closed (there can be only one). This does not apply to subscriptions
+    /// created with `subscribe_multi`.
     ///
     /// Returns an Error if the I/O worker is closed.
+    #[deprecated = "In future versions, exclusive subs will be removed. Use `multi_subscribe` instead."]
     pub async fn subscribe<T: Topic>(
         &self,
         depth: usize,
@@ -468,11 +518,15 @@ where
             if guard.stopped {
                 return Err(IoClosed);
             }
-            if let Some(entry) = guard.list.iter_mut().find(|(k, _)| *k == T::TOPIC_KEY) {
+            if let Some(entry) = guard
+                .exclusive_list
+                .iter_mut()
+                .find(|(k, _)| *k == T::TOPIC_KEY)
+            {
                 tracing::warn!("replacing subscription for topic path '{}'", T::PATH);
                 entry.1 = tx;
             } else {
-                guard.list.push((T::TOPIC_KEY, tx));
+                guard.exclusive_list.push((T::TOPIC_KEY, tx));
             }
         }
         Ok(Subscription {
@@ -482,6 +536,7 @@ where
     }
 
     /// Subscribe to the given [`Key`], without automatically handling deserialization
+    #[deprecated = "In future versions, exclusive subs will be removed. Use `multi_subscribe_raw` instead."]
     pub async fn subscribe_raw(&self, key: Key, depth: usize) -> Result<RawSubscription, IoClosed> {
         let cancel_fut = self.stopper.wait_stopped();
         let operate_fut = self.subscribe_inner_raw(key, depth);
@@ -503,14 +558,50 @@ where
             if guard.stopped {
                 return Err(IoClosed);
             }
-            if let Some(entry) = guard.list.iter_mut().find(|(k, _)| *k == key) {
+            if let Some(entry) = guard.exclusive_list.iter_mut().find(|(k, _)| *k == key) {
                 tracing::warn!("replacing subscription for raw topic key '{:?}'", key);
                 entry.1 = tx;
             } else {
-                guard.list.push((key, tx));
+                guard.exclusive_list.push((key, tx));
             }
         }
         Ok(RawSubscription { rx })
+    }
+
+    /// Subscribe to the given [`Key`], without automatically handling deserialization
+    pub async fn subscribe_multi_raw(
+        &self,
+        key: Key,
+        depth: usize,
+    ) -> Result<RawMultiSubscription, IoClosed> {
+        let cancel_fut = self.stopper.wait_stopped();
+        let operate_fut = self.subscribe_multi_inner_raw(key, depth);
+        select! {
+            _ = cancel_fut => Err(IoClosed),
+            res = operate_fut => res,
+        }
+    }
+
+    /// Inner function version of [Self::subscribe]
+    async fn subscribe_multi_inner_raw(
+        &self,
+        key: Key,
+        depth: usize,
+    ) -> Result<RawMultiSubscription, IoClosed> {
+        let rx = {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(IoClosed);
+            }
+            if let Some(entry) = guard.broadcast_list.iter_mut().find(|(k, _)| *k == key) {
+                entry.1.subscribe()
+            } else {
+                let (tx, rx) = broadcast::channel(depth);
+                guard.broadcast_list.push((key, tx));
+                rx
+            }
+        };
+        Ok(RawMultiSubscription { rx })
     }
 
     /// Permanently close the connection to the client
@@ -538,7 +629,7 @@ where
 /// Like Subscription, but receives Raw frames that are not
 /// automatically deserialized
 pub struct RawSubscription {
-    rx: Receiver<RpcFrame>,
+    rx: mpsc::Receiver<RpcFrame>,
 }
 
 impl RawSubscription {
@@ -552,7 +643,7 @@ impl RawSubscription {
 
 /// A structure that represents a subscription to the given topic
 pub struct Subscription<M> {
-    rx: Receiver<RpcFrame>,
+    rx: mpsc::Receiver<RpcFrame>,
     _pd: PhantomData<M>,
 }
 
@@ -568,6 +659,63 @@ where
             let frame = self.rx.recv().await?;
             if let Ok(m) = postcard::from_bytes(&frame.body) {
                 return Some(m);
+            }
+        }
+    }
+}
+
+/// Like MultiSubscription, but receives Raw frames that are not
+/// automatically deserialized
+pub struct RawMultiSubscription {
+    rx: broadcast::Receiver<RpcFrame>,
+}
+
+impl RawMultiSubscription {
+    /// Await a message for the given subscription.
+    ///
+    /// Returns [None]` if the subscription was closed
+    pub async fn recv(&mut self) -> Result<RpcFrame, MultiSubRxError> {
+        match self.rx.recv().await {
+            Ok(f) => Ok(f),
+            Err(broadcast::error::RecvError::Closed) => Err(MultiSubRxError::IoClosed),
+            Err(broadcast::error::RecvError::Lagged(n)) => Err(MultiSubRxError::Lagged(n)),
+        }
+    }
+}
+
+/// A structure that represents a subscription to the given topic
+pub struct MultiSubscription<M> {
+    rx: broadcast::Receiver<RpcFrame>,
+    _pd: PhantomData<M>,
+}
+
+/// Recv
+#[derive(Debug, PartialEq)]
+pub enum MultiSubRxError {
+    /// The receiver was closed
+    IoClosed,
+    /// Lagged behind, this many messages were lost
+    Lagged(u64),
+}
+
+impl<M> MultiSubscription<M>
+where
+    M: DeserializeOwned,
+{
+    /// Await a message for the given subscription.
+    ///
+    /// Returns [None]` if the subscription was closed
+    pub async fn recv(&mut self) -> Result<M, MultiSubRxError> {
+        loop {
+            let frame = match self.rx.recv().await {
+                Ok(f) => f,
+                Err(broadcast::error::RecvError::Closed) => return Err(MultiSubRxError::IoClosed),
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    return Err(MultiSubRxError::Lagged(n))
+                }
+            };
+            if let Ok(m) = postcard::from_bytes(&frame.body) {
+                return Ok(m);
             }
         }
     }
@@ -592,13 +740,14 @@ impl<WireErr> Clone for HostClient<WireErr> {
 pub struct WireContext {
     /// This is a stream of frames that should be placed on the
     /// wire towards the server.
-    pub outgoing: Receiver<RpcFrame>,
+    pub outgoing: mpsc::Receiver<RpcFrame>,
     /// This shared information contains the WaitMap used for replying to
     /// open requests.
     pub incoming: Arc<HostContext>,
 }
 
 /// A single postcard-rpc frame
+#[derive(Clone)]
 pub struct RpcFrame {
     /// The wire header
     pub header: VarHeader,

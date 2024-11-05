@@ -6,10 +6,7 @@ use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
 use tokio::{
     select,
-    sync::{
-        mpsc::{error::TrySendError, Receiver, Sender},
-        Mutex,
-    },
+    sync::{broadcast, mpsc, Mutex},
 };
 use tracing::{debug, trace, warn};
 
@@ -23,7 +20,8 @@ use crate::{
 
 #[derive(Default, Debug)]
 pub(crate) struct Subscriptions {
-    pub(crate) list: Vec<(Key, Sender<RpcFrame>)>,
+    pub(crate) exclusive_list: Vec<(Key, mpsc::Sender<RpcFrame>)>,
+    pub(crate) broadcast_list: Vec<(Key, broadcast::Sender<RpcFrame>)>,
     pub(crate) stopped: bool,
 }
 
@@ -65,6 +63,12 @@ impl Stopper {
     }
 }
 
+impl Default for Stopper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
@@ -103,7 +107,7 @@ where
 }
 
 /// Output worker, feeding frames to the `Client`.
-async fn out_worker<W>(wire: W, rec: Receiver<RpcFrame>, stop: Stopper)
+async fn out_worker<W>(wire: W, rec: mpsc::Receiver<RpcFrame>, stop: Stopper)
 where
     W: WireTx,
     W::Error: Debug,
@@ -119,7 +123,7 @@ where
     }
 }
 
-async fn out_worker_inner<W>(mut wire: W, mut rec: Receiver<RpcFrame>)
+async fn out_worker_inner<W>(mut wire: W, mut rec: mpsc::Receiver<RpcFrame>)
 where
     W: WireTx,
     W::Error: Debug,
@@ -159,7 +163,8 @@ async fn in_worker<W>(
     // TODO: Have a "stopped" flag to prevent later additions (e.g. sub after store?)
     let mut guard = subscriptions.lock().await;
     guard.stopped = true;
-    guard.list.clear();
+    guard.exclusive_list.clear();
+    guard.broadcast_list.clear();
 }
 
 async fn in_worker_inner<W>(
@@ -190,8 +195,34 @@ async fn in_worker_inner<W>(
             let key = hdr.key;
 
             // Remove if sending fails
-            let remove_sub = if let Some((_h, m)) = subs_guard
-                .list
+            //
+            // First, check the broadcast channels
+            let remove_mul_sub = if let Some((_h, m)) = subs_guard
+                .broadcast_list
+                .iter()
+                .find(|(k, _)| VarKey::Key8(*k) == key)
+            {
+                handled = true;
+                let frame = RpcFrame {
+                    header: hdr,
+                    body: body.to_vec(),
+                };
+                let res = m.send(frame);
+
+                match res {
+                    Ok(_) => {
+                        trace!("Handled message via subscription");
+                        false
+                    }
+                    // A SendError means that there are no more receivers
+                    Err(broadcast::error::SendError(_)) => true,
+                }
+            } else {
+                false
+            };
+
+            let remove_exl_sub = if let Some((_h, m)) = subs_guard
+                .exclusive_list
                 .iter()
                 .find(|(k, _)| VarKey::Key8(*k) == key)
             {
@@ -207,19 +238,27 @@ async fn in_worker_inner<W>(
                         trace!("Handled message via subscription");
                         false
                     }
-                    Err(TrySendError::Full(_)) => {
+                    Err(mpsc::error::TrySendError::Full(_)) => {
                         tracing::error!("Subscription channel full! Message dropped.");
                         false
                     }
-                    Err(TrySendError::Closed(_)) => true,
+                    Err(mpsc::error::TrySendError::Closed(_)) => true,
                 }
             } else {
                 false
             };
 
-            if remove_sub {
-                debug!("Dropping subscription");
-                subs_guard.list.retain(|(k, _)| VarKey::Key8(*k) != key);
+            if remove_exl_sub {
+                debug!("Dropping exclusive subscription");
+                subs_guard
+                    .exclusive_list
+                    .retain(|(k, _)| VarKey::Key8(*k) != key);
+            }
+            if remove_mul_sub {
+                debug!("Dropping multi subscription");
+                subs_guard
+                    .broadcast_list
+                    .retain(|(k, _)| VarKey::Key8(*k) != key);
             }
         }
 

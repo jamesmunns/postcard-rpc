@@ -10,9 +10,9 @@ async fn main() {
     println!("Got: {ping}.");
     println!();
 
-    let mut logsub = client.client.subscribe::<LoggingTopic>(64).await.unwrap();
+    let mut logsub = client.client.subscribe_multi::<LoggingTopic>(64).await.unwrap();
 
-    while let Some(msg) = logsub.recv().await {
+    while let Ok(msg) = logsub.recv().await {
         println!("LOG: {msg}");
     }
     println!("Device disconnected");
