@@ -4,7 +4,7 @@ use std::future::Future;
 
 use nusb::{
     transfer::{Queue, RequestBuffer, TransferError},
-    DeviceInfo,
+    DeviceInfo, InterfaceInfo,
 };
 use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
@@ -67,6 +67,8 @@ where
     /// let client = HostClient::<Error>::try_new_raw_nusb(
     ///     // Find the first device with the serial 12345678
     ///     |d| d.serial_number() == Some("12345678"),
+    ///     // Find the "Vendor Specific" interface
+    ///     |i| i.class() == 0xFF,
     ///     // the URI/path for `Error` messages
     ///     "error",
     ///     // Outgoing queue depth in messages
@@ -75,21 +77,26 @@ where
     ///     VarSeqKind::Seq1,
     /// ).unwrap();
     /// ```
-    pub fn try_new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
-        func: F,
+    pub fn try_new_raw_nusb<F1: FnMut(&DeviceInfo) -> bool, F2: FnMut(&InterfaceInfo) -> bool>(
+        device_func: F1,
+        interface_func: F2,
         err_uri_path: &str,
         outgoing_depth: usize,
         seq_no_kind: VarSeqKind,
     ) -> Result<Self, String> {
         let x = nusb::list_devices()
             .map_err(|e| format!("Error listing devices: {e:?}"))?
-            .find(func)
+            .find(device_func)
             .ok_or_else(|| String::from("Failed to find matching nusb device!"))?;
+        let interface_id = x
+            .interfaces()
+            .position(interface_func)
+            .ok_or_else(|| String::from("Failed to find matching interface!"))?;
         let dev = x
             .open()
             .map_err(|e| format!("Failed opening device: {e:?}"))?;
         let interface = dev
-            .claim_interface(0)
+            .claim_interface(interface_id as u8)
             .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
 
         let boq = interface.bulk_out_queue(BULK_OUT_EP);
@@ -132,6 +139,8 @@ where
     /// let client = HostClient::<Error>::new_raw_nusb(
     ///     // Find the first device with the serial 12345678
     ///     |d| d.serial_number() == Some("12345678"),
+    ///     // Find the "Vendor Specific" interface
+    ///     |i| i.class() == 0xFF,
     ///     // the URI/path for `Error` messages
     ///     "error",
     ///     // Outgoing queue depth in messages
@@ -140,13 +149,14 @@ where
     ///     VarSeqKind::Seq1,
     /// );
     /// ```
-    pub fn new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
-        func: F,
+    pub fn new_raw_nusb<F1: FnMut(&DeviceInfo) -> bool, F2: FnMut(&InterfaceInfo) -> bool>(
+        device: F1,
+        interface: F2,
         err_uri_path: &str,
         outgoing_depth: usize,
         seq_no_kind: VarSeqKind,
     ) -> Self {
-        Self::try_new_raw_nusb(func, err_uri_path, outgoing_depth, seq_no_kind)
+        Self::try_new_raw_nusb(device, interface, err_uri_path, outgoing_depth, seq_no_kind)
             .expect("should have found nusb device")
     }
 }
