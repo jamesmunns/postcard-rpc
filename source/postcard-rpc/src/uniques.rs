@@ -445,7 +445,7 @@ const fn type_chewer_dmt<const MAX: usize>(
                 while j < used {
                     let Some(ty) = arr[j] else { panic!() };
                     let mut k = 0;
-                    let mut found = false;
+                    let mut found = is_prim(ty.ty);
                     // Check against all currently known tys
                     while !found && k < outidx {
                         let Some(kty) = out[k] else { panic!() };
@@ -472,7 +472,7 @@ const fn type_chewer_dmt<const MAX: usize>(
             while j < used {
                 let Some(ty) = arr[j] else { panic!() };
                 let mut k = 0;
-                let mut found = false;
+                let mut found = is_prim(ty.ty);
                 // Check against all currently known tys
                 while !found && k < outidx {
                     let Some(kty) = out[k] else { panic!() };
@@ -492,7 +492,7 @@ const fn type_chewer_dmt<const MAX: usize>(
             while j < used {
                 let Some(ty) = arr[j] else { panic!() };
                 let mut k = 0;
-                let mut found = false;
+                let mut found = is_prim(ty.ty);
                 // Check against all currently known tys
                 while !found && k < outidx {
                     let Some(kty) = out[k] else { panic!() };
@@ -522,7 +522,7 @@ const fn type_chewer_dmt<const MAX: usize>(
                 while j < used {
                     let Some(ty) = arr[j] else { panic!() };
                     let mut k = 0;
-                    let mut found = false;
+                    let mut found = is_prim(ty.ty);
                     // Check against all currently known tys
                     while !found && k < outidx {
                         let Some(kty) = out[k] else { panic!() };
@@ -550,7 +550,7 @@ const fn type_chewer_dmt<const MAX: usize>(
                     DataModelVariant::UnitVariant => {}
                     DataModelVariant::NewtypeVariant(nt) => {
                         let mut k = 0;
-                        let mut found = false;
+                        let mut found = is_prim(nt.ty);
                         // Check against all currently known tys
                         while !found && k < outidx {
                             let Some(kty) = out[k] else { panic!() };
@@ -574,7 +574,7 @@ const fn type_chewer_dmt<const MAX: usize>(
                             while j < used {
                                 let Some(ty) = arr[j] else { panic!() };
                                 let mut k = 0;
-                                let mut found = false;
+                                let mut found = is_prim(ty.ty);
                                 // Check against all currently known tys
                                 while !found && k < outidx {
                                     let Some(kty) = out[k] else { panic!() };
@@ -602,7 +602,7 @@ const fn type_chewer_dmt<const MAX: usize>(
                             while j < used {
                                 let Some(ty) = arr[j] else { panic!() };
                                 let mut k = 0;
-                                let mut found = false;
+                                let mut found = is_prim(ty.ty);
                                 // Check against all currently known tys
                                 while !found && k < outidx {
                                     let Some(kty) = out[k] else { panic!() };
@@ -698,7 +698,7 @@ pub const fn merge_nty_lists<const M: usize>(
         while j < list.len() {
             let item = list[j];
             let mut k = 0;
-            let mut found = false;
+            let mut found = is_prim(item.ty);
             while !found && k < out_ct {
                 let Some(oitem) = out[k] else { panic!() };
                 if nty_eq(item, oitem) {
@@ -782,7 +782,7 @@ mod test {
     };
 
     use crate::uniques::{
-        is_prim, type_chewer_nty, unique_types_dmt_upper, unique_types_nty_upper,
+        is_prim, type_chewer_dmt, type_chewer_nty, unique_types_dmt_upper, unique_types_nty_upper,
     };
 
     #[derive(Schema)]
@@ -818,9 +818,9 @@ mod test {
     #[derive(Schema)]
     enum Example4 {
         A,
-        B,
-        C,
-        D,
+        B(String),
+        C(u32, u64),
+        D { x: i8, y: i16, z: i32, a: i64 },
     }
 
     #[test]
@@ -838,11 +838,13 @@ mod test {
         const MAX1: usize = unique_types_nty_upper(Example1::SCHEMA);
         const MAX2: usize = unique_types_nty_upper(Example2::SCHEMA);
         const MAX3: usize = unique_types_nty_upper(Example3::SCHEMA);
+        const MAX4: usize = unique_types_nty_upper(Example4::SCHEMA);
         assert_eq!(MAX0, 1);
         assert_eq!(MAXA, 1);
         assert_eq!(MAX1, 2);
         assert_eq!(MAX2, 4);
         assert_eq!(MAX3, 14);
+        assert_eq!(MAX4, 1);
 
         println!();
         println!("Example0");
@@ -924,10 +926,12 @@ mod test {
         }
 
         println!();
-        println!("Example4");
-        let (arr3, used): ([Option<_>; MAX3], usize) = type_chewer_nty(Example4::SCHEMA);
+        let x = type_chewer_dmt::<MAX4>(Example4::SCHEMA.ty);
+        println!("Example4 {MAX4} {} {:?}", x.1, x.0);
+        println!("{}", OwnedNamedType::from(Example4::SCHEMA));
+        let (arr4, used): ([Option<_>; MAX4], usize) = type_chewer_nty(Example4::SCHEMA);
         println!("max: {MAX3} used: {used}");
-        for a in arr3 {
+        for a in arr4 {
             match a {
                 Some(a) => println!("Some({})", OwnedNamedType::from(a)),
                 None => println!("None"),
