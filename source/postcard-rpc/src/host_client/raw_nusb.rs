@@ -85,11 +85,15 @@ where
             .map_err(|e| format!("Error listing devices: {e:?}"))?
             .find(func)
             .ok_or_else(|| String::from("Failed to find matching nusb device!"))?;
+        let interface_id = x
+            .interfaces()
+            .position(|i| i.class() == 0xFF)
+            .ok_or_else(|| String::from("Failed to find matching interface!!"))?;
         let dev = x
             .open()
             .map_err(|e| format!("Failed opening device: {e:?}"))?;
         let interface = dev
-            .claim_interface(0)
+            .claim_interface(interface_id as u8)
             .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
 
         let boq = interface.bulk_out_queue(BULK_OUT_EP);
