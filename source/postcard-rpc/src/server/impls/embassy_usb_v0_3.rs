@@ -163,6 +163,19 @@ pub mod dispatch_impl {
             driver: D,
             config: Config<'static>,
             tx_buf: &'static mut [u8],
+        ) -> (UsbDevice<'static, D>, WireTxImpl<M, D>, WireRxImpl<D>) {
+            let (builder, wtx, wrx) = self.init_without_build(driver, config, tx_buf);
+            let usb = builder.build();
+            (usb, wtx, wrx)
+        }
+        /// Initialize the static storage, without building `Builder`
+        ///
+        /// This must only be called once.
+        pub fn init_without_build(
+            &'static self,
+            driver: D,
+            config: Config<'static>,
+            tx_buf: &'static mut [u8],
         ) -> (Builder<'static, D>, WireTxImpl<M, D>, WireRxImpl<D>) {
             let bufs = self.bufs_usb.take();
 
