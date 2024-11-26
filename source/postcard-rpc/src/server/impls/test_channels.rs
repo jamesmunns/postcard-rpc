@@ -65,7 +65,7 @@ pub mod dispatch_impl {
     {
         let buf = vec![0; settings.buf];
         Server::new(
-            &settings.tx,
+            settings.tx,
             settings.rx,
             buf.into_boxed_slice(),
             dispatch,
@@ -91,7 +91,7 @@ pub mod dispatch_impl {
         settings.rx.set_stopper(stopper.clone());
         let buf = vec![0; settings.buf];
         let me = Server::new(
-            &settings.tx,
+            settings.tx,
             settings.rx,
             buf.into_boxed_slice(),
             dispatch,
