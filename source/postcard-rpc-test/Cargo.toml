@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies.postcard]
-version = "1.0.8"
+version = "1.1.0"
 features = ["use-std", "experimental-derive"]
 
 [dependencies.serde]
@@ -16,7 +16,7 @@ path = "../postcard-rpc"
 features = ["use-std", "test-utils"]
 
 [dependencies.postcard-schema]
-version = "0.1.0"
+version = "0.2.0"
 features = ["derive"]
 
 [dependencies.tokio]
