@@ -4,7 +4,7 @@ use std::future::Future;
 
 use nusb::{
     transfer::{Queue, RequestBuffer, TransferError},
-    DeviceInfo,
+    DeviceInfo, InterfaceInfo,
 };
 use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
@@ -85,11 +85,94 @@ where
             .map_err(|e| format!("Error listing devices: {e:?}"))?
             .find(func)
             .ok_or_else(|| String::from("Failed to find matching nusb device!"))?;
+        let interface_id = x
+            .interfaces()
+            .position(|i| i.class() == 0xFF)
+            .ok_or_else(|| String::from("Failed to find matching interface!!"))?;
         let dev = x
             .open()
             .map_err(|e| format!("Failed opening device: {e:?}"))?;
         let interface = dev
-            .claim_interface(0)
+            .claim_interface(interface_id as u8)
+            .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
+
+        let boq = interface.bulk_out_queue(BULK_OUT_EP);
+        let biq = interface.bulk_in_queue(BULK_IN_EP);
+
+        Ok(HostClient::new_with_wire(
+            NusbWireTx { boq },
+            NusbWireRx {
+                biq,
+                consecutive_errs: 0,
+            },
+            NusbSpawn,
+            seq_no_kind,
+            err_uri_path,
+            outgoing_depth,
+        ))
+    }
+    /// Try to create a new link using [`nusb`] for connectivity
+    ///
+    /// The provided function will be used to find a matching device. The first
+    /// matching device will be connected to. `err_uri_path` is
+    /// the path associated with the `WireErr` message type.
+    ///
+    /// Returns an error if no device or interface could be found, or if there was an error
+    /// connecting to the device or interface.
+    ///
+    /// This constructor is available when the `raw-nusb` feature is enabled.
+    ///
+    /// ## Example
+    ///
+    /// ```rust,no_run
+    /// use postcard_rpc::host_client::HostClient;
+    /// use postcard_rpc::header::VarSeqKind;
+    /// use serde::{Serialize, Deserialize};
+    /// use postcard_schema::Schema;
+    ///
+    /// /// A "wire error" type your server can use to respond to any
+    /// /// kind of request, for example if deserializing a request fails
+    /// #[derive(Debug, PartialEq, Schema, Serialize, Deserialize)]
+    /// pub enum Error {
+    ///    SomethingBad
+    /// }
+    ///
+    /// let client = HostClient::<Error>::try_new_raw_nusb_with_interface(
+    ///     // Find the first device with the serial 12345678
+    ///     |d| d.serial_number() == Some("12345678"),
+    ///     // Find the "Vendor Specific" interface
+    ///     |i| i.class() == 0xFF,
+    ///     // the URI/path for `Error` messages
+    ///     "error",
+    ///     // Outgoing queue depth in messages
+    ///     8,
+    ///     // Use one-byte sequence numbers
+    ///     VarSeqKind::Seq1,
+    /// ).unwrap();
+    /// ```
+    pub fn try_new_raw_nusb_with_interface<
+        F1: FnMut(&DeviceInfo) -> bool,
+        F2: FnMut(&InterfaceInfo) -> bool,
+    >(
+        device_func: F1,
+        interface_func: F2,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+        seq_no_kind: VarSeqKind,
+    ) -> Result<Self, String> {
+        let x = nusb::list_devices()
+            .map_err(|e| format!("Error listing devices: {e:?}"))?
+            .find(device_func)
+            .ok_or_else(|| String::from("Failed to find matching nusb device!"))?;
+        let interface_id = x
+            .interfaces()
+            .position(interface_func)
+            .ok_or_else(|| String::from("Failed to find matching interface!!"))?;
+        let dev = x
+            .open()
+            .map_err(|e| format!("Failed opening device: {e:?}"))?;
+        let interface = dev
+            .claim_interface(interface_id as u8)
             .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
 
         let boq = interface.bulk_out_queue(BULK_OUT_EP);
