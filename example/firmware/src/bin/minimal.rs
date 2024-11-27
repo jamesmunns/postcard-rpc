@@ -90,7 +90,7 @@ async fn main(spawner: Spawner) {
     let dispatcher = MyApp::new(context, spawner.into());
     let vkk = dispatcher.min_key_len();
     let server: AppServer = Server::new(
-        &tx_impl,
+        tx_impl,
         rx_impl,
         pbufs.rx_buf.as_mut_slice(),
         dispatcher,
