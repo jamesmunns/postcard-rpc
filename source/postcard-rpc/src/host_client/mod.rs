@@ -358,7 +358,6 @@ where
         let cancel_fut = self.stopper.wait_stopped();
         let kkind: VarKeyKind = *self.ctx.kkind.read().unwrap();
         rqst.header.key.shrink_to(kkind);
-        rqst.header.seq_no.resize(self.seq_kind);
         let mut resp_key = VarKey::Key8(resp_key);
         let mut err_key = VarKey::Key8(self.err_key);
         resp_key.shrink_to(kkind);
@@ -418,7 +417,6 @@ where
     pub async fn publish_raw(&self, mut frame: RpcFrame) -> Result<(), IoClosed> {
         let kkind: VarKeyKind = *self.ctx.kkind.read().unwrap();
         frame.header.key.shrink_to(kkind);
-        frame.header.seq_no.resize(self.seq_kind);
 
         let cancel_fut = self.stopper.wait_stopped();
         let operate_fut = self.out.send(frame);
