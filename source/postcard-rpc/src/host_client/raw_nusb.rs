@@ -49,6 +49,13 @@ where
     ///
     /// This constructor is available when the `raw-nusb` feature is enabled.
     ///
+    /// ## Platform specific support
+    ///
+    /// When using Windows, the WinUSB driver does not allow enumerating interfaces.
+    /// When on windows, this method will ALWAYS try to connect to interface zero.
+    /// This limitation may be removed in the future, and if so, will be changed to
+    /// look for the first interface with the class of 0xFF.
+    ///
     /// ## Example
     ///
     /// ```rust,no_run
@@ -85,10 +92,18 @@ where
             .map_err(|e| format!("Error listing devices: {e:?}"))?
             .find(func)
             .ok_or_else(|| String::from("Failed to find matching nusb device!"))?;
+
+        // NOTE: We can't enumerate interfaces on Windows. For now, just use
+        // a hardcoded interface of zero instead of trying to find the right one
+        #[cfg(not(target_os = "windows"))]
         let interface_id = x
             .interfaces()
             .position(|i| i.class() == 0xFF)
             .ok_or_else(|| String::from("Failed to find matching interface!!"))?;
+
+        #[cfg(target_os = "windows")]
+        let interface_id = 0;
+
         let dev = x
             .open()
             .map_err(|e| format!("Failed opening device: {e:?}"))?;
@@ -122,6 +137,12 @@ where
     ///
     /// This constructor is available when the `raw-nusb` feature is enabled.
     ///
+    /// ## Platform specific support
+    ///
+    /// When using Windows, the WinUSB driver does not allow enumerating interfaces.
+    /// Therefore, this constructor is not available on windows. This limitation may
+    /// be removed in the future.
+    ///
     /// ## Example
     ///
     /// ```rust,no_run
@@ -150,6 +171,7 @@ where
     ///     VarSeqKind::Seq1,
     /// ).unwrap();
     /// ```
+    #[cfg(not(target_os = "windows"))]
     pub fn try_new_raw_nusb_with_interface<
         F1: FnMut(&DeviceInfo) -> bool,
         F2: FnMut(&InterfaceInfo) -> bool,
