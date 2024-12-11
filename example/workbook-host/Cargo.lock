@@ -453,9 +453,9 @@ checksum = "7170ef9988bc169ba16dd36a7fa041e5c4cbeb6a35b76d4c03daded371eae7c0"
 
 [[package]]
 name = "postcard"
-version = "1.1.0"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f63d01def49fc815900a83e7a4a5083d2abc81b7ddd569a3fa0477778ae9b3ec"
+checksum = "5f7f0a8d620d71c457dd1d47df76bb18960378da56af4527aaa10f515eee732e"
 dependencies = [
  "cobs",
  "embedded-io 0.4.0",
