@@ -663,4 +663,21 @@ mod test {
             assert_eq!(val, &deser);
         }
     }
+
+    #[test]
+    fn var_seq_equality() {
+        let val32 = 0x12345678;
+        let val16 = 0x9abc;
+        let val8 = 0xde;
+
+        assert_eq!(VarSeq::Seq1(val8), VarSeq::Seq1(val8));
+        assert_eq!(VarSeq::Seq1(val8), VarSeq::Seq2(val8.into()));
+        assert_eq!(VarSeq::Seq1(val8), VarSeq::Seq4(val8.into()));
+        assert_ne!(VarSeq::Seq2(val16), VarSeq::Seq1(val16 as u8));
+        assert_eq!(VarSeq::Seq2(val16), VarSeq::Seq2(val16));
+        assert_eq!(VarSeq::Seq2(val16), VarSeq::Seq4(val16.into()));
+        assert_ne!(VarSeq::Seq4(val32), VarSeq::Seq1(val32 as u8));
+        assert_ne!(VarSeq::Seq4(val32), VarSeq::Seq2(val32 as u16));
+        assert_eq!(VarSeq::Seq4(val32), VarSeq::Seq4(val32));
+    }
 }
