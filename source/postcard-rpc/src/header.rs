@@ -260,6 +260,36 @@ impl From<u32> for VarSeq {
     }
 }
 
+impl Into<u8> for VarSeq {
+    fn into(self) -> u8 {
+        match self {
+            VarSeq::Seq1(v) => v,
+            VarSeq::Seq2(v) => v as u8,
+            VarSeq::Seq4(v) => v as u8,
+        }
+    }
+}
+
+impl Into<u16> for VarSeq {
+    fn into(self) -> u16 {
+        match self {
+            VarSeq::Seq1(v) => v.into(),
+            VarSeq::Seq2(v) => v,
+            VarSeq::Seq4(v) => v as u16,
+        }
+    }
+}
+
+impl Into<u32> for VarSeq {
+    fn into(self) -> u32 {
+        match self {
+            VarSeq::Seq1(v) => v.into(),
+            VarSeq::Seq2(v) => v.into(),
+            VarSeq::Seq4(v) => v,
+        }
+    }
+}
+
 impl VarSeq {
     /// Resize (up or down) to the requested kind.
     ///
