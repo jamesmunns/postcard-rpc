@@ -232,7 +232,7 @@ pub enum VarKeyKind {
 ///
 /// We DO NOT impl Serialize/Deserialize for this type because we use
 /// non-postcard-compatible format (externally tagged)
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum VarSeq {
     /// A one byte sequence number
     Seq1(u8),
@@ -287,6 +287,12 @@ impl Into<u32> for VarSeq {
             VarSeq::Seq2(v) => v.into(),
             VarSeq::Seq4(v) => v,
         }
+    }
+}
+
+impl PartialEq for VarSeq {
+    fn eq(&self, other: &Self) -> bool {
+        Into::<u32>::into(*self) == Into::<u32>::into(*other)
     }
 }
 
