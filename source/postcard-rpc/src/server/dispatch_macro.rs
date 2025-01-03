@@ -225,21 +225,21 @@ macro_rules! define_dispatch {
         context: $context_ty:ty;
 
         endpoints: {
-            list: $endpoint_list:ident;
+            list: $endpoint_list:path;
 
                | EndpointTy     | kind          | handler           |
                | $(-)*          | $(-)*         | $(-)*             |
-            $( | $endpoint:ty   | $ep_flavor:tt | $ep_handler:ident | )*
+            $( | $endpoint:ty   | $ep_flavor:tt | $ep_handler:ident  | )*
         };
         topics_in: {
-            list: $topic_in_list:ident;
+            list: $topic_in_list:path;
 
                | TopicTy        | kind          | handler           |
                | $(-)*          | $(-)*         | $(-)*             |
-            $( | $topic_in:ty   | $tp_flavor:tt | $tp_handler:ident | )*
+            $( | $topic_in:ty   | $tp_flavor:tt | $tp_handler:ident  | )*
         };
         topics_out: {
-            list: $topic_out_list:ident;
+            list: $topic_out_list:path;
         };
     ) => {
 
