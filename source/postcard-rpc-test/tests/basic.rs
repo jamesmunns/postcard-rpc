@@ -14,7 +14,9 @@ use postcard_rpc::{
     host_client::{test_channels as client, HostClient},
     server::{
         impls::test_channels::{
-            dispatch_impl::{new_server, new_server_stoppable, spawn_fn, Settings, WireSpawnImpl, WireTxImpl},
+            dispatch_impl::{
+                new_server, new_server_stoppable, spawn_fn, Settings, WireSpawnImpl, WireTxImpl,
+            },
             ChannelWireRx, ChannelWireSpawn, ChannelWireTx,
         },
         Dispatch, Sender, SpawnContext,
@@ -130,7 +132,7 @@ define_dispatch! {
     context: TestContext;
 
     endpoints: {
-        list: ENDPOINT_LIST;
+        list: crate::ENDPOINT_LIST;
 
         | EndpointTy        | kind      | handler                   |
         | ----------        | ----      | -------                   |
@@ -140,7 +142,7 @@ define_dispatch! {
         | BorrowEndpoint2   | blocking  | test_borrowep_blocking2   |
     };
     topics_in: {
-        list: TOPICS_IN_LIST;
+        list: crate::TOPICS_IN_LIST;
 
         | TopicTy           | kind      | handler               |
         | ----------        | ----      | -------               |
@@ -600,7 +602,7 @@ async fn end_to_end_stoppable() {
     assert_eq!(resp.0, 42);
     stopper.stop();
     match timeout(Duration::from_millis(100), hdl).await {
-        Ok(Ok(())) => {},
+        Ok(Ok(())) => {}
         Ok(Err(e)) => panic!("Server task panicked? {e:?}"),
         Err(_) => panic!("Server task did not stop!"),
     }
