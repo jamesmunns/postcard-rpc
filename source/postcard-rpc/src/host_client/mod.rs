@@ -486,7 +486,7 @@ where
     /// created with `subscribe_multi`.
     ///
     /// Returns an Error if the I/O worker is closed.
-    #[deprecated = "In future versions, exclusive subs will be removed. Use `multi_subscribe` instead."]
+    #[deprecated = "In future versions, exclusive subs will be removed. Use `subscribe_multi` instead."]
     pub async fn subscribe<T: Topic>(
         &self,
         depth: usize,
@@ -534,7 +534,7 @@ where
     }
 
     /// Subscribe to the given [`Key`], without automatically handling deserialization
-    #[deprecated = "In future versions, exclusive subs will be removed. Use `multi_subscribe_raw` instead."]
+    #[deprecated = "In future versions, exclusive subs will be removed. Use `subscribe_multi_raw` instead."]
     pub async fn subscribe_raw(&self, key: Key, depth: usize) -> Result<RawSubscription, IoClosed> {
         let cancel_fut = self.stopper.wait_stopped();
         let operate_fut = self.subscribe_inner_raw(key, depth);
