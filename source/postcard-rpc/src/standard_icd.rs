@@ -1,6 +1,6 @@
 //! These are items you can use for your error path and error key.
 //!
-//! This is used by [`define_dispatch!()`] as well.
+//! This is used by [`define_dispatch!()`][crate::define_dispatch] as well.
 
 use crate::{endpoints, topics, Key, TopicDirection};
 use postcard_schema::Schema;

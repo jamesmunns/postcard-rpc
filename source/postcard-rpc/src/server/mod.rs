@@ -232,13 +232,13 @@ impl<Tx: WireTx> Sender<Tx> {
         self.tx.send::<T::Message>(wh, msg).await
     }
 
-    /// Log a `str` directly to the [`LoggingTopic`][crate::standard_idc::LoggingTopic]
+    /// Log a `str` directly to the [`LoggingTopic`][crate::standard_icd::LoggingTopic]
     #[inline]
     pub async fn log_str(&self, msg: &str) -> Result<(), Tx::Error> {
         self.tx.send_log_str(self.kkind, msg).await
     }
 
-    /// Format a message to the [`LoggingTopic`][crate::standard_idc::LoggingTopic]
+    /// Format a message to the [`LoggingTopic`][crate::standard_icd::LoggingTopic]
     #[inline]
     pub async fn log_fmt(&self, msg: Arguments<'_>) -> Result<(), Tx::Error> {
         self.tx.send_log_fmt(self.kkind, msg).await
