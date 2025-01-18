@@ -115,6 +115,7 @@ where
     let cancel_fut = stop.wait_stopped();
     let operate_fut = out_worker_inner(wire, rec);
     select! {
+        biased;
         _ = cancel_fut => {},
         _ = operate_fut => {
             // if WE exited, notify everyone else it's stoppin time
@@ -153,6 +154,7 @@ async fn in_worker<W>(
     let cancel_fut = stop.wait_stopped();
     let operate_fut = in_worker_inner(wire, host_ctx, subscriptions.clone());
     select! {
+        biased;
         _ = cancel_fut => {},
         _ = operate_fut => {
             // if WE exited, notify everyone else it's stoppin time
