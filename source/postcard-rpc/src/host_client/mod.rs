@@ -33,6 +33,7 @@ use crate::{
 };
 
 use self::util::Stopper;
+pub use crate::host_client::util::HostClientConfig;
 
 #[cfg(all(feature = "raw-nusb", not(target_family = "wasm")))]
 mod raw_nusb;
@@ -186,12 +187,8 @@ where
     WireErr: DeserializeOwned + Schema,
 {
     /// Private method for creating internal context
-    pub(crate) fn new_manual_priv(
-        err_uri_path: &str,
-        outgoing_depth: usize,
-        seq_kind: VarSeqKind,
-    ) -> (Self, WireContext) {
-        let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(outgoing_depth);
+    pub(crate) fn new_manual_priv(config: &HostClientConfig) -> (Self, WireContext) {
+        let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(config.outgoing_depth);
 
         let ctx = Arc::new(HostContext {
             kkind: RwLock::new(VarKeyKind::Key8),
@@ -199,7 +196,7 @@ where
             seq: AtomicU32::new(0),
         });
 
-        let err_key = Key::for_path::<WireErr>(err_uri_path);
+        let err_key = Key::for_path::<WireErr>(config.err_uri_path);
 
         let me = HostClient {
             ctx: ctx.clone(),
@@ -208,7 +205,7 @@ where
             _pd: PhantomData,
             subscriptions: Arc::new(Mutex::new(Subscriptions::default())),
             stopper: Stopper::new(),
-            seq_kind,
+            seq_kind: config.seq_kind,
         };
 
         let wire = WireContext {

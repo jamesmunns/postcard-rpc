@@ -69,6 +69,18 @@ impl Default for Stopper {
     }
 }
 
+/// HostClient configuration
+pub struct HostClientConfig<'c> {
+    /// The sequence kind to use
+    pub seq_kind: VarSeqKind,
+
+    /// The URI path to use for error messages
+    pub err_uri_path: &'c str,
+
+    /// The depth of the outgoing queue
+    pub outgoing_depth: usize,
+}
+
 impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
@@ -80,7 +92,7 @@ where
     pub fn new_with_wire<WTX, WRX, WSP>(
         tx: WTX,
         rx: WRX,
-        mut sp: WSP,
+        sp: WSP,
         seq_kind: VarSeqKind,
         err_uri_path: &str,
         outgoing_depth: usize,
@@ -90,7 +102,31 @@ where
         WRX: WireRx,
         WSP: WireSpawn,
     {
-        let (me, wire_ctx) = Self::new_manual_priv(err_uri_path, outgoing_depth, seq_kind);
+        let config = HostClientConfig {
+            seq_kind,
+            err_uri_path,
+            outgoing_depth,
+        };
+
+        Self::new_with_wire_and_config(tx, rx, sp, &config)
+    }
+
+    /// Generic HostClient logic, using the various Wire traits
+    ///
+    /// Typically used internally, but may also be used to implement HostClient
+    /// over arbitrary transports.
+    pub fn new_with_wire_and_config<WTX, WRX, WSP>(
+        tx: WTX,
+        rx: WRX,
+        mut sp: WSP,
+        config: &HostClientConfig<'_>,
+    ) -> Self
+    where
+        WTX: WireTx,
+        WRX: WireRx,
+        WSP: WireSpawn,
+    {
+        let (me, wire_ctx) = Self::new_manual_priv(&config);
 
         let WireContext { outgoing, incoming } = wire_ctx;
 
