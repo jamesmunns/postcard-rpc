@@ -542,10 +542,12 @@ where
                 .iter_mut()
                 .find(|(k, _)| *k == T::TOPIC_KEY)
             {
-                if !replace_existing {
-                    return Err(SubscribeError::AlreadySubscribed);
+                if !entry.1.is_closed() {
+                    if !replace_existing {
+                        return Err(SubscribeError::AlreadySubscribed);
+                    }
+                    tracing::warn!("replacing subscription for topic path '{}'", T::PATH);
                 }
-                tracing::warn!("replacing subscription for topic path '{}'", T::PATH);
                 entry.1 = tx;
             } else {
                 guard.exclusive_list.push((T::TOPIC_KEY, tx));
@@ -607,10 +609,12 @@ where
                 return Err(SubscribeError::IoClosed);
             }
             if let Some(entry) = guard.exclusive_list.iter_mut().find(|(k, _)| *k == key) {
-                if !replace_existing {
-                    return Err(SubscribeError::AlreadySubscribed);
+                if !entry.1.is_closed() {
+                    if !replace_existing {
+                        return Err(SubscribeError::AlreadySubscribed);
+                    }
+                    tracing::warn!("replacing subscription for raw topic key '{:?}'", key);
                 }
-                tracing::warn!("replacing subscription for raw topic key '{:?}'", key);
                 entry.1 = tx;
             } else {
                 guard.exclusive_list.push((key, tx));
