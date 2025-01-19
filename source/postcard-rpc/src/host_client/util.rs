@@ -1,3 +1,4 @@
+use core::time::Duration;
 // the contents of this file can probably be moved up to `mod.rs`
 use std::{fmt::Debug, sync::Arc};
 
@@ -79,6 +80,11 @@ pub struct HostClientConfig<'c> {
 
     /// The depth of the outgoing queue
     pub outgoing_depth: usize,
+
+    /// Timeout to use before dropping a message if a subscribe channel is full.
+    ///
+    /// Does not apply to subscribe_multi channels.
+    pub subscriber_timeout_if_full: Duration,
 }
 
 impl<WireErr> HostClient<WireErr>
@@ -106,6 +112,7 @@ where
             seq_kind,
             err_uri_path,
             outgoing_depth,
+            subscriber_timeout_if_full: Duration::ZERO,
         };
 
         Self::new_with_wire_and_config(tx, rx, sp, &config)
@@ -267,6 +274,7 @@ async fn in_worker_inner<W>(
                     header: hdr,
                     body: body.to_vec(),
                 };
+
                 let res = m.try_send(frame);
 
                 match res {
@@ -274,9 +282,21 @@ async fn in_worker_inner<W>(
                         trace!("Handled message via subscription");
                         false
                     }
-                    Err(mpsc::error::TrySendError::Full(_)) => {
+                    Err(mpsc::error::TrySendError::Full(_))
+                        if host_ctx.subscription_timeout.is_zero() =>
+                    {
                         tracing::error!("Subscription channel full! Message dropped.");
                         false
+                    }
+                    Err(mpsc::error::TrySendError::Full(frame)) => {
+                        tokio::select! {
+                            // send returns an error if the channel is closed
+                            r = m.send(frame) => r.is_err(),
+                            _ = tokio::time::sleep(host_ctx.subscription_timeout) => {
+                                tracing::error!("Subscription channel full! Message dropped.");
+                                false
+                            }
+                        }
                     }
                     Err(mpsc::error::TrySendError::Closed(_)) => true,
                 }

@@ -194,6 +194,7 @@ where
             kkind: RwLock::new(VarKeyKind::Key8),
             map: WaitMap::new(),
             seq: AtomicU32::new(0),
+            subscription_timeout: config.subscriber_timeout_if_full,
         });
 
         let err_key = Key::for_path::<WireErr>(config.err_uri_path);
@@ -819,6 +820,7 @@ pub struct HostContext {
     kkind: RwLock<VarKeyKind>,
     map: WaitMap<VarHeader, (VarHeader, Vec<u8>)>,
     seq: AtomicU32,
+    subscription_timeout: Duration,
 }
 
 /// The I/O worker has closed.
