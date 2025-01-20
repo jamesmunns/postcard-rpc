@@ -492,10 +492,10 @@ where
         T::Message: DeserializeOwned,
     {
         let cancel_fut = self.stopper.wait_stopped();
-        let operate_fut = self.subscribe_inner::<T>(depth, true);
+        let operate_fut = self.subscribe_inner::<T>(depth);
         select! {
             _ = cancel_fut => Err(IoClosed),
-            res = operate_fut => res.map_err(|_| IoClosed),
+            res = operate_fut => res,
         }
     }
 
@@ -515,7 +515,7 @@ where
         T::Message: DeserializeOwned,
     {
         let cancel_fut = self.stopper.wait_stopped();
-        let operate_fut = self.subscribe_inner::<T>(depth, false);
+        let operate_fut = self.subscribe_inner_exclusive::<T>(depth);
         select! {
             _ = cancel_fut => Err(SubscribeError::IoClosed),
             res = operate_fut => res,
@@ -526,7 +526,39 @@ where
     async fn subscribe_inner<T: Topic>(
         &self,
         depth: usize,
-        replace_existing: bool,
+    ) -> Result<Subscription<T::Message>, IoClosed>
+    where
+        T::Message: DeserializeOwned,
+    {
+        let (tx, rx) = tokio::sync::mpsc::channel(depth);
+        {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(IoClosed);
+            }
+            if let Some(entry) = guard
+                .exclusive_list
+                .iter_mut()
+                .find(|(k, _)| *k == T::TOPIC_KEY)
+            {
+                if !entry.1.is_closed() {
+                    tracing::warn!("replacing subscription for topic path '{}'", T::PATH);
+                }
+                entry.1 = tx;
+            } else {
+                guard.exclusive_list.push((T::TOPIC_KEY, tx));
+            }
+        }
+        Ok(Subscription {
+            rx,
+            _pd: PhantomData,
+        })
+    }
+
+    /// Inner function version of [Self::subscribe_exclusive]
+    async fn subscribe_inner_exclusive<T: Topic>(
+        &self,
+        depth: usize,
     ) -> Result<Subscription<T::Message>, SubscribeError>
     where
         T::Message: DeserializeOwned,
@@ -543,10 +575,7 @@ where
                 .find(|(k, _)| *k == T::TOPIC_KEY)
             {
                 if !entry.1.is_closed() {
-                    if !replace_existing {
-                        return Err(SubscribeError::AlreadySubscribed);
-                    }
-                    tracing::warn!("replacing subscription for topic path '{}'", T::PATH);
+                    return Err(SubscribeError::AlreadySubscribed);
                 }
                 entry.1 = tx;
             } else {
@@ -568,11 +597,35 @@ where
     /// Returns an Error if the I/O worker is closed.
     pub async fn subscribe_raw(&self, key: Key, depth: usize) -> Result<RawSubscription, IoClosed> {
         let cancel_fut = self.stopper.wait_stopped();
-        let operate_fut = self.subscribe_inner_raw(key, depth, true);
+        let operate_fut = self.subscribe_inner_raw(key, depth);
         select! {
             _ = cancel_fut => Err(IoClosed),
-            res = operate_fut => res.map_err(|_| IoClosed),
+            res = operate_fut => res,
         }
+    }
+
+    /// Inner function version of [Self::subscribe_raw]
+    async fn subscribe_inner_raw(
+        &self,
+        key: Key,
+        depth: usize,
+    ) -> Result<RawSubscription, IoClosed> {
+        let (tx, rx) = tokio::sync::mpsc::channel(depth);
+        {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(IoClosed);
+            }
+            if let Some(entry) = guard.exclusive_list.iter_mut().find(|(k, _)| *k == key) {
+                if !entry.1.is_closed() {
+                    tracing::warn!("replacing subscription for raw topic key '{:?}'", key);
+                }
+                entry.1 = tx;
+            } else {
+                guard.exclusive_list.push((key, tx));
+            }
+        }
+        Ok(RawSubscription { rx })
     }
 
     /// Subscribe to the given [`Key`], without automatically handling deserialization.
@@ -588,19 +641,18 @@ where
         depth: usize,
     ) -> Result<RawSubscription, SubscribeError> {
         let cancel_fut = self.stopper.wait_stopped();
-        let operate_fut = self.subscribe_inner_raw(key, depth, false);
+        let operate_fut = self.subscribe_inner_exclusive_raw(key, depth);
         select! {
             _ = cancel_fut => Err(SubscribeError::IoClosed),
             res = operate_fut => res,
         }
     }
 
-    /// Inner function version of [Self::subscribe]
-    async fn subscribe_inner_raw(
+    /// Inner function version of [Self::subscribe_exclusive_raw]
+    async fn subscribe_inner_exclusive_raw(
         &self,
         key: Key,
         depth: usize,
-        replace_existing: bool,
     ) -> Result<RawSubscription, SubscribeError> {
         let (tx, rx) = tokio::sync::mpsc::channel(depth);
         {
@@ -610,10 +662,7 @@ where
             }
             if let Some(entry) = guard.exclusive_list.iter_mut().find(|(k, _)| *k == key) {
                 if !entry.1.is_closed() {
-                    if !replace_existing {
-                        return Err(SubscribeError::AlreadySubscribed);
-                    }
-                    tracing::warn!("replacing subscription for raw topic key '{:?}'", key);
+                    return Err(SubscribeError::AlreadySubscribed);
                 }
                 entry.1 = tx;
             } else {
