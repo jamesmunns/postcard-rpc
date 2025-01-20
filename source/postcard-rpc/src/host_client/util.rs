@@ -133,7 +133,7 @@ where
         WRX: WireRx,
         WSP: WireSpawn,
     {
-        let (me, wire_ctx) = Self::new_manual_priv(&config);
+        let (me, wire_ctx) = Self::new_manual_priv(config);
 
         let WireContext { outgoing, incoming } = wire_ctx;
 

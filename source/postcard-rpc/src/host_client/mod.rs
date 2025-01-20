@@ -425,6 +425,10 @@ where
         }
     }
 
+    ///////////////////////////////////////////////////////////////////////////
+    // Subscribe Multi
+    ///////////////////////////////////////////////////////////////////////////
+
     /// Begin listening to a [Topic], receiving a [Subscription] that will give a
     /// stream of [Message][Topic::Message]s. Unlike `subscribe`, multiple subscribers
     /// to the same stream are allowed, and behave as a broadcast channel.
@@ -476,14 +480,56 @@ where
         })
     }
 
+    /// Subscribe to the given [`Key`], without automatically handling deserialization
+    pub async fn subscribe_multi_raw(
+        &self,
+        key: Key,
+        depth: usize,
+    ) -> Result<RawMultiSubscription, IoClosed> {
+        let cancel_fut = self.stopper.wait_stopped();
+        let operate_fut = self.subscribe_multi_inner_raw(key, depth);
+        select! {
+            _ = cancel_fut => Err(IoClosed),
+            res = operate_fut => res,
+        }
+    }
+
+    /// Inner function version of [Self::subscribe]
+    async fn subscribe_multi_inner_raw(
+        &self,
+        key: Key,
+        depth: usize,
+    ) -> Result<RawMultiSubscription, IoClosed> {
+        let rx = {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(IoClosed);
+            }
+            if let Some(entry) = guard.broadcast_list.iter_mut().find(|(k, _)| *k == key) {
+                entry.1.subscribe()
+            } else {
+                let (tx, rx) = broadcast::channel(depth);
+                guard.broadcast_list.push((key, tx));
+                rx
+            }
+        };
+        Ok(RawMultiSubscription { rx })
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    // Subscribe (Legacy)
+    ///////////////////////////////////////////////////////////////////////////
+
     /// Begin listening to a [Topic], receiving a [Subscription] that will give a
     /// stream of [Message][Topic::Message]s.
     ///
     /// If you subscribe to the same topic multiple times, the previous subscription
     /// will be closed (there can be only one). This does not apply to subscriptions
-    /// created with `subscribe_multi`.
+    /// created with `subscribe_multi`. This also WILL close subscriptions opened by
+    /// [`subscribe_exclusive`](Self::subscribe_exclusive).
     ///
     /// Returns an Error if the I/O worker is closed.
+    #[deprecated = "In future versions, `subscribe` will be removed. Use `subscribe_multi` or `subscribe_exclusive` instead."]
     pub async fn subscribe<T: Topic>(
         &self,
         depth: usize,
@@ -495,29 +541,6 @@ where
         let operate_fut = self.subscribe_inner::<T>(depth);
         select! {
             _ = cancel_fut => Err(IoClosed),
-            res = operate_fut => res,
-        }
-    }
-
-    /// Begin listening to a [Topic], receiving a [Subscription] that will give a
-    /// stream of [Message][Topic::Message]s.
-    ///
-    /// If you try to subscribe to the same topic multiple times, this function returns a
-    /// [`SubscribeError::AlreadySubscribed`] (there can be only one).
-    /// This does not apply to subscriptions created with `subscribe_multi`.
-    ///
-    /// Returns an Error if the I/O worker is closed.
-    pub async fn subscribe_exclusive<T: Topic>(
-        &self,
-        depth: usize,
-    ) -> Result<Subscription<T::Message>, SubscribeError>
-    where
-        T::Message: DeserializeOwned,
-    {
-        let cancel_fut = self.stopper.wait_stopped();
-        let operate_fut = self.subscribe_inner_exclusive::<T>(depth);
-        select! {
-            _ = cancel_fut => Err(SubscribeError::IoClosed),
             res = operate_fut => res,
         }
     }
@@ -555,39 +578,6 @@ where
         })
     }
 
-    /// Inner function version of [Self::subscribe_exclusive]
-    async fn subscribe_inner_exclusive<T: Topic>(
-        &self,
-        depth: usize,
-    ) -> Result<Subscription<T::Message>, SubscribeError>
-    where
-        T::Message: DeserializeOwned,
-    {
-        let (tx, rx) = tokio::sync::mpsc::channel(depth);
-        {
-            let mut guard = self.subscriptions.lock().await;
-            if guard.stopped {
-                return Err(SubscribeError::IoClosed);
-            }
-            if let Some(entry) = guard
-                .exclusive_list
-                .iter_mut()
-                .find(|(k, _)| *k == T::TOPIC_KEY)
-            {
-                if !entry.1.is_closed() {
-                    return Err(SubscribeError::AlreadySubscribed);
-                }
-                entry.1 = tx;
-            } else {
-                guard.exclusive_list.push((T::TOPIC_KEY, tx));
-            }
-        }
-        Ok(Subscription {
-            rx,
-            _pd: PhantomData,
-        })
-    }
-
     /// Subscribe to the given [`Key`], without automatically handling deserialization.
     ///
     /// If you subscribe to the same topic multiple times, the previous subscription
@@ -595,6 +585,7 @@ where
     /// created with `subscribe_multi`.
     ///
     /// Returns an Error if the I/O worker is closed.
+    #[deprecated = "In future versions, `subscribe_raw` will be removed. Use `subscribe_multi_raw` or `subscribe_exclusive_raw` instead."]
     pub async fn subscribe_raw(&self, key: Key, depth: usize) -> Result<RawSubscription, IoClosed> {
         let cancel_fut = self.stopper.wait_stopped();
         let operate_fut = self.subscribe_inner_raw(key, depth);
@@ -626,6 +617,66 @@ where
             }
         }
         Ok(RawSubscription { rx })
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    // Subscribe Exclusive
+    ///////////////////////////////////////////////////////////////////////////
+
+    /// Begin listening to a [Topic], receiving a [Subscription] that will give a
+    /// stream of [Message][Topic::Message]s.
+    ///
+    /// If you try to subscribe to the same topic multiple times, this function returns a
+    /// [`SubscribeError::AlreadySubscribed`] (there can be only one).
+    /// This does not apply to subscriptions created with `subscribe_multi`.
+    ///
+    /// Returns an Error if the I/O worker is closed.
+    pub async fn subscribe_exclusive<T: Topic>(
+        &self,
+        depth: usize,
+    ) -> Result<Subscription<T::Message>, SubscribeError>
+    where
+        T::Message: DeserializeOwned,
+    {
+        let cancel_fut = self.stopper.wait_stopped();
+        let operate_fut = self.subscribe_inner_exclusive::<T>(depth);
+        select! {
+            _ = cancel_fut => Err(SubscribeError::IoClosed),
+            res = operate_fut => res,
+        }
+    }
+
+    /// Inner function version of [Self::subscribe_exclusive]
+    async fn subscribe_inner_exclusive<T: Topic>(
+        &self,
+        depth: usize,
+    ) -> Result<Subscription<T::Message>, SubscribeError>
+    where
+        T::Message: DeserializeOwned,
+    {
+        let (tx, rx) = tokio::sync::mpsc::channel(depth);
+        {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(SubscribeError::IoClosed);
+            }
+            if let Some(entry) = guard
+                .exclusive_list
+                .iter_mut()
+                .find(|(k, _)| *k == T::TOPIC_KEY)
+            {
+                if !entry.1.is_closed() {
+                    return Err(SubscribeError::AlreadySubscribed);
+                }
+                entry.1 = tx;
+            } else {
+                guard.exclusive_list.push((T::TOPIC_KEY, tx));
+            }
+        }
+        Ok(Subscription {
+            rx,
+            _pd: PhantomData,
+        })
     }
 
     /// Subscribe to the given [`Key`], without automatically handling deserialization.
@@ -670,42 +721,6 @@ where
             }
         }
         Ok(RawSubscription { rx })
-    }
-
-    /// Subscribe to the given [`Key`], without automatically handling deserialization
-    pub async fn subscribe_multi_raw(
-        &self,
-        key: Key,
-        depth: usize,
-    ) -> Result<RawMultiSubscription, IoClosed> {
-        let cancel_fut = self.stopper.wait_stopped();
-        let operate_fut = self.subscribe_multi_inner_raw(key, depth);
-        select! {
-            _ = cancel_fut => Err(IoClosed),
-            res = operate_fut => res,
-        }
-    }
-
-    /// Inner function version of [Self::subscribe]
-    async fn subscribe_multi_inner_raw(
-        &self,
-        key: Key,
-        depth: usize,
-    ) -> Result<RawMultiSubscription, IoClosed> {
-        let rx = {
-            let mut guard = self.subscriptions.lock().await;
-            if guard.stopped {
-                return Err(IoClosed);
-            }
-            if let Some(entry) = guard.broadcast_list.iter_mut().find(|(k, _)| *k == key) {
-                entry.1.subscribe()
-            } else {
-                let (tx, rx) = broadcast::channel(depth);
-                guard.broadcast_list.push((key, tx));
-                rx
-            }
-        };
-        Ok(RawMultiSubscription { rx })
     }
 
     /// Permanently close the connection to the client
