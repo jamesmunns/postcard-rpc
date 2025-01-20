@@ -232,7 +232,7 @@ pub enum VarKeyKind {
 ///
 /// We DO NOT impl Serialize/Deserialize for this type because we use
 /// non-postcard-compatible format (externally tagged)
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum VarSeq {
     /// A one byte sequence number
     Seq1(u8),
@@ -257,6 +257,42 @@ impl From<u16> for VarSeq {
 impl From<u32> for VarSeq {
     fn from(value: u32) -> Self {
         Self::Seq4(value)
+    }
+}
+
+impl Into<u8> for VarSeq {
+    fn into(self) -> u8 {
+        match self {
+            VarSeq::Seq1(v) => v,
+            VarSeq::Seq2(v) => v as u8,
+            VarSeq::Seq4(v) => v as u8,
+        }
+    }
+}
+
+impl Into<u16> for VarSeq {
+    fn into(self) -> u16 {
+        match self {
+            VarSeq::Seq1(v) => v.into(),
+            VarSeq::Seq2(v) => v,
+            VarSeq::Seq4(v) => v as u16,
+        }
+    }
+}
+
+impl Into<u32> for VarSeq {
+    fn into(self) -> u32 {
+        match self {
+            VarSeq::Seq1(v) => v.into(),
+            VarSeq::Seq2(v) => v.into(),
+            VarSeq::Seq4(v) => v,
+        }
+    }
+}
+
+impl PartialEq for VarSeq {
+    fn eq(&self, other: &Self) -> bool {
+        Into::<u32>::into(*self) == Into::<u32>::into(*other)
     }
 }
 
@@ -626,5 +662,22 @@ mod test {
             assert!(remain.is_empty());
             assert_eq!(val, &deser);
         }
+    }
+
+    #[test]
+    fn var_seq_equality() {
+        let val32 = 0x12345678;
+        let val16 = 0x9abc;
+        let val8 = 0xde;
+
+        assert_eq!(VarSeq::Seq1(val8), VarSeq::Seq1(val8));
+        assert_eq!(VarSeq::Seq1(val8), VarSeq::Seq2(val8.into()));
+        assert_eq!(VarSeq::Seq1(val8), VarSeq::Seq4(val8.into()));
+        assert_ne!(VarSeq::Seq2(val16), VarSeq::Seq1(val16 as u8));
+        assert_eq!(VarSeq::Seq2(val16), VarSeq::Seq2(val16));
+        assert_eq!(VarSeq::Seq2(val16), VarSeq::Seq4(val16.into()));
+        assert_ne!(VarSeq::Seq4(val32), VarSeq::Seq1(val32 as u8));
+        assert_ne!(VarSeq::Seq4(val32), VarSeq::Seq2(val32 as u16));
+        assert_eq!(VarSeq::Seq4(val32), VarSeq::Seq4(val32));
     }
 }
