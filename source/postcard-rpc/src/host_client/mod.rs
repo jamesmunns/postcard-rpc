@@ -33,6 +33,7 @@ use crate::{
 };
 
 use self::util::Stopper;
+pub use crate::host_client::util::HostClientConfig;
 
 #[cfg(all(feature = "raw-nusb", not(target_family = "wasm")))]
 mod raw_nusb;
@@ -186,20 +187,17 @@ where
     WireErr: DeserializeOwned + Schema,
 {
     /// Private method for creating internal context
-    pub(crate) fn new_manual_priv(
-        err_uri_path: &str,
-        outgoing_depth: usize,
-        seq_kind: VarSeqKind,
-    ) -> (Self, WireContext) {
-        let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(outgoing_depth);
+    pub(crate) fn new_manual_priv(config: &HostClientConfig) -> (Self, WireContext) {
+        let (tx_pc, rx_pc) = tokio::sync::mpsc::channel(config.outgoing_depth);
 
         let ctx = Arc::new(HostContext {
             kkind: RwLock::new(VarKeyKind::Key8),
             map: WaitMap::new(),
             seq: AtomicU32::new(0),
+            subscription_timeout: config.subscriber_timeout_if_full,
         });
 
-        let err_key = Key::for_path::<WireErr>(err_uri_path);
+        let err_key = Key::for_path::<WireErr>(config.err_uri_path);
 
         let me = HostClient {
             ctx: ctx.clone(),
@@ -208,7 +206,7 @@ where
             _pd: PhantomData,
             subscriptions: Arc::new(Mutex::new(Subscriptions::default())),
             stopper: Stopper::new(),
-            seq_kind,
+            seq_kind: config.seq_kind,
         };
 
         let wire = WireContext {
@@ -486,7 +484,6 @@ where
     /// created with `subscribe_multi`.
     ///
     /// Returns an Error if the I/O worker is closed.
-    #[deprecated = "In future versions, exclusive subs will be removed. Use `subscribe_multi` instead."]
     pub async fn subscribe<T: Topic>(
         &self,
         depth: usize,
@@ -498,6 +495,29 @@ where
         let operate_fut = self.subscribe_inner::<T>(depth);
         select! {
             _ = cancel_fut => Err(IoClosed),
+            res = operate_fut => res,
+        }
+    }
+
+    /// Begin listening to a [Topic], receiving a [Subscription] that will give a
+    /// stream of [Message][Topic::Message]s.
+    ///
+    /// If you try to subscribe to the same topic multiple times, this function returns a
+    /// [`SubscribeError::AlreadySubscribed`] (there can be only one).
+    /// This does not apply to subscriptions created with `subscribe_multi`.
+    ///
+    /// Returns an Error if the I/O worker is closed.
+    pub async fn subscribe_exclusive<T: Topic>(
+        &self,
+        depth: usize,
+    ) -> Result<Subscription<T::Message>, SubscribeError>
+    where
+        T::Message: DeserializeOwned,
+    {
+        let cancel_fut = self.stopper.wait_stopped();
+        let operate_fut = self.subscribe_inner_exclusive::<T>(depth);
+        select! {
+            _ = cancel_fut => Err(SubscribeError::IoClosed),
             res = operate_fut => res,
         }
     }
@@ -521,7 +541,9 @@ where
                 .iter_mut()
                 .find(|(k, _)| *k == T::TOPIC_KEY)
             {
-                tracing::warn!("replacing subscription for topic path '{}'", T::PATH);
+                if !entry.1.is_closed() {
+                    tracing::warn!("replacing subscription for topic path '{}'", T::PATH);
+                }
                 entry.1 = tx;
             } else {
                 guard.exclusive_list.push((T::TOPIC_KEY, tx));
@@ -533,8 +555,46 @@ where
         })
     }
 
-    /// Subscribe to the given [`Key`], without automatically handling deserialization
-    #[deprecated = "In future versions, exclusive subs will be removed. Use `subscribe_multi_raw` instead."]
+    /// Inner function version of [Self::subscribe_exclusive]
+    async fn subscribe_inner_exclusive<T: Topic>(
+        &self,
+        depth: usize,
+    ) -> Result<Subscription<T::Message>, SubscribeError>
+    where
+        T::Message: DeserializeOwned,
+    {
+        let (tx, rx) = tokio::sync::mpsc::channel(depth);
+        {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(SubscribeError::IoClosed);
+            }
+            if let Some(entry) = guard
+                .exclusive_list
+                .iter_mut()
+                .find(|(k, _)| *k == T::TOPIC_KEY)
+            {
+                if !entry.1.is_closed() {
+                    return Err(SubscribeError::AlreadySubscribed);
+                }
+                entry.1 = tx;
+            } else {
+                guard.exclusive_list.push((T::TOPIC_KEY, tx));
+            }
+        }
+        Ok(Subscription {
+            rx,
+            _pd: PhantomData,
+        })
+    }
+
+    /// Subscribe to the given [`Key`], without automatically handling deserialization.
+    ///
+    /// If you subscribe to the same topic multiple times, the previous subscription
+    /// will be closed (there can be only one). This does not apply to subscriptions
+    /// created with `subscribe_multi`.
+    ///
+    /// Returns an Error if the I/O worker is closed.
     pub async fn subscribe_raw(&self, key: Key, depth: usize) -> Result<RawSubscription, IoClosed> {
         let cancel_fut = self.stopper.wait_stopped();
         let operate_fut = self.subscribe_inner_raw(key, depth);
@@ -544,7 +604,7 @@ where
         }
     }
 
-    /// Inner function version of [Self::subscribe]
+    /// Inner function version of [Self::subscribe_raw]
     async fn subscribe_inner_raw(
         &self,
         key: Key,
@@ -557,7 +617,53 @@ where
                 return Err(IoClosed);
             }
             if let Some(entry) = guard.exclusive_list.iter_mut().find(|(k, _)| *k == key) {
-                tracing::warn!("replacing subscription for raw topic key '{:?}'", key);
+                if !entry.1.is_closed() {
+                    tracing::warn!("replacing subscription for raw topic key '{:?}'", key);
+                }
+                entry.1 = tx;
+            } else {
+                guard.exclusive_list.push((key, tx));
+            }
+        }
+        Ok(RawSubscription { rx })
+    }
+
+    /// Subscribe to the given [`Key`], without automatically handling deserialization.
+    ///
+    /// If you try to subscribe to the same topic multiple times, this function returns a
+    /// [`SubscribeError::AlreadySubscribed`] (there can be only one).
+    /// This does not apply to subscriptions created with `subscribe_multi`.
+    ///
+    /// Returns an Error if the I/O worker is closed.
+    pub async fn subscribe_exclusive_raw(
+        &self,
+        key: Key,
+        depth: usize,
+    ) -> Result<RawSubscription, SubscribeError> {
+        let cancel_fut = self.stopper.wait_stopped();
+        let operate_fut = self.subscribe_inner_exclusive_raw(key, depth);
+        select! {
+            _ = cancel_fut => Err(SubscribeError::IoClosed),
+            res = operate_fut => res,
+        }
+    }
+
+    /// Inner function version of [Self::subscribe_exclusive_raw]
+    async fn subscribe_inner_exclusive_raw(
+        &self,
+        key: Key,
+        depth: usize,
+    ) -> Result<RawSubscription, SubscribeError> {
+        let (tx, rx) = tokio::sync::mpsc::channel(depth);
+        {
+            let mut guard = self.subscriptions.lock().await;
+            if guard.stopped {
+                return Err(SubscribeError::IoClosed);
+            }
+            if let Some(entry) = guard.exclusive_list.iter_mut().find(|(k, _)| *k == key) {
+                if !entry.1.is_closed() {
+                    return Err(SubscribeError::AlreadySubscribed);
+                }
                 entry.1 = tx;
             } else {
                 guard.exclusive_list.push((key, tx));
@@ -767,11 +873,21 @@ pub struct HostContext {
     kkind: RwLock<VarKeyKind>,
     map: WaitMap<VarHeader, (VarHeader, Vec<u8>)>,
     seq: AtomicU32,
+    subscription_timeout: Duration,
 }
 
 /// The I/O worker has closed.
 #[derive(Debug)]
 pub struct IoClosed;
+
+/// The I/O worker has closed.
+#[derive(Debug)]
+pub enum SubscribeError {
+    /// The subscription was already active
+    AlreadySubscribed,
+    /// The I/O worker has closed.
+    IoClosed,
+}
 
 /// Error for [HostContext::process].
 #[derive(Debug, PartialEq)]

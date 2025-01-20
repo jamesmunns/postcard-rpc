@@ -1,3 +1,4 @@
+use core::time::Duration;
 // the contents of this file can probably be moved up to `mod.rs`
 use std::{fmt::Debug, sync::Arc};
 
@@ -69,6 +70,23 @@ impl Default for Stopper {
     }
 }
 
+/// HostClient configuration
+pub struct HostClientConfig<'c> {
+    /// The sequence kind to use
+    pub seq_kind: VarSeqKind,
+
+    /// The URI path to use for error messages
+    pub err_uri_path: &'c str,
+
+    /// The depth of the outgoing queue
+    pub outgoing_depth: usize,
+
+    /// Timeout to use before dropping a message if a subscribe channel is full.
+    ///
+    /// Does not apply to subscribe_multi channels.
+    pub subscriber_timeout_if_full: Duration,
+}
+
 impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
@@ -80,7 +98,7 @@ where
     pub fn new_with_wire<WTX, WRX, WSP>(
         tx: WTX,
         rx: WRX,
-        mut sp: WSP,
+        sp: WSP,
         seq_kind: VarSeqKind,
         err_uri_path: &str,
         outgoing_depth: usize,
@@ -90,7 +108,32 @@ where
         WRX: WireRx,
         WSP: WireSpawn,
     {
-        let (me, wire_ctx) = Self::new_manual_priv(err_uri_path, outgoing_depth, seq_kind);
+        let config = HostClientConfig {
+            seq_kind,
+            err_uri_path,
+            outgoing_depth,
+            subscriber_timeout_if_full: Duration::ZERO,
+        };
+
+        Self::new_with_wire_and_config(tx, rx, sp, &config)
+    }
+
+    /// Generic HostClient logic, using the various Wire traits
+    ///
+    /// Typically used internally, but may also be used to implement HostClient
+    /// over arbitrary transports.
+    pub fn new_with_wire_and_config<WTX, WRX, WSP>(
+        tx: WTX,
+        rx: WRX,
+        mut sp: WSP,
+        config: &HostClientConfig<'_>,
+    ) -> Self
+    where
+        WTX: WireTx,
+        WRX: WireRx,
+        WSP: WireSpawn,
+    {
+        let (me, wire_ctx) = Self::new_manual_priv(&config);
 
         let WireContext { outgoing, incoming } = wire_ctx;
 
@@ -233,6 +276,7 @@ async fn in_worker_inner<W>(
                     header: hdr,
                     body: body.to_vec(),
                 };
+
                 let res = m.try_send(frame);
 
                 match res {
@@ -240,9 +284,21 @@ async fn in_worker_inner<W>(
                         trace!("Handled message via subscription");
                         false
                     }
-                    Err(mpsc::error::TrySendError::Full(_)) => {
+                    Err(mpsc::error::TrySendError::Full(_))
+                        if host_ctx.subscription_timeout.is_zero() =>
+                    {
                         tracing::error!("Subscription channel full! Message dropped.");
                         false
+                    }
+                    Err(mpsc::error::TrySendError::Full(frame)) => {
+                        tokio::select! {
+                            // send returns an error if the channel is closed
+                            r = m.send(frame) => r.is_err(),
+                            _ = tokio::time::sleep(host_ctx.subscription_timeout) => {
+                                tracing::error!("Subscription channel full! Message dropped.");
+                                false
+                            }
+                        }
                     }
                     Err(mpsc::error::TrySendError::Closed(_)) => true,
                 }
