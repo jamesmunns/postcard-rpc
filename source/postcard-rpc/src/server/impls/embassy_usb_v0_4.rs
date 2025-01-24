@@ -21,9 +21,9 @@ struct PoststationHandler {}
 static STINDX: AtomicU8 = AtomicU8::new(0xFF);
 static HDLR: ConstStaticCell<PoststationHandler> = ConstStaticCell::new(PoststationHandler {});
 
-impl embassy_usb_0_3::Handler for PoststationHandler {
-    fn get_string(&mut self, index: embassy_usb_0_3::types::StringIndex, lang_id: u16) -> Option<&str> {
-        use embassy_usb_0_3::descriptor::lang_id;
+impl embassy_usb_0_4::Handler for PoststationHandler {
+    fn get_string(&mut self, index: embassy_usb_0_4::types::StringIndex, lang_id: u16) -> Option<&str> {
+        use embassy_usb_0_4::descriptor::lang_id;
 
         let stindx = STINDX.load(Ordering::Relaxed);
         if stindx == 0xFF {
@@ -46,7 +46,7 @@ pub mod dispatch_impl {
     pub const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
     use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
-    use embassy_usb_0_3::{
+    use embassy_usb_0_4::{
         msos::{self, windows_version},
         Builder, Config, UsbDevice,
     };

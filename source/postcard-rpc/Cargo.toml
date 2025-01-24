@@ -107,8 +107,14 @@ optional = true
 # no_std-only features
 #
 
-[dependencies.embassy-usb]
+[dependencies.embassy-usb-0_3]
+package = "embassy-usb"
 version = "0.3"
+optional = true
+
+[dependencies.embassy-usb-0_4]
+package = "embassy-usb"
+version = "0.4"
 optional = true
 
 [dependencies.embassy-usb-driver]
@@ -124,7 +130,7 @@ version = "2.1"
 optional = true
 
 [dependencies.embassy-executor]
-version = "0.6"
+version = "0.7"
 optional = true
 
 [dependencies.embassy-futures]
@@ -132,7 +138,7 @@ version = "0.1"
 optional = true
 
 [dependencies.embassy-time]
-version = "0.3"
+version = "0.4"
 optional = true
 
 [dependencies.portable-atomic]
@@ -199,7 +205,17 @@ webusb = [
     "use-std",
 ]
 embassy-usb-0_3-server = [
-    "dep:embassy-usb",
+    "dep:embassy-usb-0_3",
+    "dep:embassy-sync",
+    "dep:static_cell",
+    "dep:embassy-usb-driver",
+    "dep:embassy-executor",
+    "dep:embassy-time",
+    "dep:embassy-futures",
+]
+
+embassy-usb-0_4-server = [
+    "dep:embassy-usb-0_4",
     "dep:embassy-sync",
     "dep:static_cell",
     "dep:embassy-usb-driver",
