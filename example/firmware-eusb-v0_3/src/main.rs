@@ -20,7 +20,7 @@ use postcard_rpc::{
     define_dispatch,
     header::VarHeader,
     server::{
-        impls::embassy_usb_v0_4::{
+        impls::embassy_usb_v0_3::{
             dispatch_impl::{
                 spawn_fn, WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl,
             },
