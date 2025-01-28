@@ -111,11 +111,34 @@ where
             .claim_interface(interface_id as u8)
             .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
 
+        let mut mps: Option<usize> = None;
+        if let Ok(config) = dev.active_configuration() {
+            for ias in config.interface_alt_settings() {
+                for ep in ias.endpoints() {
+                    if ep.address() == BULK_OUT_EP {
+                        mps = Some(match mps.take() {
+                            Some(old) => old.min(ep.max_packet_size()),
+                            None => ep.max_packet_size(),
+                        });
+                    }
+                }
+            }
+        }
+
+        if let Some(max_packet_size) = &mps {
+            tracing::debug!(max_packet_size, "Detected max packet size");
+        } else {
+            tracing::warn!("Unable to detect Max Packet Size!");
+        };
+
         let boq = interface.bulk_out_queue(BULK_OUT_EP);
         let biq = interface.bulk_in_queue(BULK_IN_EP);
 
         Ok(HostClient::new_with_wire(
-            NusbWireTx { boq },
+            NusbWireTx {
+                boq,
+                max_packet_size: mps,
+            },
             NusbWireRx {
                 biq,
                 consecutive_errs: 0,
@@ -197,11 +220,34 @@ where
             .claim_interface(interface_id as u8)
             .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
 
+        let mut mps: Option<usize> = None;
+        if let Ok(config) = dev.active_configuration() {
+            for ias in config.interface_alt_settings() {
+                for ep in ias.endpoints() {
+                    if ep.address() == BULK_OUT_EP {
+                        mps = Some(match mps.take() {
+                            Some(old) => old.min(ep.max_packet_size()),
+                            None => ep.max_packet_size(),
+                        });
+                    }
+                }
+            }
+        }
+
+        if let Some(max_packet_size) = &mps {
+            tracing::debug!(max_packet_size, "Detected max packet size");
+        } else {
+            tracing::warn!("Unable to detect Max Packet Size!");
+        };
+
         let boq = interface.bulk_out_queue(BULK_OUT_EP);
         let biq = interface.bulk_in_queue(BULK_IN_EP);
 
         Ok(HostClient::new_with_wire(
-            NusbWireTx { boq },
+            NusbWireTx {
+                boq,
+                max_packet_size: mps,
+            },
             NusbWireRx {
                 biq,
                 consecutive_errs: 0,
@@ -276,6 +322,7 @@ impl WireSpawn for NusbSpawn {
 /// NUSB Wire Transmit Interface Implementor
 struct NusbWireTx {
     boq: Queue<Vec<u8>>,
+    max_packet_size: Option<usize>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -295,13 +342,33 @@ impl WireTx for NusbWireTx {
 
 impl NusbWireTx {
     async fn send_inner(&mut self, data: Vec<u8>) -> Result<(), NusbWireTxError> {
+        let needs_zlp = if let Some(mps) = self.max_packet_size {
+            (data.len() % mps) == 0
+        } else {
+            true
+        };
+
         self.boq.submit(data);
+
+        // Append ZLP if we are a multiple of max packet
+        if needs_zlp {
+            self.boq.submit(vec![]);
+        }
 
         let send_res = self.boq.next_complete().await;
         if let Err(e) = send_res.status {
             tracing::error!("Output Queue Error: {e:?}");
             return Err(e.into());
         }
+
+        if needs_zlp {
+            let send_res = self.boq.next_complete().await;
+            if let Err(e) = send_res.status {
+                tracing::error!("Output Queue Error: {e:?}");
+                return Err(e.into());
+            }
+        }
+
         Ok(())
     }
 }

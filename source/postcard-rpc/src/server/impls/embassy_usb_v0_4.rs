@@ -22,7 +22,11 @@ static STINDX: AtomicU8 = AtomicU8::new(0xFF);
 static HDLR: ConstStaticCell<PoststationHandler> = ConstStaticCell::new(PoststationHandler {});
 
 impl embassy_usb_0_4::Handler for PoststationHandler {
-    fn get_string(&mut self, index: embassy_usb_0_4::types::StringIndex, lang_id: u16) -> Option<&str> {
+    fn get_string(
+        &mut self,
+        index: embassy_usb_0_4::types::StringIndex,
+        lang_id: u16,
+    ) -> Option<&str> {
         use embassy_usb_0_4::descriptor::lang_id;
 
         let stindx = STINDX.load(Ordering::Relaxed);
