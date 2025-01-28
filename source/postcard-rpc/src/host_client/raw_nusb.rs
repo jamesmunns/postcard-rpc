@@ -125,17 +125,20 @@ where
             }
         }
 
-        let Some(max_packet_size) = mps else {
+        if let Some(max_packet_size) = &mps {
+            tracing::debug!(max_packet_size, "Detected max packet size");
+        } else {
             tracing::warn!("Unable to detect Max Packet Size!");
-            return Err("Refusing to connect to device without max packet size".into());
         };
-        tracing::debug!(max_packet_size, "Detected max packet size");
 
         let boq = interface.bulk_out_queue(BULK_OUT_EP);
         let biq = interface.bulk_in_queue(BULK_IN_EP);
 
         Ok(HostClient::new_with_wire(
-            NusbWireTx { boq, max_packet_size },
+            NusbWireTx {
+                boq,
+                max_packet_size: mps,
+            },
             NusbWireRx {
                 biq,
                 consecutive_errs: 0,
@@ -231,11 +234,11 @@ where
             }
         }
 
-        let Some(max_packet_size) = mps else {
+        if let Some(max_packet_size) = &mps {
+            tracing::debug!(max_packet_size, "Detected max packet size");
+        } else {
             tracing::warn!("Unable to detect Max Packet Size!");
-            return Err("Refusing to connect to device without max packet size".into());
         };
-        tracing::warn!(max_packet_size, "Detected max packet size");
 
         let boq = interface.bulk_out_queue(BULK_OUT_EP);
         let biq = interface.bulk_in_queue(BULK_IN_EP);
@@ -243,7 +246,7 @@ where
         Ok(HostClient::new_with_wire(
             NusbWireTx {
                 boq,
-                max_packet_size,
+                max_packet_size: mps,
             },
             NusbWireRx {
                 biq,
@@ -319,7 +322,7 @@ impl WireSpawn for NusbSpawn {
 /// NUSB Wire Transmit Interface Implementor
 struct NusbWireTx {
     boq: Queue<Vec<u8>>,
-    max_packet_size: usize,
+    max_packet_size: Option<usize>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -339,11 +342,16 @@ impl WireTx for NusbWireTx {
 
 impl NusbWireTx {
     async fn send_inner(&mut self, data: Vec<u8>) -> Result<(), NusbWireTxError> {
-        let need_zlp = (data.len() % self.max_packet_size) == 0;
+        let needs_zlp = if let Some(mps) = self.max_packet_size {
+            (data.len() % mps) == 0
+        } else {
+            true
+        };
+
         self.boq.submit(data);
 
         // Append ZLP if we are a multiple of max packet
-        if need_zlp {
+        if needs_zlp {
             self.boq.submit(vec![]);
         }
 
@@ -353,7 +361,7 @@ impl NusbWireTx {
             return Err(e.into());
         }
 
-        if need_zlp {
+        if needs_zlp {
             let send_res = self.boq.next_complete().await;
             if let Err(e) = send_res.status {
                 tracing::error!("Output Queue Error: {e:?}");
