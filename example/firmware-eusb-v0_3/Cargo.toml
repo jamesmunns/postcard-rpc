@@ -15,7 +15,7 @@ lis3dh-async            = { version = "0.9.2", features = ["defmt"] }
 panic-probe             = { version = "0.3",   features = ["print-defmt"] }
 postcard-rpc            = { version = "0.11",   features = ["embassy-usb-0_3-server"] }
 postcard                = { version = "1.0.10" }
-postcard-schema         = { version = "0.2.0", features = ["derive"] }
+postcard-schema         = { version = "0.2.1", features = ["derive"] }
 portable-atomic         = { version = "1.6.0", features = ["critical-section"] }
 
 workbook-icd            = { path = "../workbook-icd" }

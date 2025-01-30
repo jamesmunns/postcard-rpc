@@ -142,7 +142,7 @@ macro_rules! define_dispatch {
                 body: &[u8],
             ) -> Result<(), <Self::Tx as $crate::server::WireTx>::Error> {
                 let key = hdr.key;
-                let Some(keyb) = <$key_ty>::try_from_varkey(&key) else {
+                let Ok(keyb) = <$key_ty>::try_from(&key) else {
                     let err = $crate::standard_icd::WireError::KeyTooSmall;
                     return tx.error(hdr.seq_no, err).await;
                 };
