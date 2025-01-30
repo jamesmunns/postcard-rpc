@@ -586,7 +586,7 @@ pub const fn min_key_needed(lists: &[&[Key]]) -> usize {
         u32::from_le_bytes(crate::Key4::from_key8(key).0)
     }
     const fn eight(key: Key) -> u64 {
-        u64::from_le_bytes(key.0)
+        u64::from_le_bytes(key.to_bytes())
     }
 
     keycheck! {
