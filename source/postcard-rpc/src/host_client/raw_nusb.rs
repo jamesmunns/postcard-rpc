@@ -3,7 +3,7 @@
 use std::future::Future;
 
 use nusb::{
-    transfer::{Queue, RequestBuffer, TransferError},
+    transfer::{Direction, EndpointType, Queue, RequestBuffer, TransferError},
     DeviceInfo, InterfaceInfo,
 };
 use postcard_schema::Schema;
@@ -16,10 +16,6 @@ use crate::{
 
 // TODO: These should all be configurable, PRs welcome
 
-/// The Bulk Out Endpoint (0x00 | 0x01): Out EP 1
-pub(crate) const BULK_OUT_EP: u8 = 0x01;
-/// The Bulk In Endpoint (0x80 | 0x01): In EP 1
-pub(crate) const BULK_IN_EP: u8 = 0x81;
 /// The size in bytes of the largest possible IN transfer
 pub(crate) const MAX_TRANSFER_SIZE: usize = 1024;
 /// How many in-flight requests at once - allows nusb to keep pulling frames
@@ -104,54 +100,18 @@ where
         #[cfg(target_os = "windows")]
         let interface_id = 0;
 
-        let dev = x
-            .open()
-            .map_err(|e| format!("Failed opening device: {e:?}"))?;
-        let interface = dev
-            .claim_interface(interface_id as u8)
-            .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
-
-        let mut mps: Option<usize> = None;
-        if let Ok(config) = dev.active_configuration() {
-            for ias in config.interface_alt_settings() {
-                for ep in ias.endpoints() {
-                    if ep.address() == BULK_OUT_EP {
-                        mps = Some(match mps.take() {
-                            Some(old) => old.min(ep.max_packet_size()),
-                            None => ep.max_packet_size(),
-                        });
-                    }
-                }
-            }
-        }
-
-        if let Some(max_packet_size) = &mps {
-            tracing::debug!(max_packet_size, "Detected max packet size");
-        } else {
-            tracing::warn!("Unable to detect Max Packet Size!");
-        };
-
-        let boq = interface.bulk_out_queue(BULK_OUT_EP);
-        let biq = interface.bulk_in_queue(BULK_IN_EP);
-
-        Ok(HostClient::new_with_wire(
-            NusbWireTx {
-                boq,
-                max_packet_size: mps,
-            },
-            NusbWireRx {
-                biq,
-                consecutive_errs: 0,
-            },
-            NusbSpawn,
-            seq_no_kind,
+        Self::try_from_nusb_and_interface(
+            &x,
+            interface_id,
             err_uri_path,
             outgoing_depth,
-        ))
+            seq_no_kind,
+        )
     }
+
     /// Try to create a new link using [`nusb`] for connectivity
     ///
-    /// The provided function will be used to find a matching device. The first
+    /// The provided function will be used to find a matching device and interface. The first
     /// matching device will be connected to. `err_uri_path` is
     /// the path associated with the `WireErr` message type.
     ///
@@ -213,7 +173,63 @@ where
             .interfaces()
             .position(interface_func)
             .ok_or_else(|| String::from("Failed to find matching interface!!"))?;
-        let dev = x
+
+        Self::try_from_nusb_and_interface(
+            &x,
+            interface_id,
+            err_uri_path,
+            outgoing_depth,
+            seq_no_kind,
+        )
+    }
+
+    /// Try to create a new link using [`nusb`] for connectivity
+    ///
+    /// This will connect to the given device and interface. `err_uri_path` is
+    /// the path associated with the `WireErr` message type.
+    ///
+    /// Returns an error if there was an error connecting to the device or interface.
+    ///
+    /// This constructor is available when the `raw-nusb` feature is enabled.
+    ///
+    /// ## Example
+    ///
+    /// ```rust,no_run
+    /// use postcard_rpc::host_client::HostClient;
+    /// use postcard_rpc::header::VarSeqKind;
+    /// use serde::{Serialize, Deserialize};
+    /// use postcard_schema::Schema;
+    ///
+    /// /// A "wire error" type your server can use to respond to any
+    /// /// kind of request, for example if deserializing a request fails
+    /// #[derive(Debug, PartialEq, Schema, Serialize, Deserialize)]
+    /// pub enum Error {
+    ///    SomethingBad
+    /// }
+    ///
+    /// // Assume the first usb device is the one we're interested
+    /// let dev = nusb::list_devices().unwrap().next().unwrap();
+    /// let client = HostClient::<Error>::try_from_nusb_and_interface(
+    ///     // Device to open
+    ///     &dev,
+    ///     // Use the first interface (0)
+    ///     0,
+    ///     // the URI/path for `Error` messages
+    ///     "error",
+    ///     // Outgoing queue depth in messages
+    ///     8,
+    ///     // Use one-byte sequence numbers
+    ///     VarSeqKind::Seq1,
+    /// ).unwrap();
+    /// ```
+    pub fn try_from_nusb_and_interface(
+        dev: &DeviceInfo,
+        interface_id: usize,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+        seq_no_kind: VarSeqKind,
+    ) -> Result<Self, String> {
+        let dev = dev
             .open()
             .map_err(|e| format!("Failed opening device: {e:?}"))?;
         let interface = dev
@@ -221,15 +237,22 @@ where
             .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
 
         let mut mps: Option<usize> = None;
-        if let Ok(config) = dev.active_configuration() {
-            for ias in config.interface_alt_settings() {
-                for ep in ias.endpoints() {
-                    if ep.address() == BULK_OUT_EP {
+        let mut ep_in: Option<u8> = None;
+        let mut ep_out: Option<u8> = None;
+        for ias in interface.descriptors() {
+            for ep in ias
+                .endpoints()
+                .filter(|e| e.transfer_type() == EndpointType::Bulk)
+            {
+                match ep.direction() {
+                    Direction::Out => {
                         mps = Some(match mps.take() {
                             Some(old) => old.min(ep.max_packet_size()),
                             None => ep.max_packet_size(),
                         });
+                        ep_out = Some(ep.address());
                     }
+                    Direction::In => ep_in = Some(ep.address()),
                 }
             }
         }
@@ -240,8 +263,14 @@ where
             tracing::warn!("Unable to detect Max Packet Size!");
         };
 
-        let boq = interface.bulk_out_queue(BULK_OUT_EP);
-        let biq = interface.bulk_in_queue(BULK_IN_EP);
+        let ep_out = ep_out.ok_or("Failed to find OUT EP")?;
+        tracing::debug!("OUT EP: {ep_out}");
+
+        let ep_in = ep_in.ok_or("Failed to find IN EP")?;
+        tracing::debug!("IN EP: {ep_in}");
+
+        let boq = interface.bulk_out_queue(ep_out);
+        let biq = interface.bulk_in_queue(ep_in);
 
         Ok(HostClient::new_with_wire(
             NusbWireTx {
