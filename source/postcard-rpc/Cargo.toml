@@ -19,6 +19,7 @@ features = [
     "cobs-serial",
     "raw-nusb",
     "embassy-usb-0_3-server",
+    "embassy-usb-0_4-server",
     "_docs-fix",
     # TODO: What to do about the webusb feature? Can we do separate target builds?
 ]
