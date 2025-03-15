@@ -238,7 +238,7 @@ pub struct EUsbWireTxInner<D: Driver<'static>> {
     pending_frame: bool,
 }
 
-/// A [`WireTx`] implementation for embassy-usb 0.3.
+/// A [`WireTx`] implementation for embassy-usb 0.4.
 #[derive(Copy)]
 pub struct EUsbWireTx<M: RawMutex + 'static, D: Driver<'static> + 'static> {
     inner: &'static Mutex<M, EUsbWireTxInner<D>>,
@@ -537,7 +537,7 @@ fn actual_varint_max_len(largest: usize) -> usize {
 // RX
 //////////////////////////////////////////////////////////////////////////////
 
-/// A [`WireRx`] implementation for embassy-usb 0.3.
+/// A [`WireRx`] implementation for embassy-usb 0.4.
 pub struct EUsbWireRx<D: Driver<'static>> {
     ep_out: D::EndpointOut,
 }
