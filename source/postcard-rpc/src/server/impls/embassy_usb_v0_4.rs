@@ -12,7 +12,7 @@ use embassy_executor::{SpawnError, SpawnToken, Spawner};
 use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_time::Timer;
-use embassy_usb_driver::{Driver, EndpointError, EndpointIn, EndpointOut};
+use embassy_usb_driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use serde::Serialize;
 use static_cell::ConstStaticCell;
 
@@ -295,6 +295,11 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Clone for EUsbWireTx<M
 
 impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<M, D> {
     type Error = WireTxErrorKind;
+
+    async fn wait_connection(&self) {
+        let mut inner = self.inner.lock().await;
+        inner.ep_in.wait_enabled().await;
+    }
 
     async fn send<T: Serialize + ?Sized>(
         &self,
@@ -587,6 +592,10 @@ pub struct EUsbWireRx<D: Driver<'static>> {
 
 impl<D: Driver<'static>> WireRx for EUsbWireRx<D> {
     type Error = WireRxErrorKind;
+
+    async fn wait_connection(&mut self) {
+        self.ep_out.wait_enabled().await;
+    }
 
     async fn receive<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a mut [u8], Self::Error> {
         let buflen = buf.len();
