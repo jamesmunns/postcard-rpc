@@ -138,7 +138,7 @@ impl WebUsbWire {
                 .map_err(|e| Error::from(e))?,
         };
         JsFuture::from(device.open()).await?;
-        tracing::info!("deveie openc, claiming interface {interface}");
+        tracing::info!("device open, claiming interface {interface}");
         JsFuture::from(device.claim_interface(interface)).await?;
         info!("done");
 
