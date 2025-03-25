@@ -21,6 +21,9 @@ struct PoststationHandler {}
 static STINDX: AtomicU8 = AtomicU8::new(0xFF);
 static HDLR: ConstStaticCell<PoststationHandler> = ConstStaticCell::new(PoststationHandler {});
 
+/// Default time in milliseconds to wait for the completion of sending
+pub const DEFAULT_TIMEOUT_MS_PER_FRAME: usize = 2;
+
 impl embassy_usb_0_4::Handler for PoststationHandler {
     fn get_string(
         &mut self,
@@ -44,7 +47,9 @@ impl embassy_usb_0_4::Handler for PoststationHandler {
 /// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
     pub use super::embassy_spawn as spawn_fn;
-    use super::{EUsbWireRx, EUsbWireTx, EUsbWireTxInner, UsbDeviceBuffers};
+    use super::{
+        EUsbWireRx, EUsbWireTx, EUsbWireTxInner, UsbDeviceBuffers, DEFAULT_TIMEOUT_MS_PER_FRAME,
+    };
 
     /// Used for defining the USB interface
     pub const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
@@ -151,6 +156,7 @@ pub mod dispatch_impl {
                 log_seq: 0,
                 tx_buf,
                 pending_frame: false,
+                timeout_ms_per_frame: DEFAULT_TIMEOUT_MS_PER_FRAME,
             }));
 
             // Build the builder.
@@ -219,6 +225,7 @@ pub mod dispatch_impl {
                 log_seq: 0,
                 tx_buf,
                 pending_frame: false,
+                timeout_ms_per_frame: DEFAULT_TIMEOUT_MS_PER_FRAME,
             }));
 
             (builder, EUsbWireTx { inner: wtx }, EUsbWireRx { ep_out })
@@ -236,12 +243,48 @@ pub struct EUsbWireTxInner<D: Driver<'static>> {
     log_seq: u16,
     tx_buf: &'static mut [u8],
     pending_frame: bool,
+    timeout_ms_per_frame: usize,
 }
 
 /// A [`WireTx`] implementation for embassy-usb 0.3.
 #[derive(Copy)]
 pub struct EUsbWireTx<M: RawMutex + 'static, D: Driver<'static> + 'static> {
     inner: &'static Mutex<M, EUsbWireTxInner<D>>,
+}
+
+impl<M: RawMutex + 'static, D: Driver<'static> + 'static> EUsbWireTx<M, D> {
+    /// Set the timeout in milliseconds per USB frame
+    ///
+    /// The sender will wait `(frames * timeout)` in milliseconds before reporting
+    /// the send as failed. This timeout is used to avoid apparent "hangs" in the
+    /// case that USB is disconnected or not working appropriately. A timeout will
+    /// cause the postcard-rpc dispatch loop to return an error. This timer is not
+    /// started until the sender has exclusive access to the underlying USB
+    /// connection, meaning that if two tasks start sending at the same time,
+    /// the second sender's timer will not start until the first sender has
+    /// completed.
+    ///
+    /// A "frame" refers to the USB frame, not a postcard-rpc frame. For example,
+    /// if the USB endpoint can handle USB frames of 64 bytes max (limit for USB
+    /// Full Speed), and you attempt to send 120 bytes of postcard-rpc data, that
+    /// would be two frames, so sending would have a timeout of 4ms at the default
+    /// value.
+    ///
+    /// This number can be increased in cases where your system is heavily loaded,
+    /// and sending may be delayed due to CPU capacity. This may cause tasks sending
+    /// data to also remain pending.
+    ///
+    /// This defaults to 2ms/frame. The provided `timeout` value will be clamped
+    /// to the range `1..=60000`. The new timeout will apply to the NEXT sent
+    /// frame.
+    pub async fn set_timeout_ms_per_frame(&self, timeout: usize) {
+        // Clamp input
+        let timeout = timeout.min(60_000).max(1);
+
+        // Set timeout
+        let mut guard = self.inner.lock().await;
+        guard.timeout_ms_per_frame = timeout;
+    }
 }
 
 impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Clone for EUsbWireTx<M, D> {
@@ -265,6 +308,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             log_seq: _,
             tx_buf,
             pending_frame,
+            timeout_ms_per_frame,
         }: &mut EUsbWireTxInner<D> = &mut inner;
 
         let (hdr_used, remain) = hdr.write_to_slice(tx_buf).ok_or(WireTxErrorKind::Other)?;
@@ -272,7 +316,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         let used_ttl = hdr_used.len() + bdy_used.len();
 
         if let Some(used) = tx_buf.get(..used_ttl) {
-            send_all::<D>(ep_in, used, pending_frame).await
+            send_all::<D>(ep_in, used, pending_frame, *timeout_ms_per_frame).await
         } else {
             Err(WireTxErrorKind::Other)
         }
@@ -283,9 +327,10 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         let EUsbWireTxInner {
             ep_in,
             pending_frame,
+            timeout_ms_per_frame,
             ..
         }: &mut EUsbWireTxInner<D> = &mut inner;
-        send_all::<D>(ep_in, buf, pending_frame).await
+        send_all::<D>(ep_in, buf, pending_frame, *timeout_ms_per_frame).await
     }
 
     async fn send_log_str(&self, kkind: VarKeyKind, s: &str) -> Result<(), Self::Error> {
@@ -296,6 +341,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             log_seq,
             tx_buf,
             pending_frame,
+            timeout_ms_per_frame,
         }: &mut EUsbWireTxInner<D> = &mut inner;
 
         let key = match kkind {
@@ -316,7 +362,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         let used_ttl = hdr_used.len() + bdy_used.len();
 
         if let Some(used) = tx_buf.get(..used_ttl) {
-            send_all::<D>(ep_in, used, pending_frame).await
+            send_all::<D>(ep_in, used, pending_frame, *timeout_ms_per_frame).await
         } else {
             Err(WireTxErrorKind::Other)
         }
@@ -334,6 +380,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             log_seq,
             tx_buf,
             pending_frame,
+            timeout_ms_per_frame,
         }: &mut EUsbWireTxInner<D> = &mut inner;
         let ttl_len = tx_buf.len();
 
@@ -404,7 +451,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         // Calculate the TOTAL amount
         let act_used = ttl_len - remain;
 
-        send_all::<D>(ep_in, &tx_buf[..act_used], pending_frame).await
+        send_all::<D>(ep_in, &tx_buf[..act_used], pending_frame, *timeout_ms_per_frame).await
     }
 }
 
@@ -413,6 +460,7 @@ async fn send_all<D>(
     ep_in: &mut D::EndpointIn,
     out: &[u8],
     pending_frame: &mut bool,
+    timeout_ms_per_frame: usize,
 ) -> Result<(), WireTxErrorKind>
 where
     D: Driver<'static>,
@@ -422,9 +470,9 @@ where
     }
 
     // Calculate an estimated timeout based on the number of frames we need to send
-    // For now, we use 2ms/frame, rounded UP
+    // For now, we use 2ms/frame by default, rounded UP
     let frames = (out.len() + 63) / 64;
-    let timeout_ms = frames * 2;
+    let timeout_ms = frames * timeout_ms_per_frame;
 
     let send_fut = async {
         // If we left off a pending frame, send one now so we don't leave an unterminated
