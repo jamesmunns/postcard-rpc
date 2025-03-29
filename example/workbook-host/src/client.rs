@@ -53,6 +53,17 @@ impl WorkbookClient {
         Self { client }
     }
 
+    pub fn new_serial(port: &str) -> Self {
+        let client = HostClient::new_serial_cobs(
+            port,
+            ERROR_PATH,
+            8,
+            9600,
+            VarSeqKind::Seq2,
+        );
+        Self { client }
+    }
+
     pub async fn wait_closed(&self) {
         self.client.wait_closed().await;
     }

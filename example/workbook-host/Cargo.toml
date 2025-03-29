@@ -12,6 +12,7 @@ version = "0.11"
 features = [
     "use-std",
     "raw-nusb",
+    "cobs-serial",
 ]
 
 [dependencies.postcard-schema]
@@ -25,6 +26,9 @@ features = [
     "macros",
     "time",
 ]
+
+[dependencies.tokio-serial]
+version = "5.4.4"
 
 [patch.crates-io]
 postcard-rpc = { path = "../../source/postcard-rpc" }

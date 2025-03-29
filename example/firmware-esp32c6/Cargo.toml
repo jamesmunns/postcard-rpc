@@ -1,0 +1,52 @@
+[package]
+edition = "2024"
+name    = "firmware-esp32c6"
+version = "0.1.0"
+
+[[bin]]
+name = "firmware-esp32c6"
+path = "./src/bin/main.rs"
+
+[dependencies]
+critical-section = "1.2.0"
+defmt = "0.3.10"
+embassy-executor = { version = "0.7.0", features = [
+  "defmt",
+  "task-arena-size-20480",
+] }
+embassy-sync            = { version = "0.6.1", features = ["defmt"] }
+embassy-time = "0.4.0"
+esp-hal = { version = "1.0.0-beta.0", features = [
+  "defmt",
+  "esp32c6",
+  "unstable",
+] }
+esp-hal-smartled = { git = "https://github.com/taorye/esp-hal-community", rev = "fd8093989da1d37e1a0ce31a7b6b8ece12502875" }
+esp-hal-embassy = { version = "0.7.0", features = ["esp32c6"] }
+panic-rtt-target = { version = "0.2.0", features = ["defmt"] }
+rtt-target = { version = "0.6.1", features = ["defmt"] }
+static_cell = { version = "2.1.0", features = ["nightly"] }
+smart-leds = "0.4.0"
+
+postcard                = { version = "1" }
+postcard-rpc            = { version = "0.11", features = ["embedded-io-async-0_6-server"] }
+postcard-schema         = { version = "0.2.0", features = ["derive"] }
+
+workbook-icd            = { path = "../workbook-icd" }
+
+[patch.crates-io]
+postcard-rpc = { path = "../../source/postcard-rpc" }
+
+[profile.dev]
+# Rust debug is too slow.
+# For debug builds always builds with some optimization
+opt-level = "s"
+
+[profile.release]
+codegen-units    = 1     # LLVM can perform better optimizations using a single thread
+debug            = 2
+debug-assertions = false
+incremental      = false
+lto              = 'fat'
+opt-level        = 's'
+overflow-checks  = false
