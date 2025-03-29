@@ -12,6 +12,7 @@ version = "0.11"
 features = [
     "use-std",
     "raw-nusb",
+    "cobs-serial",
 ]
 
 [dependencies.tokio]
@@ -22,5 +23,10 @@ features = [
     "time",
 ]
 
+[dependencies.tokio-serial]
+version = "5.4.4"
+
 [patch.crates-io]
 postcard-rpc = { path = "../../source/postcard-rpc" }
+# https://github.com/berkowski/mio-serial/pull/51
+mio-serial = { git = "https://github.com/bugadani/mio-serial", branch = "windows" }

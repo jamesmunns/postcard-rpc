@@ -4,6 +4,7 @@ set -euxo pipefail
 rustup target add \
     thumbv6m-none-eabi \
     thumbv7em-none-eabihf \
+    riscv32imac-unknown-none-elf \
     wasm32-unknown-unknown
 
 # Host + STD checks
@@ -75,6 +76,9 @@ cargo build \
 cargo build \
     --manifest-path example/nrf52840-serial/Cargo.toml \
     --target thumbv7em-none-eabihf
+cargo build \
+    --manifest-path example/esp32c6-serial/Cargo.toml \
+    --target riscv32imac-unknown-none-elf
 
 # Test Project
 cargo test \
