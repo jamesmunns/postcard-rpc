@@ -6,6 +6,5 @@ imports:
 
 apps:
   - name: workbook-fw-ariel-os
-    context: nrf52840dk
     selects:
       - usb
