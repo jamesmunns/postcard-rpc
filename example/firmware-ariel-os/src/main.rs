@@ -3,14 +3,20 @@
 #![feature(impl_trait_in_assoc_type)]
 #![feature(used_with_arg)]
 
-use ariel_os::{asynch::Spawner, debug::log::info, reexports::embassy_usb, usb};
+use ariel_os::{
+    asynch::Spawner,
+    debug::log::info,
+    reexports::embassy_usb,
+    time::{Duration, Timer},
+    usb,
+};
 
 use postcard_rpc::{
     define_dispatch,
     header::VarHeader,
     server::{
         impls::embassy_usb_v0_4::{
-            dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl},
+            dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorageNoUsb, WireTxImpl},
             PacketBuffers,
         },
         Dispatch, Server,
@@ -23,7 +29,7 @@ pub struct Context;
 
 type AppMutex = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 type AppDriver = usb::UsbDriver;
-type AppStorage = WireStorage<AppMutex, AppDriver, 256, 256, 64, 256>;
+type AppStorage = WireStorageNoUsb<AppMutex, AppDriver>;
 type BufStorage = PacketBuffers<1024, 1024>;
 type AppTx = WireTxImpl<AppMutex, AppDriver>;
 type AppRx = WireRxImpl<AppDriver>;
@@ -35,7 +41,7 @@ static STORAGE: AppStorage = AppStorage::new();
 /// Helper to get unique ID from flash
 pub fn get_unique_id() -> Option<u64> {
     // TODO
-    Some(0)
+    Some(12345678)
 }
 
 #[ariel_os::config(usb)]
@@ -90,12 +96,17 @@ async fn main() {
     let context = Context;
     let pbufs = PBUFS.take();
 
+    info!("init usb builder");
     // Create and inject the Postcard usb endpoint on the system USB builder.
-    let (tx_impl, rx_impl) = USB_BUILDER_HOOK.with(|builder| {
-        // TODO: init here passing builder
-        STORAGE.init_on_builder(pbufs.tx_buf.as_mut_slice())
-    });
+    let (tx_impl, rx_impl) = USB_BUILDER_HOOK
+        .with(|builder| {
+            let res = STORAGE.init(builder, pbufs.tx_buf.as_mut_slice());
+            info!("storage initialized");
+            res
+        })
+        .await;
 
+    info!("init app server");
     let spawner = Spawner::for_current_executor().await;
     let dispatcher = MyApp::new(context, spawner.into());
     let vkk = dispatcher.min_key_len();
@@ -107,10 +118,13 @@ async fn main() {
         vkk,
     );
 
+    info!("starting server");
     loop {
+        Timer::after(Duration::from_millis(1000)).await;
         // If the host disconnects, we'll return an error here.
         // If this happens, just wait until the host reconnects
-        let _ = server.run().await;
+        let err = server.run().await;
+        //info!("{}", err);
     }
 }
 
