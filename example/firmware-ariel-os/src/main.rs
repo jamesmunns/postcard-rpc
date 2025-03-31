@@ -88,20 +88,18 @@ define_dispatch! {
 
 #[ariel_os::task(autostart, usb_builder_hook)]
 async fn main() {
-    info!("Postcard-rpc task starting");
+    info!("Start");
 
     let unique_id = get_unique_id().unwrap();
     info!("id: {=u64:016X}", unique_id);
 
-    let context = Context;
+    // USB/RPC INIT
     let pbufs = PBUFS.take();
+    let context = Context;
 
     // Create and inject the Postcard usb endpoint on the system USB builder.
     let (tx_impl, rx_impl) = USB_BUILDER_HOOK
-        .with(|builder| {
-            let res = STORAGE.init(builder, pbufs.tx_buf.as_mut_slice());
-            res
-        })
+        .with(|builder| STORAGE.init(builder, pbufs.tx_buf.as_mut_slice()))
         .await;
 
     let spawner = Spawner::for_current_executor().await;
@@ -115,8 +113,6 @@ async fn main() {
         vkk,
     );
 
-    info!("starting app server loop");
-
     loop {
         // Somehow at least on nrf52840dk, this is needed, otherwise the
         // `ariel_os_embassy::init_task()` task starves.
@@ -124,9 +120,11 @@ async fn main() {
 
         // If the host disconnects, we'll return an error here.
         // If this happens, just wait until the host reconnects
-        server.run().await;
+        let _ = server.run().await;
     }
 }
+
+// ---
 
 fn ping_handler(_context: &mut Context, _header: VarHeader, rqst: u32) -> u32 {
     info!("ping");
