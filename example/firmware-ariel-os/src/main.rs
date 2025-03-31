@@ -96,17 +96,14 @@ async fn main() {
     let context = Context;
     let pbufs = PBUFS.take();
 
-    info!("init usb builder");
     // Create and inject the Postcard usb endpoint on the system USB builder.
     let (tx_impl, rx_impl) = USB_BUILDER_HOOK
         .with(|builder| {
             let res = STORAGE.init(builder, pbufs.tx_buf.as_mut_slice());
-            info!("storage initialized");
             res
         })
         .await;
 
-    info!("init app server");
     let spawner = Spawner::for_current_executor().await;
     let dispatcher = MyApp::new(context, spawner.into());
     let vkk = dispatcher.min_key_len();
@@ -118,13 +115,16 @@ async fn main() {
         vkk,
     );
 
-    info!("starting server");
+    info!("starting app server loop");
+
     loop {
-        Timer::after(Duration::from_millis(1000)).await;
+        // Somehow at least on nrf52840dk, this is needed, otherwise the
+        // `ariel_os_embassy::init_task()` task starves.
+        Timer::after(Duration::from_millis(100)).await;
+
         // If the host disconnects, we'll return an error here.
         // If this happens, just wait until the host reconnects
-        let err = server.run().await;
-        //info!("{}", err);
+        server.run().await;
     }
 }
 
