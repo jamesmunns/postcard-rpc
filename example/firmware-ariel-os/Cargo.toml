@@ -1,0 +1,21 @@
+[package]
+name = "workbook-fw-ariel-os"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ariel-os = { path = "build/imports/ariel-os/src/ariel-os", features = [
+  "override-usb-config",
+] }
+ariel-os-boards = { path = "build/imports/ariel-os/src/ariel-os-boards" }
+embassy-sync = { version = "0.6.1", default-features = false }
+
+postcard-rpc = { version = "0.11", features = ["embassy-usb-0_4-server"] }
+postcard = { version = "1.0.10" }
+postcard-schema = { version = "0.2.1", features = ["derive"] }
+
+workbook-icd = { path = "../workbook-icd" }
+static_cell = "2.1.0"
+
+[patch.crates-io]
+postcard-rpc = { path = "../../source/postcard-rpc" }

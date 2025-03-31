@@ -1,0 +1,11 @@
+imports:
+  - git:
+      url: https://github.com/ariel-os/ariel-os
+      commit: 4a1cf6786da07cc63154c5ddfd26b1487b285f7b
+    dldir: ariel-os
+
+apps:
+  - name: workbook-firmware-ariel-os
+    context: nrf52840dk
+    selects:
+      - usb
