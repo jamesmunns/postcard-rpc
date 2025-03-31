@@ -5,7 +5,7 @@ imports:
     dldir: ariel-os
 
 apps:
-  - name: workbook-firmware-ariel-os
+  - name: workbook-fw-ariel-os
     context: nrf52840dk
     selects:
       - usb
