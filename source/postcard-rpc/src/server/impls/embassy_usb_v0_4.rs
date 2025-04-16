@@ -12,7 +12,7 @@ use embassy_executor::{SpawnError, SpawnToken, Spawner};
 use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_time::Timer;
-use embassy_usb_driver::{Driver, EndpointError, EndpointIn, EndpointOut};
+use embassy_usb_driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use serde::Serialize;
 use static_cell::ConstStaticCell;
 
@@ -246,7 +246,7 @@ pub struct EUsbWireTxInner<D: Driver<'static>> {
     timeout_ms_per_frame: usize,
 }
 
-/// A [`WireTx`] implementation for embassy-usb 0.3.
+/// A [`WireTx`] implementation for embassy-usb 0.4.
 #[derive(Copy)]
 pub struct EUsbWireTx<M: RawMutex + 'static, D: Driver<'static> + 'static> {
     inner: &'static Mutex<M, EUsbWireTxInner<D>>,
@@ -295,6 +295,11 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Clone for EUsbWireTx<M
 
 impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<M, D> {
     type Error = WireTxErrorKind;
+
+    async fn wait_connection(&self) {
+        let mut inner = self.inner.lock().await;
+        inner.ep_in.wait_enabled().await;
+    }
 
     async fn send<T: Serialize + ?Sized>(
         &self,
@@ -580,13 +585,17 @@ fn actual_varint_max_len(largest: usize) -> usize {
 // RX
 //////////////////////////////////////////////////////////////////////////////
 
-/// A [`WireRx`] implementation for embassy-usb 0.3.
+/// A [`WireRx`] implementation for embassy-usb 0.4.
 pub struct EUsbWireRx<D: Driver<'static>> {
     ep_out: D::EndpointOut,
 }
 
 impl<D: Driver<'static>> WireRx for EUsbWireRx<D> {
     type Error = WireRxErrorKind;
+
+    async fn wait_connection(&mut self) {
+        self.ep_out.wait_enabled().await;
+    }
 
     async fn receive<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a mut [u8], Self::Error> {
         let buflen = buf.len();
