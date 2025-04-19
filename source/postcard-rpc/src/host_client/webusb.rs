@@ -7,7 +7,9 @@ use serde_json::json;
 use tracing::info;
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
-use web_sys::{UsbDevice, UsbInTransferResult, UsbTransferStatus};
+use web_sys::{
+    UsbDevice, UsbDirection, UsbEndpoint, UsbInTransferResult, UsbInterface, UsbTransferStatus,
+};
 
 use crate::header::VarSeqKind;
 use crate::host_client::{HostClient, WireRx, WireSpawn, WireTx};
@@ -78,6 +80,47 @@ where
             outgoing_depth,
         ))
     }
+
+    /// Create a new webusb connection instance from an existing UsbDevice
+    ///
+    /// This will use the first device interface with class 0xFF
+    pub async fn try_new_webusb_from_device(
+        device: UsbDevice,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+        seq_no_len: VarSeqKind,
+    ) -> Result<Self, Error> {
+        let wire = WebUsbWire::from_device(device).await?;
+        Ok(HostClient::new_with_wire(
+            wire.clone(),
+            wire.clone(),
+            wire,
+            seq_no_len,
+            err_uri_path,
+            outgoing_depth,
+        ))
+    }
+
+    /// Create a new webusb connection instance from an existing UsbDevice and UsbInterface
+    ///
+    /// This will use the first device interface with class 0xFF
+    pub async fn try_new_webusb_from_device_and_interface(
+        device: UsbDevice,
+        interface: &UsbInterface,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+        seq_no_len: VarSeqKind,
+    ) -> Result<Self, Error> {
+        let wire = WebUsbWire::from_device_and_interface(device, interface).await?;
+        Ok(HostClient::new_with_wire(
+            wire.clone(),
+            wire.clone(),
+            wire,
+            seq_no_len,
+            err_uri_path,
+            outgoing_depth,
+        ))
+    }
 }
 
 /// # Example usage ()
@@ -137,8 +180,88 @@ impl WebUsbWire {
                 .dyn_into()
                 .map_err(|e| Error::from(e))?,
         };
+
+        Self::open_webusb_interface(device, interface, transfer_max_length, ep_in, ep_out).await
+    }
+
+    /// Create a webusb connection instance from an existing UsbDevice
+    ///
+    /// This will use the first device interface with class 0xFF
+    pub async fn from_device(device: UsbDevice) -> Result<Self, Error> {
+        let configuration = device
+            .configuration()
+            // TODO: API Convert to NotFound Error
+            .ok_or_else(|| Error::Browser("Notfound: No device configuration".to_string()))?;
+        let interface = configuration
+            .interfaces()
+            .iter()
+            .find_map(|i| {
+                let i = i.dyn_into::<UsbInterface>().ok()?;
+                if i.alternate().interface_class() == 0xFF {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            // TODO: API Convert to NotFound Error
+            .ok_or_else(|| {
+                Error::Browser("Notfound: Failed to find usable interface".to_string())
+            })?;
+
+        Self::from_device_and_interface(device, &interface).await
+    }
+
+    /// Create a webusb connection instance from an existing UsbDevice and UsbInterface
+    pub async fn from_device_and_interface(
+        device: UsbDevice,
+        interface: &UsbInterface,
+    ) -> Result<Self, Error> {
+        let alternate = interface.alternate();
+        let endpoints = alternate.endpoints();
+        let ep_in = endpoints
+            .iter()
+            .find_map(|e| {
+                let e = e.dyn_into::<UsbEndpoint>().ok()?;
+                if e.direction() == UsbDirection::In {
+                    Some(e)
+                } else {
+                    None
+                }
+            })
+            // TODO: API Convert to NotFound Error
+            .ok_or_else(|| Error::Browser("Notfound: Failed to find IN endpoint".to_string()))?;
+        let ep_out = endpoints
+            .iter()
+            .find_map(|e| {
+                let e = e.dyn_into::<UsbEndpoint>().ok()?;
+                if e.direction() == UsbDirection::Out {
+                    Some(e)
+                } else {
+                    None
+                }
+            })
+            // TODO: API Convert to NotFound Error
+            .ok_or_else(|| Error::Browser("Notfound: Failed to find OUT endpoint".to_string()))?;
+
+        Self::open_webusb_interface(
+            device,
+            interface.interface_number(),
+            ep_out.packet_size(),
+            ep_in.endpoint_number(),
+            ep_out.endpoint_number(),
+        )
+        .await
+    }
+
+    async fn open_webusb_interface(
+        device: UsbDevice,
+        interface: u8,
+        transfer_max_length: u32,
+        ep_in: u8,
+        ep_out: u8,
+    ) -> Result<Self, Error> {
         JsFuture::from(device.open()).await?;
-        tracing::info!("deveie openc, claiming interface {interface}");
+        tracing::info!("device open, claiming interface {interface}");
         JsFuture::from(device.claim_interface(interface)).await?;
         info!("done");
 
