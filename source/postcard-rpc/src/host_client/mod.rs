@@ -14,6 +14,8 @@ use std::{
     },
 };
 
+use thiserror::Error;
+
 use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,
@@ -843,11 +845,13 @@ pub struct MultiSubscription<M> {
 }
 
 /// Recv
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 pub enum MultiSubRxError {
     /// The receiver was closed
+    #[error("Receiver closed")]
     IoClosed,
     /// Lagged behind, this many messages were lost
+    #[error("Lagged behind, lost {0} messages")]
     Lagged(u64),
 }
 
@@ -926,23 +930,27 @@ pub struct HostContext {
 }
 
 /// The I/O worker has closed.
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("The I/O worker has closed")]
 pub struct IoClosed;
 
 /// The I/O worker has closed.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum SubscribeError {
     /// The subscription was already active
+    #[error("The subscription was already active")]
     AlreadySubscribed,
     /// The I/O worker has closed.
+    #[error("The I/O worker has closed")]
     IoClosed,
 }
 
 /// Error for [HostContext::process].
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 pub enum ProcessError {
     /// All [HostClient]s have been dropped, no further requests
     /// will be made and no responses will be processed.
+    #[error("All clients have been dropped")]
     Closed,
 }
 
