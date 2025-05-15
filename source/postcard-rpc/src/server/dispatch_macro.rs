@@ -406,15 +406,15 @@ macro_rules! define_dispatch {
                 ) -> Self {
                     const MAP: &$crate::DeviceMap = &$crate::DeviceMap {
                         types: const {
-                            const LISTS: &[&[&'static postcard_schema::schema::NamedType]] = &[
+                            const LISTS: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
                                 $endpoint_list.types,
                                 $topic_in_list.types,
                                 $topic_out_list.types,
                             ];
                             const TTL_COUNT: usize = $endpoint_list.types.len() + $topic_in_list.types.len() + $topic_out_list.types.len();
 
-                            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
-                            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+                            const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
+                            const SMALL_RPT: [&'static $crate::postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
                             SMALL_RPT.as_slice()
                         },
                         endpoints: &$endpoint_list.endpoints,

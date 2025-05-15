@@ -1039,7 +1039,6 @@ name = "workbook-host-client"
 version = "0.1.0"
 dependencies = [
  "postcard-rpc",
- "postcard-schema",
  "tokio",
  "workbook-icd",
 ]

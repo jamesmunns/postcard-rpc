@@ -1831,7 +1831,6 @@ dependencies = [
  "portable-atomic",
  "postcard",
  "postcard-rpc",
- "postcard-schema",
  "smart-leds",
  "static_cell",
  "workbook-icd",

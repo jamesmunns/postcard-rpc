@@ -115,6 +115,10 @@
 #![deny(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
+/// Re-export used by macros
+#[doc(hidden)]
+pub use postcard_schema;
+
 use header::{VarKey, VarKeyKind};
 use postcard_schema::{schema::NamedType, Schema};
 use serde::{Deserialize, Serialize};
