@@ -387,6 +387,7 @@ macro_rules! define_dispatch {
         // This is overly complicated because I'm mixing const-time capabilities with
         // macro-time capabilities. I'm very open to other suggestions that achieve the
         // same outcome.
+        #[doc=concat!("This defines the postcard-rpc app implementation for ", stringify!($app_name))]
         pub type $app_name = impls::$app_name<{ sizer::NEEDED_SZ }>;
 
         mod impls {
