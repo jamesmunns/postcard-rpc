@@ -176,6 +176,7 @@ pub trait WireSpawn: 'static {
 ///
 /// 1. With raw USB Bulk transfers: [`HostClient::new_raw_nusb()`] (**recommended**)
 /// 2. With cobs CDC-ACM transfers: [`HostClient::new_serial_cobs()`]
+#[derive(Debug)]
 pub struct HostClient<WireErr> {
     ctx: Arc<HostContext>,
     out: mpsc::Sender<RpcFrame>,
@@ -922,6 +923,7 @@ impl RpcFrame {
 }
 
 /// Shared context between [HostClient] and the I/O worker task
+#[derive(Debug)]
 pub struct HostContext {
     kkind: RwLock<VarKeyKind>,
     map: WaitMap<VarHeader, (VarHeader, Vec<u8>)>,

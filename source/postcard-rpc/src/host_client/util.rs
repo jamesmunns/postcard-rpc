@@ -29,7 +29,7 @@ pub(crate) struct Subscriptions {
 /// A basic cancellation-token
 ///
 /// Used to terminate (and signal termination of) worker tasks
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Stopper {
     inner: Arc<WaitQueue>,
 }

@@ -10,6 +10,7 @@ use workbook_icd::{
     StopAccelerationEndpoint,
 };
 
+#[derive(Debug)]
 pub struct WorkbookClient {
     pub client: HostClient<WireError>,
 }
