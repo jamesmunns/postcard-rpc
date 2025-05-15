@@ -1829,7 +1829,6 @@ dependencies = [
  "pio",
  "pio-proc",
  "portable-atomic",
- "postcard",
  "postcard-rpc",
  "smart-leds",
  "static_cell",

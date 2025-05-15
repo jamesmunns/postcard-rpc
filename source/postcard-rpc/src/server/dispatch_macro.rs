@@ -150,7 +150,7 @@ macro_rules! define_dispatch {
                     // Standard ICD endpoints
                     <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$req_key_name => {
                         // Can we deserialize the request?
-                        let Ok(req) = postcard::from_bytes::<<$crate::standard_icd::PingEndpoint as $crate::Endpoint>::Request>(body) else {
+                        let Ok(req) = $crate::postcard::from_bytes::<<$crate::standard_icd::PingEndpoint as $crate::Endpoint>::Request>(body) else {
                             let err = $crate::standard_icd::WireError::DeserFailed;
                             return tx.error(hdr.seq_no, err).await;
                         };
@@ -164,7 +164,7 @@ macro_rules! define_dispatch {
                     $(
                         <$endpoint as $crate::Endpoint>::$req_key_name => {
                             // Can we deserialize the request?
-                            let Ok(req) = postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
+                            let Ok(req) = $crate::postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
                                 let err = $crate::standard_icd::WireError::DeserFailed;
                                 return tx.error(hdr.seq_no, err).await;
                             };
@@ -185,7 +185,7 @@ macro_rules! define_dispatch {
                     $(
                         <$topic_in as $crate::Topic>::$topic_key_name => {
                             // Can we deserialize the request?
-                            let Ok(msg) = postcard::from_bytes::<<$topic_in as $crate::Topic>::Message>(body) else {
+                            let Ok(msg) = $crate::postcard::from_bytes::<<$topic_in as $crate::Topic>::Message>(body) else {
                                 // This is a topic, not much to be done
                                 return Ok(());
                             };

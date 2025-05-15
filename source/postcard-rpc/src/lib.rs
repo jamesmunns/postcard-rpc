@@ -117,6 +117,9 @@
 
 /// Re-export used by macros
 #[doc(hidden)]
+pub use postcard;
+/// Re-export used by macros
+#[doc(hidden)]
 pub use postcard_schema;
 
 use header::{VarKey, VarKeyKind};
