@@ -46,6 +46,9 @@ mod serial;
 #[cfg(all(feature = "webusb", target_family = "wasm"))]
 pub mod webusb;
 
+#[cfg(all(feature = "tcp", not(target_family = "wasm")))]
+pub mod tcp;
+
 pub(crate) mod util;
 
 #[cfg(feature = "test-utils")]
