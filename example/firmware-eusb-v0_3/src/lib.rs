@@ -1,5 +1,6 @@
 #![no_std]
 
+use embassy_time as _;
 use {
     defmt_rtt as _,
     embassy_rp::{
@@ -9,8 +10,9 @@ use {
         gpio::{Input, Level, Output, Pull},
         peripherals::{
             ADC, DMA_CH1, DMA_CH2, FLASH, PIN_0, PIN_1, PIN_18, PIN_19, PIN_2, PIN_20, PIN_21,
-            PIN_26, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, SPI0, USB,
+            PIN_26, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, PIO0, SPI0, USB,
         },
+        pio,
         spi::{self, Async, Spi},
         usb,
     },
@@ -19,12 +21,11 @@ use {
     lis3dh_async::{Lis3dh, Lis3dhSPI},
     panic_probe as _,
 };
-pub mod ws2812;
-use embassy_time as _;
 
 bind_interrupts!(pub struct Irqs {
     ADC_IRQ_FIFO => adc::InterruptHandler;
     USBCTRL_IRQ => usb::InterruptHandler<USB>;
+    PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
 });
 
 pub const NUM_SMARTLEDS: usize = 24;

@@ -7,6 +7,7 @@ use embassy_rp::{
     gpio::{Level, Output},
     peripherals::{PIO0, SPI0, USB},
     pio::Pio,
+    pio_programs::ws2812::{PioWs2812, PioWs2812Program},
     spi::{self, Spi},
     usb,
 };
@@ -31,11 +32,7 @@ use postcard_rpc::{
 };
 use smart_leds::{colors::BLACK, RGB8};
 use static_cell::{ConstStaticCell, StaticCell};
-use workbook_fw::{
-    get_unique_id,
-    ws2812::{self, Ws2812},
-    Irqs,
-};
+use workbook_fw::{get_unique_id, Irqs};
 use workbook_icd::{
     AccelTopic, Acceleration, BadPositionError, GetUniqueIdEndpoint, PingEndpoint, Rgb8,
     SetAllLedEndpoint, SetSingleLedEndpoint, SingleLed, StartAccel, StartAccelerationEndpoint,
@@ -49,7 +46,7 @@ static ACCEL: StaticCell<Mutex<ThreadModeRawMutex, Accel>> = StaticCell::new();
 
 pub struct Context {
     pub unique_id: u64,
-    pub ws2812: Ws2812<'static, PIO0, 0, 24>,
+    pub ws2812: PioWs2812<'static, PIO0, 0, 24>,
     pub ws2812_state: [RGB8; 24],
     pub accel: &'static Mutex<ThreadModeRawMutex, Accel>,
 }
@@ -125,15 +122,17 @@ define_dispatch! {
 async fn main(spawner: Spawner) {
     // SYSTEM INIT
     info!("Start");
-    let mut p = embassy_rp::init(Default::default());
-    let unique_id = defmt::unwrap!(get_unique_id(&mut p.FLASH));
+    let p = embassy_rp::init(Default::default());
+    let unique_id = defmt::unwrap!(get_unique_id(p.FLASH));
     info!("id: {=u64:016X}", unique_id);
 
     // PIO/WS2812 INIT
     let Pio {
         mut common, sm0, ..
-    } = Pio::new(p.PIO0, ws2812::Irqs);
-    let ws2812: Ws2812<'static, PIO0, 0, 24> = Ws2812::new(&mut common, sm0, p.DMA_CH0, p.PIN_25);
+    } = Pio::new(p.PIO0, Irqs);
+    let program = PioWs2812Program::new(&mut common);
+    let ws2812: PioWs2812<'static, PIO0, 0, 24> =
+        PioWs2812::new(&mut common, sm0, p.DMA_CH0, p.PIN_25, &program);
 
     // SPI INIT
     let spi = Spi::new(

@@ -78,8 +78,8 @@ define_dispatch! {
 async fn main(spawner: Spawner) {
     // SYSTEM INIT
     info!("Start");
-    let mut p = embassy_rp::init(Default::default());
-    let unique_id = defmt::unwrap!(get_unique_id(&mut p.FLASH));
+    let p = embassy_rp::init(Default::default());
+    let unique_id = defmt::unwrap!(get_unique_id(p.FLASH));
     info!("id: {=u64:016X}", unique_id);
 
     // USB/RPC INIT
