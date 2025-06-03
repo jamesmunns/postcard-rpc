@@ -78,6 +78,7 @@ pub trait WireTx {
 
 /// The base [`WireTx`] Error Kind
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum WireTxErrorKind {
     /// The connection has been closed, and is unlikely to succeed until
@@ -128,6 +129,7 @@ pub trait WireRx {
 
 /// The base [`WireRx`] Error Kind
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum WireRxErrorKind {
     /// The connection has been closed, and is unlikely to succeed until
@@ -451,6 +453,8 @@ where
             let Some((hdr, body)) = VarHeader::take_from_slice(used) else {
                 // TODO: send a nak on badly formed messages? We don't have
                 // much to say because we don't have a key or seq no or anything
+                #[cfg(feature = "defmt")]
+                defmt::warn!("Received badly formed message, ignoring");
                 continue;
             };
             let fut = d.handle(tx, &hdr, body);

@@ -238,7 +238,8 @@ embassy-usb-0_4-server = [
 ]
 
 embassy-net-tcp-server = [
-    "dep:embassy-net"
+    "dep:embassy-net",
+    "dep:cobs",
 ]
 
 # NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal

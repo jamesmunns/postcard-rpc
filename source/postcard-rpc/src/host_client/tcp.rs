@@ -1,8 +1,8 @@
 //! TCP client
-use std::fmt::{Debug, Display};
 use std::error::Error;
-use std::net::SocketAddr;
+use std::fmt::{Debug, Display};
 use std::future::Future;
+use std::net::SocketAddr;
 
 use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
@@ -116,8 +116,8 @@ struct TcpCommsTx<T: AsyncWrite + Send + 'static> {
 
 impl<T: AsyncWrite + Send + 'static> TcpCommsTx<T> {
     async fn send_inner(&mut self, data: Vec<u8>) -> Result<(), TcpCommsTxError> {
-        let mut data = cobs::encode_vec(&data);
-        data.push(0);
+        //let mut data = cobs::encode_vec(&data);
+        //data.push(0);
         self.tx
             .write_all(&data)
             .await
@@ -143,16 +143,21 @@ impl WireSpawn for TcpSpawn {
     }
 }
 
-impl <WireErr> HostClient<WireErr> where WireErr: DeserializeOwned + Schema {
+impl<WireErr> HostClient<WireErr>
+where
+    WireErr: DeserializeOwned + Schema,
+{
     /// Connect to a server via TCP
-    pub async fn connect_tcp<T>(addr: T) -> Self where T: tokio::net::ToSocketAddrs {
+    pub async fn connect_tcp<T>(addr: T) -> Self
+    where
+        T: tokio::net::ToSocketAddrs + Debug,
+    {
+        println!("connecting to {:?}", addr);
         let stream = TcpStream::connect(addr).await.unwrap();
         let addr = stream.peer_addr().unwrap();
         let (rx, tx) = split(stream);
         HostClient::new_with_wire(
-            TcpCommsTx {
-                tx 
-            },
+            TcpCommsTx { tx },
             TcpCommsRx {
                 rx,
                 addr,
@@ -164,5 +169,4 @@ impl <WireErr> HostClient<WireErr> where WireErr: DeserializeOwned + Schema {
             64,
         )
     }
-
 }
