@@ -178,6 +178,8 @@ impl<M: RawMutex + 'static> WireRx for ENetTcpWireRx<M> {
         defmt::debug!("receive: read");
         let n = match sock.read(buf).await {
             Ok(0) | Err(tcp::Error::ConnectionReset) => {
+                sock.abort();
+                sock.flush().await;
                 return Err(WireRxErrorKind::ConnectionClosed);
             }
             Ok(n) => n,
@@ -201,14 +203,14 @@ impl<M: RawMutex + 'static> WireRx for ENetTcpWireRx<M> {
         #[cfg(feature = "defmt")]
         defmt::debug!("rx sock state {}", sock.state());
         match sock.state() {
-            State::Established | State::CloseWait | State::Closing => return,
-            _ => {
+            State::Closed => {
                 #[cfg(feature = "defmt")]
                 defmt::info!("Waiting for RPC connection");
                 sock.accept(self.endpoint).await.unwrap();
                 #[cfg(feature = "defmt")]
                 defmt::info!("remote connected: {}", sock.remote_endpoint());
             }
+            _ => return,
         }
     }
 }
