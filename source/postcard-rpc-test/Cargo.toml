@@ -15,8 +15,8 @@ features = ["derive"]
 path = "../postcard-rpc"
 features = ["use-std", "test-utils"]
 
-[dependencies.postcard-schema]
-version = "0.2.1"
+[dependencies.postcard-schema-ng]
+version = "0.3.0"
 features = ["derive"]
 
 [dependencies.tokio]
@@ -26,3 +26,7 @@ features = ["rt", "macros", "sync", "time"]
 [features]
 default = ["alpha"]
 alpha = []
+
+[patch.crates-io.postcard-schema]
+git = "https://github.com/rslawson/postcard"
+features = ["derive"]

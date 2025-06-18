@@ -4,7 +4,7 @@ use core::{
 };
 use std::{sync::Arc, time::Instant};
 
-use postcard_schema::{schema::owned::OwnedNamedType, Schema};
+use postcard_schema_ng::{schema::owned::OwnedDataModelType, Schema};
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, task::yield_now, time::timeout};
 
@@ -520,7 +520,7 @@ fn device_map() {
     println!("## Types");
     println!();
     for ty in app.device_map.types {
-        let ty = OwnedNamedType::from(*ty);
+        let ty = OwnedDataModelType::from(*ty);
         println!("* {ty}");
     }
 

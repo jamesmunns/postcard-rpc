@@ -8,7 +8,7 @@ use crate::{
     host_client::{HostClient, RpcFrame, WireRx, WireSpawn, WireTx},
     Endpoint, Topic,
 };
-use postcard_schema::Schema;
+use postcard_schema_ng::Schema;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{
     select,

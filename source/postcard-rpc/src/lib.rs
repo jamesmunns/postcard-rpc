@@ -116,7 +116,7 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 
 use header::{VarKey, VarKeyKind};
-use postcard_schema::{schema::NamedType, Schema};
+use postcard_schema_ng::{schema::DataModelType, Schema};
 use serde::{Deserialize, Serialize};
 
 pub mod header;
@@ -136,8 +136,8 @@ pub mod test_utils;
 
 // Re-export Key components that now live in postcard-schema instead
 // of here in postcard-rpc
-pub use postcard_schema::key::hash;
-pub use postcard_schema::key::Key;
+pub use postcard_schema_ng::key::hash;
+pub use postcard_schema_ng::key::Key;
 
 /// A compacted 2-byte key
 ///
@@ -432,7 +432,7 @@ pub enum TopicDirection {
 /// or out direction.
 pub struct DeviceMap {
     /// The set of unique types used by all endpoints and topics in this map
-    pub types: &'static [&'static NamedType],
+    pub types: &'static [&'static DataModelType],
     /// The list of endpoints by path string, request key, and response key
     pub endpoints: &'static [(&'static str, Key, Key)],
     /// The list of topics (client to server) by path string and topic key
@@ -451,7 +451,7 @@ pub struct DeviceMap {
 #[derive(Debug)]
 pub struct EndpointMap {
     /// The set of unique types used by all endpoints in this map
-    pub types: &'static [&'static NamedType],
+    pub types: &'static [&'static DataModelType],
     /// The list of endpoints by path string, request key, and response key
     pub endpoints: &'static [(&'static str, Key, Key)],
 }
@@ -466,7 +466,7 @@ pub struct TopicMap {
     /// The direction of these topic messages
     pub direction: TopicDirection,
     /// The set of unique types used by all topics in this map
-    pub types: &'static [&'static NamedType],
+    pub types: &'static [&'static DataModelType],
     /// The list of topics by path string and topic key
     pub topics: &'static [(&'static str, Key)],
 }

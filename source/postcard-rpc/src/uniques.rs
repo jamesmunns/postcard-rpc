@@ -7,31 +7,31 @@
 //! 1. We recursively look at a type, counting how many types it contains,
 //!      WITHOUT considering de-duplication. This is used as an "upper bound"
 //!      of the number of potential types we could have to report
-//! 2. Create an array of `[Option<&NamedType>; MAX]` that we use something
+//! 2. Create an array of `[Option<&DataModelType>; MAX]` that we use something
 //!      like an append-only vec.
 //! 3. Recursively traverse the type AGAIN, this time collecting all unique
 //!      non-primitive types we encounter, and adding them to the list. This
 //!      is outrageously inefficient, but it is done at const time with all
 //!      the restrictions it entails, because we don't pay at runtime.
 //! 4. Record how many types we ACTUALLY collected in step 3, and create a
-//!      new array, `[&NamedType; ACTUAL]`, and copy the unique types into
+//!      new array, `[&DataModelType; ACTUAL]`, and copy the unique types into
 //!      this new array
-//! 5. Convert this `[&NamedType; N]` array into a `&'static [&NamedType]`
+//! 5. Convert this `[&DataModelType; N]` array into a `&'static [&DataModelType]`
 //!      array to make it possible to handle with multiple types
 //! 6. If we are collecting MULTIPLE types into a single aggregate report,
-//!      then we make a new array of `[Option<&NamedType>; sum(all types)]`,
+//!      then we make a new array of `[Option<&DataModelType>; sum(all types)]`,
 //!      by calculating the sum of types contained for each list calculated
 //!      in step 4.
 //! 7. We then perform the same "merging" process from 3, pushing any unique
 //!      type we find into the aggregate list, and recording the number of
 //!      unique types we found in the entire set.
 //! 8. We then perform the same "shrinking" process from step 4, leaving us
-//!      with a single array, `[&NamedType; TOTAL]` containing all unique types
+//!      with a single array, `[&DataModelType; TOTAL]` containing all unique types
 //! 9. We then perform the same "slicing" process from step 5, to get our
-//!      final `&'static [&NamedType]`.
+//!      final `&'static [&DataModelType]`.
 
-use postcard_schema::{
-    schema::{DataModelType, DataModelVariant, NamedType, NamedValue, NamedVariant},
+use postcard_schema_ng::{
+    schema::{Data, DataModelType, NamedField, Variant},
     Schema,
 };
 
@@ -65,16 +65,13 @@ const fn is_prim(dmt: &DataModelType) -> bool {
         DataModelType::Unit => true,
         DataModelType::Schema => true,
 
-        // A unit-struct is always named, so it is not primitive, as the
-        // name has meaning even without a value
-        DataModelType::UnitStruct => false,
         // Items with subtypes are composite, and therefore not primitives, as
         // we need to convey this information.
-        DataModelType::Option(_) | DataModelType::NewtypeStruct(_) | DataModelType::Seq(_) => false,
-        DataModelType::Tuple(_) | DataModelType::TupleStruct(_) => false,
+        DataModelType::Option(_) | DataModelType::Seq(_) => false,
+        DataModelType::Tuple(_) => false,
         DataModelType::Map { .. } => false,
-        DataModelType::Struct(_) => false,
-        DataModelType::Enum(_) => false,
+        DataModelType::Struct { .. } => false,
+        DataModelType::Enum { .. } => false,
     }
 }
 
@@ -95,19 +92,24 @@ const fn str_eq(a: &str, b: &str) -> bool {
     true
 }
 
-/// A const version of `<NamedType as PartialEq>::eq`
-const fn nty_eq(a: &NamedType, b: &NamedType) -> bool {
-    str_eq(a.name, b.name) && dmt_eq(a.ty, b.ty)
+const fn data_eq(a: &Data, b: &Data) -> bool {
+    match (a, b) {
+        (Data::Unit, Data::Unit) => true,
+        (Data::Newtype(dmta), Data::Newtype(dmtb)) => dmt_eq(dmta, dmtb),
+        (Data::Tuple(dmtas), Data::Tuple(dmtbs)) => dmts_eq(dmtas, dmtbs),
+        (Data::Struct(nfas), Data::Struct(nfbs)) => nfs_eq(nfas, nfbs),
+        _ => false,
+    }
 }
 
-/// A const version of `<[&NamedType] as PartialEq>::eq`
-const fn ntys_eq(a: &[&NamedType], b: &[&NamedType]) -> bool {
+/// A const version of `<[&DataModelType] as PartialEq>::eq`
+const fn dmts_eq(a: &[&DataModelType], b: &[&DataModelType]) -> bool {
     if a.len() != b.len() {
         return false;
     }
     let mut i = 0;
     while i < a.len() {
-        if !nty_eq(a[i], b[i]) {
+        if !dmt_eq(a[i], b[i]) {
             return false;
         }
         i += 1;
@@ -140,16 +142,13 @@ const fn dmt_eq(a: &DataModelType, b: &DataModelType) -> bool {
         (DataModelType::String, DataModelType::String) => true,
         (DataModelType::ByteArray, DataModelType::ByteArray) => true,
         (DataModelType::Unit, DataModelType::Unit) => true,
-        (DataModelType::UnitStruct, DataModelType::UnitStruct) => true,
         (DataModelType::Schema, DataModelType::Schema) => true,
 
         // For non-primitive types, we check whether all children are equivalent as well.
-        (DataModelType::Option(nta), DataModelType::Option(ntb)) => nty_eq(nta, ntb),
-        (DataModelType::NewtypeStruct(nta), DataModelType::NewtypeStruct(ntb)) => nty_eq(nta, ntb),
-        (DataModelType::Seq(nta), DataModelType::Seq(ntb)) => nty_eq(nta, ntb),
+        (DataModelType::Option(dmta), DataModelType::Option(dmtb)) => dmt_eq(dmta, dmtb),
+        (DataModelType::Seq(dmta), DataModelType::Seq(dmtb)) => dmt_eq(dmta, dmtb),
 
-        (DataModelType::Tuple(ntsa), DataModelType::Tuple(ntsb)) => ntys_eq(ntsa, ntsb),
-        (DataModelType::TupleStruct(ntsa), DataModelType::TupleStruct(ntsb)) => ntys_eq(ntsa, ntsb),
+        (DataModelType::Tuple(dmtsa), DataModelType::Tuple(dmtsb)) => dmts_eq(dmtsa, dmtsb),
         (
             DataModelType::Map {
                 key: keya,
@@ -159,22 +158,34 @@ const fn dmt_eq(a: &DataModelType, b: &DataModelType) -> bool {
                 key: keyb,
                 val: valb,
             },
-        ) => nty_eq(keya, keyb) && nty_eq(vala, valb),
-        (DataModelType::Struct(nvalsa), DataModelType::Struct(nvalsb)) => vals_eq(nvalsa, nvalsb),
-        (DataModelType::Enum(nvarsa), DataModelType::Enum(nvarsb)) => vars_eq(nvarsa, nvarsb),
+        ) => dmt_eq(keya, keyb) && dmt_eq(vala, valb),
+        (
+            DataModelType::Struct { name: na, data: da },
+            DataModelType::Struct { name: nb, data: db },
+        ) => str_eq(na, nb) && data_eq(da, db),
+        (
+            DataModelType::Enum {
+                name: na,
+                variants: vas,
+            },
+            DataModelType::Enum {
+                name: nb,
+                variants: vbs,
+            },
+        ) => str_eq(na, nb) && vars_eq(vas, vbs),
 
         // Any mismatches are not equal
         _ => false,
     }
 }
 
-/// A const version of `<NamedVariant as PartialEq>::eq`
-const fn var_eq(a: &NamedVariant, b: &NamedVariant) -> bool {
-    str_eq(a.name, b.name) && dmv_eq(a.ty, b.ty)
+/// A const version of `<Variant as PartialEq>::eq`
+const fn var_eq(a: &Variant, b: &Variant) -> bool {
+    str_eq(a.name, b.name) && data_eq(&a.data, &b.data)
 }
 
-/// A const version of `<&[&NamedVariant] as PartialEq>::eq`
-const fn vars_eq(a: &[&NamedVariant], b: &[&NamedVariant]) -> bool {
+/// A const version of `<&[&Variant] as PartialEq>::eq`
+const fn vars_eq(a: &[&Variant], b: &[&Variant]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -188,71 +199,37 @@ const fn vars_eq(a: &[&NamedVariant], b: &[&NamedVariant]) -> bool {
     true
 }
 
-/// A const version of `<&[&NamedValue] as PartialEq>::eq`
-const fn vals_eq(a: &[&NamedValue], b: &[&NamedValue]) -> bool {
+const fn nf_eq(a: &NamedField, b: &NamedField) -> bool {
+    str_eq(a.name, b.name) && dmt_eq(a.ty, b.ty)
+}
+
+const fn nfs_eq(a: &[&NamedField], b: &[&NamedField]) -> bool {
     if a.len() != b.len() {
         return false;
     }
     let mut i = 0;
     while i < a.len() {
-        if !str_eq(a[i].name, b[i].name) {
+        if !nf_eq(a[i], b[i]) {
             return false;
         }
-        if !nty_eq(a[i].ty, b[i].ty) {
-            return false;
-        }
-
         i += 1;
     }
     true
-}
-
-/// A const version of `<DataModelVariant as PartialEq>::eq`
-const fn dmv_eq(a: &DataModelVariant, b: &DataModelVariant) -> bool {
-    match (a, b) {
-        (DataModelVariant::UnitVariant, DataModelVariant::UnitVariant) => true,
-        (DataModelVariant::NewtypeVariant(nta), DataModelVariant::NewtypeVariant(ntb)) => {
-            nty_eq(nta, ntb)
-        }
-        (DataModelVariant::TupleVariant(ntsa), DataModelVariant::TupleVariant(ntsb)) => {
-            ntys_eq(ntsa, ntsb)
-        }
-        (DataModelVariant::StructVariant(nvarsa), DataModelVariant::StructVariant(nvarsb)) => {
-            vals_eq(nvarsa, nvarsb)
-        }
-        _ => false,
-    }
 }
 
 //////////////////////////////////////////////////////////////////////////////
 // STAGE 1 - UPPER BOUND CALCULATION
 //////////////////////////////////////////////////////////////////////////////
 
-/// Count the number of unique types contained by this NamedType,
-/// including children and this type itself.
-///
-/// For built-in primitives, this could be zero. For non-primitive
-/// types, this will be at least one.
-///
-/// This function does NOT attempt to perform any de-duplication.
-pub const fn unique_types_nty_upper(nty: &NamedType) -> usize {
-    let child_ct = unique_types_dmt_upper(nty.ty);
-    if is_prim(nty.ty) {
-        child_ct
-    } else {
-        child_ct + 1
-    }
-}
-
 /// Count the number of unique types contained by this DataModelType,
 /// ONLY counting children, and not this type, as this will be counted
-/// when considering the NamedType instead.
+/// when considering the DataModelType instead.
 //
 // TODO: We could attempt to do LOCAL de-duplication, for example
 // a `[u8; 32]` would end up as a tuple of 32 items, drastically
 // inflating the total.
-const fn unique_types_dmt_upper(dmt: &DataModelType) -> usize {
-    match dmt {
+pub const fn unique_types_dmt_upper(dmt: &DataModelType) -> usize {
+    let child = match dmt {
         // These are all primitives
         DataModelType::Bool => 0,
         DataModelType::I8 => 0,
@@ -273,36 +250,50 @@ const fn unique_types_dmt_upper(dmt: &DataModelType) -> usize {
         DataModelType::String => 0,
         DataModelType::ByteArray => 0,
         DataModelType::Unit => 0,
-        DataModelType::UnitStruct => 0,
+        DataModelType::Struct {
+            data: Data::Unit, ..
+        } => 0,
         DataModelType::Schema => 0,
 
         // Items with one subtype
-        DataModelType::Option(nt) | DataModelType::NewtypeStruct(nt) | DataModelType::Seq(nt) => {
-            unique_types_nty_upper(nt)
+        DataModelType::Option(dmt)
+        | DataModelType::Struct {
+            data: Data::Newtype(dmt),
+            ..
         }
+        | DataModelType::Seq(dmt) => unique_types_dmt_upper(dmt),
         // tuple-ish
-        DataModelType::Tuple(nts) | DataModelType::TupleStruct(nts) => {
+        DataModelType::Tuple(dmts)
+        | DataModelType::Struct {
+            data: Data::Tuple(dmts),
+            ..
+        } => {
             let mut uniq = 0;
             let mut i = 0;
-            while i < nts.len() {
-                uniq += unique_types_nty_upper(nts[i]);
+            while i < dmts.len() {
+                uniq += unique_types_dmt_upper(dmts[i]);
                 i += 1;
             }
             uniq
         }
         DataModelType::Map { key, val } => {
-            unique_types_nty_upper(key) + unique_types_nty_upper(val)
+            unique_types_dmt_upper(key) + unique_types_dmt_upper(val)
         }
-        DataModelType::Struct(nvals) => {
+        DataModelType::Struct {
+            data: Data::Struct(nvals),
+            ..
+        } => {
             let mut uniq = 0;
             let mut i = 0;
             while i < nvals.len() {
-                uniq += unique_types_nty_upper(nvals[i].ty);
+                uniq += unique_types_dmt_upper(nvals[i].ty);
                 i += 1;
             }
             uniq
         }
-        DataModelType::Enum(nvars) => {
+        DataModelType::Enum {
+            variants: nvars, ..
+        } => {
             let mut uniq = 0;
             let mut i = 0;
             while i < nvars.len() {
@@ -311,34 +302,39 @@ const fn unique_types_dmt_upper(dmt: &DataModelType) -> usize {
             }
             uniq
         }
+    };
+    if is_prim(dmt) {
+        child
+    } else {
+        child + 1
     }
 }
 
-/// Count the number of unique types contained by this NamedVariant,
+/// Count the number of unique types contained by this Variant,
 /// ONLY counting children, and not this type, as this will be counted
-/// when considering the NamedType instead.
+/// when considering the DataModelType instead.
 //
 // TODO: We could attempt to do LOCAL de-duplication, for example
 // a `[u8; 32]` would end up as a tuple of 32 items, drastically
 // inflating the total.
-const fn unique_types_var_upper(nvar: &NamedVariant) -> usize {
-    match nvar.ty {
-        DataModelVariant::UnitVariant => 0,
-        DataModelVariant::NewtypeVariant(nt) => unique_types_nty_upper(nt),
-        DataModelVariant::TupleVariant(nts) => {
+pub const fn unique_types_var_upper(nvar: &Variant) -> usize {
+    match nvar.data {
+        Data::Unit => 0,
+        Data::Newtype(dmt) => unique_types_dmt_upper(dmt),
+        Data::Tuple(dmts) => {
             let mut uniq = 0;
             let mut i = 0;
-            while i < nts.len() {
-                uniq += unique_types_nty_upper(nts[i]);
+            while i < dmts.len() {
+                uniq += unique_types_dmt_upper(dmts[i]);
                 i += 1;
             }
             uniq
         }
-        DataModelVariant::StructVariant(nvals) => {
+        Data::Struct(nvals) => {
             let mut uniq = 0;
             let mut i = 0;
             while i < nvals.len() {
-                uniq += unique_types_nty_upper(nvals[i].ty);
+                uniq += unique_types_dmt_upper(nvals[i].ty);
                 i += 1;
             }
             uniq
@@ -355,28 +351,28 @@ const fn unique_types_var_upper(nvar: &NamedVariant) -> usize {
 ///
 /// The parameter MAX should be the highest possible number of unique types,
 /// if NONE of the types have any duplication. This should be calculated using
-/// [`unique_types_nty_upper()`]. This upper bound allows us to pre-allocate
+/// [`unique_types_dmt_upper()`]. This upper bound allows us to pre-allocate
 /// enough storage for the collection process.
-pub const fn type_chewer_nty<const MAX: usize>(
-    nty: &NamedType,
-) -> ([Option<&NamedType>; MAX], usize) {
+pub const fn type_chewer_nf<const MAX: usize>(
+    nf: &NamedField,
+) -> ([Option<&DataModelType>; MAX], usize) {
     // Calculate the number of unique items in the children of this type
-    let (mut arr, mut used) = type_chewer_dmt::<MAX>(nty.ty);
+    let (mut arr, mut used) = type_chewer_dmt::<MAX>(nf.ty);
     let mut i = 0;
 
     // determine if this is a single-item primitive - if so, skip adding
     // this type to the unique list
-    let mut found = is_prim(nty.ty);
+    let mut found = is_prim(nf.ty);
 
     while !found && i < used {
         let Some(ty) = arr[i] else { panic!() };
-        if nty_eq(nty, ty) {
+        if dmt_eq(nf.ty, ty) {
             found = true;
         }
         i += 1;
     }
     if !found {
-        arr[used] = Some(nty);
+        arr[used] = Some(nf.ty);
         used += 1;
     }
     (arr, used)
@@ -387,7 +383,7 @@ pub const fn type_chewer_nty<const MAX: usize>(
 ///
 /// The parameter MAX should be the highest possible number of unique types,
 /// if NONE of the types have any duplication. This should be calculated using
-/// [`unique_types_nty_upper()`]. This upper bound allows us to pre-allocate
+/// [`unique_types_dmt_upper()`]. This upper bound allows us to pre-allocate
 /// enough storage for the collection process.
 //
 // TODO: There is a LOT of duplicated code here. This is to reduce the number of
@@ -395,10 +391,11 @@ pub const fn type_chewer_nty<const MAX: usize>(
 // of recursion depth. I am open to suggestions of how to reduce this. Part of
 // this restriction is that we can't take an `&mut` as a const fn arg, so we
 // always have to do it by value, then merge-in the changes.
-const fn type_chewer_dmt<const MAX: usize>(
+pub const fn type_chewer_dmt<const MAX: usize>(
     dmt: &DataModelType,
-) -> ([Option<&NamedType>; MAX], usize) {
-    match dmt {
+) -> ([Option<&DataModelType>; MAX], usize) {
+    // Calculate the number of unique items in the children of this type
+    let (mut arr, mut used) = match dmt {
         // These are all primitives - they never have any children to report.
         DataModelType::Bool => ([None; MAX], 0),
         DataModelType::I8 => ([None; MAX], 0),
@@ -421,35 +418,44 @@ const fn type_chewer_dmt<const MAX: usize>(
         DataModelType::Unit => ([None; MAX], 0),
         DataModelType::Schema => ([None; MAX], 0),
 
-        // A unit struct *as a namedtype* can be a unique/non-primitive type,
+        // A unit struct *as a DataModelType* can be a unique/non-primitive type,
         // but DataModelType calculation is only concerned with CHILDREN, and
         // a unit struct has none.
-        DataModelType::UnitStruct => ([None; MAX], 0),
+        DataModelType::Struct {
+            data: Data::Unit, ..
+        } => ([None; MAX], 0),
 
         // Items with one subtype
-        DataModelType::Option(nt) | DataModelType::NewtypeStruct(nt) | DataModelType::Seq(nt) => {
-            type_chewer_nty::<MAX>(nt)
+        DataModelType::Option(dmt)
+        | DataModelType::Struct {
+            data: Data::Newtype(dmt),
+            ..
         }
+        | DataModelType::Seq(dmt) => type_chewer_dmt::<MAX>(dmt),
         // tuple-ish
-        DataModelType::Tuple(nts) | DataModelType::TupleStruct(nts) => {
+        DataModelType::Tuple(dmts)
+        | DataModelType::Struct {
+            data: Data::Tuple(dmts),
+            ..
+        } => {
             let mut out = [None; MAX];
             let mut i = 0;
             let mut outidx = 0;
 
             // For each type in the tuple...
-            while i < nts.len() {
+            while i < dmts.len() {
                 // Get the types used by this field
-                let (arr, used) = type_chewer_nty::<MAX>(nts[i]);
+                let (arr, used) = type_chewer_dmt::<MAX>(dmts[i]);
                 let mut j = 0;
                 // For each type in this field...
                 while j < used {
                     let Some(ty) = arr[j] else { panic!() };
                     let mut k = 0;
-                    let mut found = is_prim(ty.ty);
+                    let mut found = is_prim(ty);
                     // Check against all currently known tys
                     while !found && k < outidx {
                         let Some(kty) = out[k] else { panic!() };
-                        found |= nty_eq(kty, ty);
+                        found |= dmt_eq(kty, ty);
                         k += 1;
                     }
                     if !found {
@@ -467,16 +473,16 @@ const fn type_chewer_dmt<const MAX: usize>(
             let mut outidx = 0;
 
             // Do key
-            let (arr, used) = type_chewer_nty::<MAX>(key);
+            let (arr, used) = type_chewer_dmt::<MAX>(key);
             let mut j = 0;
             while j < used {
                 let Some(ty) = arr[j] else { panic!() };
                 let mut k = 0;
-                let mut found = is_prim(ty.ty);
+                let mut found = is_prim(ty);
                 // Check against all currently known tys
                 while !found && k < outidx {
                     let Some(kty) = out[k] else { panic!() };
-                    found |= nty_eq(kty, ty);
+                    found |= dmt_eq(kty, ty);
                     k += 1;
                 }
                 if !found {
@@ -487,16 +493,16 @@ const fn type_chewer_dmt<const MAX: usize>(
             }
 
             // Then do val
-            let (arr, used) = type_chewer_nty::<MAX>(val);
+            let (arr, used) = type_chewer_dmt::<MAX>(val);
             let mut j = 0;
             while j < used {
                 let Some(ty) = arr[j] else { panic!() };
                 let mut k = 0;
-                let mut found = is_prim(ty.ty);
+                let mut found = is_prim(ty);
                 // Check against all currently known tys
                 while !found && k < outidx {
                     let Some(kty) = out[k] else { panic!() };
-                    found |= nty_eq(kty, ty);
+                    found |= dmt_eq(kty, ty);
                     k += 1;
                 }
                 if !found {
@@ -508,25 +514,28 @@ const fn type_chewer_dmt<const MAX: usize>(
 
             (out, outidx)
         }
-        DataModelType::Struct(nvals) => {
+        DataModelType::Struct {
+            data: Data::Struct(nfs),
+            ..
+        } => {
             let mut out = [None; MAX];
             let mut i = 0;
             let mut outidx = 0;
 
             // For each type in the tuple...
-            while i < nvals.len() {
+            while i < nfs.len() {
                 // Get the types used by this field
-                let (arr, used) = type_chewer_nty::<MAX>(nvals[i].ty);
+                let (arr, used) = type_chewer_dmt::<MAX>(nfs[i].ty);
                 let mut j = 0;
                 // For each type in this field...
                 while j < used {
                     let Some(ty) = arr[j] else { panic!() };
                     let mut k = 0;
-                    let mut found = is_prim(ty.ty);
+                    let mut found = is_prim(ty);
                     // Check against all currently known tys
                     while !found && k < outidx {
                         let Some(kty) = out[k] else { panic!() };
-                        found |= nty_eq(kty, ty);
+                        found |= dmt_eq(kty, ty);
                         k += 1;
                     }
                     if !found {
@@ -539,46 +548,48 @@ const fn type_chewer_dmt<const MAX: usize>(
             }
             (out, outidx)
         }
-        DataModelType::Enum(nvars) => {
+        DataModelType::Enum {
+            variants: nvars, ..
+        } => {
             let mut out = [None; MAX];
             let mut i = 0;
             let mut outidx = 0;
 
             // For each type in the variant...
             while i < nvars.len() {
-                match nvars[i].ty {
-                    DataModelVariant::UnitVariant => {}
-                    DataModelVariant::NewtypeVariant(nt) => {
+                match nvars[i].data {
+                    Data::Unit => {}
+                    Data::Newtype(dmt) => {
                         let mut k = 0;
-                        let mut found = is_prim(nt.ty);
+                        let mut found = is_prim(dmt);
                         // Check against all currently known tys
                         while !found && k < outidx {
                             let Some(kty) = out[k] else { panic!() };
-                            found |= nty_eq(kty, nt);
+                            found |= dmt_eq(kty, dmt);
                             k += 1;
                         }
                         if !found {
-                            out[outidx] = Some(nt);
+                            out[outidx] = Some(dmt);
                             outidx += 1;
                         }
                     }
-                    DataModelVariant::TupleVariant(nts) => {
+                    Data::Tuple(dmts) => {
                         let mut x = 0;
 
                         // For each type in the tuple...
-                        while x < nts.len() {
+                        while x < dmts.len() {
                             // Get the types used by this field
-                            let (arr, used) = type_chewer_nty::<MAX>(nts[x]);
+                            let (arr, used) = type_chewer_dmt::<MAX>(dmts[x]);
                             let mut j = 0;
                             // For each type in this field...
                             while j < used {
                                 let Some(ty) = arr[j] else { panic!() };
                                 let mut k = 0;
-                                let mut found = is_prim(ty.ty);
+                                let mut found = is_prim(ty);
                                 // Check against all currently known tys
                                 while !found && k < outidx {
                                     let Some(kty) = out[k] else { panic!() };
-                                    found |= nty_eq(kty, ty);
+                                    found |= dmt_eq(kty, ty);
                                     k += 1;
                                 }
                                 if !found {
@@ -590,23 +601,23 @@ const fn type_chewer_dmt<const MAX: usize>(
                             x += 1;
                         }
                     }
-                    DataModelVariant::StructVariant(nvals) => {
+                    Data::Struct(nfs) => {
                         let mut x = 0;
 
                         // For each type in the struct...
-                        while x < nvals.len() {
+                        while x < nfs.len() {
                             // Get the types used by this field
-                            let (arr, used) = type_chewer_nty::<MAX>(nvals[x].ty);
+                            let (arr, used) = type_chewer_nf::<MAX>(nfs[x]);
                             let mut j = 0;
                             // For each type in this field...
                             while j < used {
                                 let Some(ty) = arr[j] else { panic!() };
                                 let mut k = 0;
-                                let mut found = is_prim(ty.ty);
+                                let mut found = is_prim(ty);
                                 // Check against all currently known tys
                                 while !found && k < outidx {
                                     let Some(kty) = out[k] else { panic!() };
-                                    found |= nty_eq(kty, ty);
+                                    found |= dmt_eq(kty, ty);
                                     k += 1;
                                 }
                                 if !found {
@@ -623,21 +634,39 @@ const fn type_chewer_dmt<const MAX: usize>(
             }
             (out, outidx)
         }
+    };
+    let mut i = 0;
+
+    // determine if this is a single-item primitive - if so, skip adding
+    // this type to the unique list
+    let mut found = is_prim(dmt);
+
+    while !found && i < used {
+        let Some(ty) = arr[i] else { panic!() };
+        if dmt_eq(dmt, ty) {
+            found = true;
+        }
+        i += 1;
     }
+    if !found {
+        arr[used] = Some(dmt);
+        used += 1;
+    }
+    (arr, used)
 }
 
 //////////////////////////////////////////////////////////////////////////////
 // STAGE 4 - REDUCTION TO CORRECT SIZE
 //////////////////////////////////////////////////////////////////////////////
 
-/// This function reduces a `&[Option<&NamedType>]` to a `[&NamedType; A]`.
+/// This function reduces a `&[Option<&DataModelType>]` to a `[&DataModelType; A]`.
 ///
-/// The parameter `A` should be calculated by [`type_chewer_nty()`].
+/// The parameter `A` should be calculated by [`type_chewer_dmt()`].
 ///
 /// We also validate that all items >= idx `A` are in fact None.
 pub const fn cruncher<const A: usize>(
-    opts: &[Option<&'static NamedType>],
-) -> [&'static NamedType; A] {
+    opts: &[Option<&'static DataModelType>],
+) -> [&'static DataModelType; A] {
     let mut out = [<() as Schema>::SCHEMA; A];
     let mut i = 0;
     while i < A {
@@ -658,18 +687,18 @@ pub const fn cruncher<const A: usize>(
 
 /// `unique_types` collects all unique, non-primitive types contained by the given
 /// single type. It can be used with any type that implements the [`Schema`] trait,
-/// and returns a `&'static [&'static NamedType]`.
+/// and returns a `&'static [&'static DataModelType]`.
 #[macro_export]
 macro_rules! unique_types {
     ($t:ty) => {
         const {
             const MAX_TYS: usize =
-                $crate::uniques::unique_types_nty_upper(<$t as postcard_schema::Schema>::SCHEMA);
+                $crate::uniques::unique_types_dmt_upper(<$t as postcard_schema_ng::Schema>::SCHEMA);
             const BIG_RPT: (
-                [Option<&'static postcard_schema::schema::NamedType>; MAX_TYS],
+                [Option<&'static postcard_schema_ng::schema::DataModelType>; MAX_TYS],
                 usize,
-            ) = $crate::uniques::type_chewer_nty(<$t as postcard_schema::Schema>::SCHEMA);
-            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] =
+            ) = $crate::uniques::type_chewer_dmt(<$t as postcard_schema_ng::Schema>::SCHEMA);
+            const SMALL_RPT: [&'static postcard_schema_ng::schema::DataModelType; BIG_RPT.1] =
                 $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
@@ -685,10 +714,10 @@ macro_rules! unique_types {
 /// The type parameter `M` is the maximum potential output size, it should be
 /// equal to `lists.iter().map(|l| l.len()).sum()`, and should generally be
 /// calculated as part of [`merge_unique_types!()`][crate::merge_unique_types].
-pub const fn merge_nty_lists<const M: usize>(
-    lists: &[&[&'static NamedType]],
-) -> ([Option<&'static NamedType>; M], usize) {
-    let mut out: [Option<&NamedType>; M] = [None; M];
+pub const fn merge_dmt_lists<const M: usize>(
+    lists: &[&[&'static DataModelType]],
+) -> ([Option<&'static DataModelType>; M], usize) {
+    let mut out: [Option<&DataModelType>; M] = [None; M];
     let mut out_ct = 0;
     let mut i = 0;
 
@@ -698,10 +727,10 @@ pub const fn merge_nty_lists<const M: usize>(
         while j < list.len() {
             let item = list[j];
             let mut k = 0;
-            let mut found = is_prim(item.ty);
+            let mut found = is_prim(item);
             while !found && k < out_ct {
                 let Some(oitem) = out[k] else { panic!() };
-                if nty_eq(item, oitem) {
+                if dmt_eq(item, oitem) {
                     found = true;
                 }
                 k += 1;
@@ -755,19 +784,19 @@ pub const fn combine_with_copy<T: Sized + Copy, const N: usize>(arrs: &[&[T]], i
 
 /// `merge_unique_types` collects all unique, non-primitive types contained by
 /// the given comma separated types. It can be used with any types that implement
-/// the [`Schema`] trait, and returns a `&'static [&'static NamedType]`.
+/// the [`Schema`] trait, and returns a `&'static [&'static DataModelType]`.
 #[macro_export]
 macro_rules! merge_unique_types {
     ($($t:ty,)*) => {
         const {
-            const LISTS: &[&[&'static postcard_schema::schema::NamedType]] = &[
+            const LISTS: &[&[&'static postcard_schema_ng::schema::DataModelType]] = &[
                 $(
                     $crate::unique_types!($t),
                 )*
             ];
             const TTL_COUNT: usize = $crate::uniques::total_len(LISTS);
-            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
-            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            const BIG_RPT: ([Option<&'static postcard_schema_ng::schema::DataModelType>; TTL_COUNT], usize) = $crate::uniques::merge_dmt_lists(LISTS);
+            const SMALL_RPT: [&'static postcard_schema_ng::schema::DataModelType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
     }
@@ -776,14 +805,12 @@ macro_rules! merge_unique_types {
 #[cfg(test)]
 mod test {
     #![allow(dead_code)]
-    use postcard_schema::{
-        schema::{owned::OwnedNamedType, NamedType},
+    use postcard_schema_ng::{
+        schema::{owned::OwnedDataModelType, DataModelType},
         Schema,
     };
 
-    use crate::uniques::{
-        is_prim, type_chewer_dmt, type_chewer_nty, unique_types_dmt_upper, unique_types_nty_upper,
-    };
+    use crate::uniques::{is_prim, type_chewer_dmt, unique_types_dmt_upper};
 
     #[derive(Schema)]
     struct Example0;
@@ -825,7 +852,7 @@ mod test {
 
     #[test]
     fn subpar_arrs() {
-        const MAXARR: usize = unique_types_nty_upper(<[Example0; 32]>::SCHEMA);
+        const MAXARR: usize = unique_types_dmt_upper(<[Example0; 32]>::SCHEMA);
         // I don't *like* this, it really should be 2. Leaving it as a test so
         // I can remember that it's here. See TODO on unique_types_dmt_upper.
         assert_eq!(MAXARR, 33);
@@ -833,12 +860,12 @@ mod test {
 
     #[test]
     fn uniqlo() {
-        const MAX0: usize = unique_types_nty_upper(Example0::SCHEMA);
-        const MAXA: usize = unique_types_nty_upper(ExampleA::SCHEMA);
-        const MAX1: usize = unique_types_nty_upper(Example1::SCHEMA);
-        const MAX2: usize = unique_types_nty_upper(Example2::SCHEMA);
-        const MAX3: usize = unique_types_nty_upper(Example3::SCHEMA);
-        const MAX4: usize = unique_types_nty_upper(Example4::SCHEMA);
+        const MAX0: usize = unique_types_dmt_upper(Example0::SCHEMA);
+        const MAXA: usize = unique_types_dmt_upper(ExampleA::SCHEMA);
+        const MAX1: usize = unique_types_dmt_upper(Example1::SCHEMA);
+        const MAX2: usize = unique_types_dmt_upper(Example2::SCHEMA);
+        const MAX3: usize = unique_types_dmt_upper(Example3::SCHEMA);
+        const MAX4: usize = unique_types_dmt_upper(Example4::SCHEMA);
         assert_eq!(MAX0, 1);
         assert_eq!(MAXA, 1);
         assert_eq!(MAX1, 2);
@@ -848,24 +875,24 @@ mod test {
 
         println!();
         println!("Example0");
-        let (arr0, used): ([Option<_>; MAX0], usize) = type_chewer_nty(Example0::SCHEMA);
+        let (arr0, used): ([Option<_>; MAX0], usize) = type_chewer_dmt(Example0::SCHEMA);
         assert_eq!(used, 1);
         println!("max: {MAX0} used: {used}");
         for a in arr0 {
             match a {
-                Some(a) => println!("Some({})", OwnedNamedType::from(a)),
+                Some(a) => println!("Some({})", OwnedDataModelType::from(a)),
                 None => println!("None"),
             }
         }
 
         println!();
         println!("ExampleA");
-        let (arra, used): ([Option<_>; MAXA], usize) = type_chewer_nty(ExampleA::SCHEMA);
+        let (arra, used): ([Option<_>; MAXA], usize) = type_chewer_dmt(ExampleA::SCHEMA);
         assert_eq!(used, 1);
         println!("max: {MAXA} used: {used}");
         for a in arra {
             match a {
-                Some(a) => println!("Some({})", OwnedNamedType::from(a)),
+                Some(a) => println!("Some({})", OwnedDataModelType::from(a)),
                 None => println!("None"),
             }
         }
@@ -873,67 +900,67 @@ mod test {
         println!();
         println!("Option<u16>");
         let (arr1, used): (
-            [Option<_>; unique_types_nty_upper(Option::<u16>::SCHEMA)],
+            [Option<_>; unique_types_dmt_upper(Option::<u16>::SCHEMA)],
             usize,
-        ) = type_chewer_nty(Option::<u16>::SCHEMA);
+        ) = type_chewer_dmt(Option::<u16>::SCHEMA);
         assert_eq!(used, 1);
         println!(
             "max: {} used: {used}",
-            unique_types_nty_upper(Option::<u16>::SCHEMA)
+            unique_types_dmt_upper(Option::<u16>::SCHEMA)
         );
         for a in arr1 {
             match a {
-                Some(a) => println!("Some({})", OwnedNamedType::from(a)),
+                Some(a) => println!("Some({})", OwnedDataModelType::from(a)),
                 None => println!("None"),
             }
         }
 
         println!();
         println!("Example1");
-        let (arr1, used): ([Option<_>; MAX1], usize) = type_chewer_nty(Example1::SCHEMA);
-        assert!(!is_prim(Example1::SCHEMA.ty));
-        let child_ct = unique_types_dmt_upper(Example1::SCHEMA.ty);
-        assert_eq!(child_ct, 1);
+        let (arr1, used): ([Option<_>; MAX1], usize) = type_chewer_dmt(Example1::SCHEMA);
+        assert!(!is_prim(Example1::SCHEMA));
+        let child_ct = unique_types_dmt_upper(Example1::SCHEMA);
+        assert_eq!(child_ct, 2);
         assert_eq!(used, 2);
         println!("max: {MAX1} used: {used}");
         for a in arr1 {
             match a {
-                Some(a) => println!("Some({})", OwnedNamedType::from(a)),
+                Some(a) => println!("Some({})", OwnedDataModelType::from(a)),
                 None => println!("None"),
             }
         }
 
         println!();
         println!("Example2");
-        let (arr2, used): ([Option<_>; MAX2], usize) = type_chewer_nty(Example2::SCHEMA);
+        let (arr2, used): ([Option<_>; MAX2], usize) = type_chewer_dmt(Example2::SCHEMA);
         println!("max: {MAX2} used: {used}");
         for a in arr2 {
             match a {
-                Some(a) => println!("Some({})", OwnedNamedType::from(a)),
+                Some(a) => println!("Some({})", OwnedDataModelType::from(a)),
                 None => println!("None"),
             }
         }
 
         println!();
         println!("Example3");
-        let (arr3, used): ([Option<_>; MAX3], usize) = type_chewer_nty(Example3::SCHEMA);
+        let (arr3, used): ([Option<_>; MAX3], usize) = type_chewer_dmt(Example3::SCHEMA);
         println!("max: {MAX3} used: {used}");
         for a in arr3 {
             match a {
-                Some(a) => println!("Some({})", OwnedNamedType::from(a)),
+                Some(a) => println!("Some({})", OwnedDataModelType::from(a)),
                 None => println!("None"),
             }
         }
 
         println!();
-        let x = type_chewer_dmt::<MAX4>(Example4::SCHEMA.ty);
+        let x = type_chewer_dmt::<MAX4>(Example4::SCHEMA);
         println!("Example4 {MAX4} {} {:?}", x.1, x.0);
-        println!("{}", OwnedNamedType::from(Example4::SCHEMA));
-        let (arr4, used): ([Option<_>; MAX4], usize) = type_chewer_nty(Example4::SCHEMA);
+        println!("{}", OwnedDataModelType::from(Example4::SCHEMA));
+        let (arr4, used): ([Option<_>; MAX4], usize) = type_chewer_dmt(Example4::SCHEMA);
         println!("max: {MAX3} used: {used}");
         for a in arr4 {
             match a {
-                Some(a) => println!("Some({})", OwnedNamedType::from(a)),
+                Some(a) => println!("Some({})", OwnedDataModelType::from(a)),
                 None => println!("None"),
             }
         }
@@ -942,42 +969,42 @@ mod test {
         let rpt0 = unique_types!(Example0);
         println!("{}", rpt0.len());
         for a in rpt0 {
-            println!("{}", OwnedNamedType::from(*a))
+            println!("{}", OwnedDataModelType::from(*a))
         }
 
         println!();
         let rpta = unique_types!(ExampleA);
         println!("{}", rpta.len());
         for a in rpta {
-            println!("{}", OwnedNamedType::from(*a))
+            println!("{}", OwnedDataModelType::from(*a))
         }
 
         println!();
         let rpt1 = unique_types!(Example1);
         println!("{}", rpt1.len());
         for a in rpt1 {
-            println!("{}", OwnedNamedType::from(*a))
+            println!("{}", OwnedDataModelType::from(*a))
         }
 
         println!();
         let rpt2 = unique_types!(Example2);
         println!("{}", rpt2.len());
         for a in rpt2 {
-            println!("{}", OwnedNamedType::from(*a))
+            println!("{}", OwnedDataModelType::from(*a))
         }
 
         println!();
         let rpt3 = unique_types!(Example3);
         println!("{}", rpt3.len());
         for a in rpt3 {
-            println!("{}", OwnedNamedType::from(*a))
+            println!("{}", OwnedDataModelType::from(*a))
         }
 
         println!();
-        const MERGED: &[&NamedType] = merge_unique_types![Example3, ExampleA, Example0,];
+        const MERGED: &[&DataModelType] = merge_unique_types![Example3, ExampleA, Example0,];
         println!("{}", MERGED.len());
         for a in MERGED {
-            println!("{}", OwnedNamedType::from(*a))
+            println!("{}", OwnedDataModelType::from(*a))
         }
 
         println!();
