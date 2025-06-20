@@ -3,14 +3,14 @@
 //! This is used by [`define_dispatch!()`][crate::define_dispatch] as well.
 
 use crate::{endpoints, topics, Key, TopicDirection};
-use postcard_schema::Schema;
+use postcard_schema_ng::Schema;
 use serde::{Deserialize, Serialize};
 
 #[cfg(not(feature = "use-std"))]
-use postcard_schema::schema::NamedType;
+use postcard_schema_ng::schema::DataModelType;
 
 #[cfg(feature = "use-std")]
-use postcard_schema::schema::owned::OwnedNamedType;
+use postcard_schema_ng::schema::owned::OwnedDataModelType;
 
 /// The calculated Key for the type [`WireError`] and the path [`ERROR_PATH`]
 pub const ERROR_KEY: Key = Key::for_path::<WireError>(ERROR_PATH);
@@ -62,7 +62,7 @@ pub enum WireError {
 #[derive(Serialize, Schema, Debug, PartialEq, Copy, Clone)]
 pub enum SchemaData<'a> {
     /// A single Type
-    Type(&'a NamedType),
+    Type(&'a DataModelType),
     /// A single Endpoint
     Endpoint {
         /// The path of the endpoint
@@ -88,7 +88,7 @@ pub enum SchemaData<'a> {
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone)]
 pub enum OwnedSchemaData {
     /// A single Type
-    Type(OwnedNamedType),
+    Type(OwnedDataModelType),
     /// A single Endpoint
     Endpoint {
         /// The path of the endpoint

@@ -6,7 +6,7 @@
 /// Prefer the [`endpoints!()`][crate::endpoints] macro instead.
 ///
 /// ```rust
-/// # use postcard_schema::Schema;
+/// # use postcard_schema_ng::Schema;
 /// # use serde::{Serialize, Deserialize};
 /// use postcard_rpc::endpoint;
 ///
@@ -53,7 +53,7 @@ macro_rules! endpoint {
 /// [Endpoint][crate::Endpoint] trait.
 ///
 /// ```rust
-/// # use postcard_schema::Schema;
+/// # use postcard_schema_ng::Schema;
 /// # use serde::{Serialize, Deserialize};
 /// use postcard_rpc::endpoints;
 ///
@@ -96,7 +96,7 @@ macro_rules! endpoints {
     };
     (@ep_tys omit_std=true; $([[$($meta:meta)?] $ep_name:ident])*) => {
         const {
-            const LISTS: &[&[&'static postcard_schema::schema::NamedType]] = &[
+            const LISTS: &[&[&'static postcard_schema_ng::schema::DataModelType]] = &[
                 $(
                     $(#[$meta])?
                     $crate::unique_types!(<$ep_name as $crate::Endpoint>::Request),
@@ -106,24 +106,24 @@ macro_rules! endpoints {
             ];
 
             const TTL_COUNT: usize = $crate::uniques::total_len(LISTS);
-            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
-            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            const BIG_RPT: ([Option<&'static postcard_schema_ng::schema::DataModelType>; TTL_COUNT], usize) = $crate::uniques::merge_dmt_lists(LISTS);
+            const SMALL_RPT: [&'static postcard_schema_ng::schema::DataModelType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
     };
     (@ep_tys omit_std=false; $([[$($meta:meta)?] $ep_name:ident])*) => {
         const {
-            const USER_TYS: &[&'static postcard_schema::schema::NamedType] =
+            const USER_TYS: &[&'static postcard_schema_ng::schema::DataModelType] =
                 $crate::endpoints!(@ep_tys omit_std=true; $([[$($meta)?] $ep_name])*);
-            const STD_TYS: &[&'static postcard_schema::schema::NamedType]
+            const STD_TYS: &[&'static postcard_schema_ng::schema::DataModelType]
                 = $crate::standard_icd::STANDARD_ICD_ENDPOINTS.types;
 
-            const BOTH: &[&[&'static postcard_schema::schema::NamedType]] = &[
+            const BOTH: &[&[&'static postcard_schema_ng::schema::DataModelType]] = &[
                 USER_TYS, STD_TYS,
             ];
             const TTL_COUNT: usize = $crate::uniques::total_len(BOTH);
-            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(BOTH);
-            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            const BIG_RPT: ([Option<&'static postcard_schema_ng::schema::DataModelType>; TTL_COUNT], usize) = $crate::uniques::merge_dmt_lists(BOTH);
+            const SMALL_RPT: [&'static postcard_schema_ng::schema::DataModelType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
     };
@@ -146,7 +146,7 @@ macro_rules! endpoints {
         const {
             const USER_EPS: &[(&str, $crate::Key, $crate::Key)] =
                 $crate::endpoints!(@ep_eps omit_std=true; $([[$($meta)?] $ep_name])*);
-            const NULL_KEY: $crate::Key = unsafe { $crate::Key::from_bytes([0u8; 8]) };
+            const NULL_KEY: $crate::Key = $crate::Key::from_bytes([0u8; 8]);
             const STD_EPS: &[(&str, $crate::Key, $crate::Key)] =
                 $crate::standard_icd::STANDARD_ICD_ENDPOINTS.endpoints;
 
@@ -204,7 +204,7 @@ macro_rules! endpoints {
 /// Prefer the [`topics!()` macro](crate::topics) macro instead.
 ///
 /// ```rust
-/// # use postcard_schema::Schema;
+/// # use postcard_schema_ng::Schema;
 /// # use serde::{Serialize, Deserialize};
 /// use postcard_rpc::topic;
 ///
@@ -246,7 +246,7 @@ macro_rules! topic {
 /// [Topic][crate::Topic] trait.
 ///
 /// ```rust
-/// # use postcard_schema::Schema;
+/// # use postcard_schema_ng::Schema;
 /// # use serde::{Serialize, Deserialize};
 /// use postcard_rpc::{topics, TopicDirection};
 ///
@@ -279,7 +279,7 @@ macro_rules! topics {
     };
     (@tp_tys ( $dir:expr ) omit_std=true; $([[$($meta:meta)?] $tp_name:ident])*) => {
         const {
-            const LISTS: &[&[&'static postcard_schema::schema::NamedType]] = &[
+            const LISTS: &[&[&'static postcard_schema_ng::schema::DataModelType]] = &[
                 $(
                     $(#[$meta])?
                     $crate::unique_types!(<$tp_name as $crate::Topic>::Message),
@@ -287,28 +287,28 @@ macro_rules! topics {
             ];
 
             const TTL_COUNT: usize = $crate::uniques::total_len(LISTS);
-            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
-            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            const BIG_RPT: ([Option<&'static postcard_schema_ng::schema::DataModelType>; TTL_COUNT], usize) = $crate::uniques::merge_dmt_lists(LISTS);
+            const SMALL_RPT: [&'static postcard_schema_ng::schema::DataModelType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
     };
     (@tp_tys ( $dir:expr ) omit_std=false; $([[$($meta:meta)?] $tp_name:ident])*) => {
         const {
-            const USER_TYS: &[&'static postcard_schema::schema::NamedType] =
+            const USER_TYS: &[&'static postcard_schema_ng::schema::DataModelType] =
                 $crate::topics!(@tp_tys ( $dir ) omit_std=true; $([[$($meta)?] $tp_name])*);
-            const STD_TYS: &[&'static postcard_schema::schema::NamedType] = const {
+            const STD_TYS: &[&'static postcard_schema_ng::schema::DataModelType] = const {
                 match $dir {
                     $crate::TopicDirection::ToServer => $crate::standard_icd::STANDARD_ICD_TOPICS_IN.types,
                     $crate::TopicDirection::ToClient => $crate::standard_icd::STANDARD_ICD_TOPICS_OUT.types,
                 }
             };
 
-            const BOTH: &[&[&'static postcard_schema::schema::NamedType]] = &[
+            const BOTH: &[&[&'static postcard_schema_ng::schema::DataModelType]] = &[
                 STD_TYS, USER_TYS,
             ];
             const TTL_COUNT: usize = $crate::uniques::total_len(BOTH);
-            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(BOTH);
-            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            const BIG_RPT: ([Option<&'static postcard_schema_ng::schema::DataModelType>; TTL_COUNT], usize) = $crate::uniques::merge_dmt_lists(BOTH);
+            const SMALL_RPT: [&'static postcard_schema_ng::schema::DataModelType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
     };
@@ -330,7 +330,7 @@ macro_rules! topics {
         const {
             const USER_TPS: &[(&str, $crate::Key)] =
                 $crate::topics!(@tp_tps ( $dir ) omit_std=true; $([[$($meta)?] $tp_name])*);
-            const NULL_KEY: $crate::Key = unsafe { $crate::Key::from_bytes([0u8; 8]) };
+            const NULL_KEY: $crate::Key = $crate::Key::from_bytes([0u8; 8]);
             const STD_TPS: &[(&str, $crate::Key)] = const {
                 match $dir {
                     $crate::TopicDirection::ToServer => $crate::standard_icd::STANDARD_ICD_TOPICS_IN.topics,
@@ -431,7 +431,7 @@ macro_rules! sender_fmt {
 
 #[cfg(test)]
 mod endpoints_test {
-    use postcard_schema::{schema::owned::OwnedNamedType, Schema};
+    use postcard_schema_ng::{schema::owned::OwnedDataModelType, Schema};
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Schema)]
@@ -471,7 +471,7 @@ mod endpoints_test {
     #[test]
     fn eps() {
         for ep in ENDPOINT_LIST.types {
-            println!("{}", OwnedNamedType::from(*ep));
+            println!("{}", OwnedDataModelType::from(*ep));
         }
         assert_eq!(ENDPOINT_LIST.types.len(), 3);
         for ep in ENDPOINT_LIST.endpoints {
@@ -483,13 +483,13 @@ mod endpoints_test {
     #[test]
     fn tps() {
         for tp in TOPICS_IN_LIST.types {
-            println!("TY IN:  {}", OwnedNamedType::from(*tp));
+            println!("TY IN:  {}", OwnedDataModelType::from(*tp));
         }
         for tp in TOPICS_IN_LIST.topics {
             println!("TP IN:  {}", tp.0);
         }
         for tp in TOPICS_OUT_LIST.types {
-            println!("TY OUT: {}", OwnedNamedType::from(*tp));
+            println!("TY OUT: {}", OwnedDataModelType::from(*tp));
         }
         for tp in TOPICS_OUT_LIST.topics {
             println!("TP OUT: {}", tp.0);

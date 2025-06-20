@@ -1,7 +1,7 @@
 //! Implementation of transport using webusb
 
 use gloo::utils::format::JsValueSerdeExt;
-use postcard_schema::Schema;
+use postcard_schema_ng::Schema;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use tracing::info;

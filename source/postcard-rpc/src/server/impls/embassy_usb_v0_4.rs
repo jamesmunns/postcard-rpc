@@ -456,7 +456,13 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         // Calculate the TOTAL amount
         let act_used = ttl_len - remain;
 
-        send_all::<D>(ep_in, &tx_buf[..act_used], pending_frame, *timeout_ms_per_frame).await
+        send_all::<D>(
+            ep_in,
+            &tx_buf[..act_used],
+            pending_frame,
+            *timeout_ms_per_frame,
+        )
+        .await
     }
 }
 

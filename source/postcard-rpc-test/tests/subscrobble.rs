@@ -4,7 +4,7 @@ use core::{
 };
 use std::sync::Arc;
 
-use postcard_schema::Schema;
+use postcard_schema_ng::Schema;
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, time::{sleep, timeout}};
 

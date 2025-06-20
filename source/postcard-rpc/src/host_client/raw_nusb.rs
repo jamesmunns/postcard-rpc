@@ -6,7 +6,7 @@ use nusb::{
     transfer::{Direction, EndpointType, Queue, RequestBuffer, TransferError},
     DeviceInfo, InterfaceInfo,
 };
-use postcard_schema::Schema;
+use postcard_schema_ng::Schema;
 use serde::de::DeserializeOwned;
 
 use crate::{
@@ -58,7 +58,7 @@ where
     /// use postcard_rpc::host_client::HostClient;
     /// use postcard_rpc::header::VarSeqKind;
     /// use serde::{Serialize, Deserialize};
-    /// use postcard_schema::Schema;
+    /// use postcard_schema_ng::Schema;
     ///
     /// /// A "wire error" type your server can use to respond to any
     /// /// kind of request, for example if deserializing a request fails
@@ -132,7 +132,7 @@ where
     /// use postcard_rpc::host_client::HostClient;
     /// use postcard_rpc::header::VarSeqKind;
     /// use serde::{Serialize, Deserialize};
-    /// use postcard_schema::Schema;
+    /// use postcard_schema_ng::Schema;
     ///
     /// /// A "wire error" type your server can use to respond to any
     /// /// kind of request, for example if deserializing a request fails
@@ -198,7 +198,7 @@ where
     /// use postcard_rpc::host_client::HostClient;
     /// use postcard_rpc::header::VarSeqKind;
     /// use serde::{Serialize, Deserialize};
-    /// use postcard_schema::Schema;
+    /// use postcard_schema_ng::Schema;
     ///
     /// /// A "wire error" type your server can use to respond to any
     /// /// kind of request, for example if deserializing a request fails
@@ -300,7 +300,7 @@ where
     /// use postcard_rpc::host_client::HostClient;
     /// use postcard_rpc::header::VarSeqKind;
     /// use serde::{Serialize, Deserialize};
-    /// use postcard_schema::Schema;
+    /// use postcard_schema_ng::Schema;
     ///
     /// /// A "wire error" type your server can use to respond to any
     /// /// kind of request, for example if deserializing a request fails

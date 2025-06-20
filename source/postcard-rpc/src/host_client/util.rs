@@ -3,7 +3,7 @@ use core::time::Duration;
 use std::{fmt::Debug, sync::Arc};
 
 use maitake_sync::WaitQueue;
-use postcard_schema::Schema;
+use postcard_schema_ng::Schema;
 use serde::de::DeserializeOwned;
 use tokio::{
     select,

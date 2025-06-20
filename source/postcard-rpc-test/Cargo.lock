@@ -367,7 +367,7 @@ dependencies = [
  "embedded-io 0.4.0",
  "embedded-io 0.6.1",
  "heapless 0.7.17",
- "postcard-derive 0.1.2",
+ "postcard-derive",
  "serde",
 ]
 
@@ -383,10 +383,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "postcard-derive"
-version = "0.2.1"
+name = "postcard-derive-ng"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68f049d94cb6dda6938cc8a531d2898e7c08d71c6de63d8e67123cca6cdde2cc"
+checksum = "8c0131a1246790075f7c5f87cc926b893b29e137d6e5553dca067f6c52987683"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -401,7 +401,7 @@ dependencies = [
  "maitake-sync",
  "portable-atomic",
  "postcard",
- "postcard-schema",
+ "postcard-schema-ng",
  "serde",
  "ssmarshal",
  "thiserror",
@@ -416,18 +416,18 @@ version = "0.1.0"
 dependencies = [
  "postcard",
  "postcard-rpc",
- "postcard-schema",
+ "postcard-schema-ng",
  "serde",
  "tokio",
 ]
 
 [[package]]
-name = "postcard-schema"
-version = "0.2.1"
+name = "postcard-schema-ng"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8035e2716f5fc9dc2bd86d6bee40ef054aad7e437d3c126ffb22026f15948e15"
+checksum = "cf6b04e0226097d16d22f64ac733fb55e27b07e6fc6c9204c43995eb73e48d51"
 dependencies = [
- "postcard-derive 0.2.1",
+ "postcard-derive-ng",
  "serde",
 ]
 
@@ -972,3 +972,8 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
+
+[[patch.unused]]
+name = "postcard-schema"
+version = "0.2.1"
+source = "git+https://github.com/rslawson/postcard#648285cc1756eee10a137312304e65bf7a785327"

@@ -544,7 +544,7 @@ impl VarHeader {
                 remain = remain2;
                 let mut buf = [0u8; 8];
                 buf.copy_from_slice(keybs);
-                VarKey::Key8(unsafe { Key::from_bytes(buf) })
+                VarKey::Key8(Key::from_bytes(buf))
             }
             // Impossible: all bits covered
             _ => unreachable!(),
@@ -632,9 +632,9 @@ mod test {
             ),
             (
                 VarHeader {
-                    key: VarKey::Key8(unsafe {
+                    key: VarKey::Key8(
                         Key::from_bytes([0x12, 0x23, 0x34, 0x45, 0x56, 0x67, 0x78, 0x89])
-                    }),
+                    ),
                     seq_no: VarSeq::Seq4(0x42_AF_AA_BB),
                 },
                 &[

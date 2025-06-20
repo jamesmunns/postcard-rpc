@@ -30,7 +30,7 @@ defmt = { version = "0.3.5", optional = true }
 heapless = "0.8.0"
 postcard = { version = "1.0.10" }
 serde = { version = "1.0.192", default-features = false, features = ["derive"] }
-postcard-schema = { version = "0.2.1", features = ["derive"] }
+postcard-schema-ng = { version = "0.3.0", features = ["derive"] }
 
 #
 # std-only features
@@ -165,12 +165,12 @@ features = ["std"]
 
 [features]
 default = []
-test-utils = ["use-std", "postcard-schema/use-std"]
+test-utils = ["use-std", "postcard-schema-ng/use-std"]
 use-std = [
     "dep:maitake-sync",
     "dep:tokio",
     "postcard/use-std",
-    "postcard-schema/use-std",
+    "postcard-schema-ng/use-std",
     "dep:thiserror",
     "dep:tracing",
     "dep:trait-variant",

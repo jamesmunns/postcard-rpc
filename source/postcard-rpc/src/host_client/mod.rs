@@ -20,7 +20,7 @@ use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,
 };
-use postcard_schema::{schema::owned::OwnedNamedType, Schema};
+use postcard_schema_ng::{schema::owned::OwnedDataModelType, Schema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
     select,
@@ -983,7 +983,7 @@ pub struct SchemaReport {
     /// All custom types spoken by the device (on any endpoint or topic),
     /// as well as all primitive types. In the future, primitive types may
     /// be removed.
-    pub types: HashSet<OwnedNamedType>,
+    pub types: HashSet<OwnedDataModelType>,
     /// All incoming (client to server) topics reported by the device
     pub topics_in: Vec<TopicReport>,
     /// All outgoing (server to client) topics reported by the device
@@ -1003,45 +1003,47 @@ impl Default for SchemaReport {
 
         // We need to pre-populate all of the types we consider primitives:
         // DataModelType::Bool
-        me.add_type(OwnedNamedType::from(<bool as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<bool as Schema>::SCHEMA));
         // DataModelType::I8
-        me.add_type(OwnedNamedType::from(<i8 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<i8 as Schema>::SCHEMA));
         // DataModelType::U8
-        me.add_type(OwnedNamedType::from(<u8 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<u8 as Schema>::SCHEMA));
         // DataModelType::I16
-        me.add_type(OwnedNamedType::from(<i16 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<i16 as Schema>::SCHEMA));
         // DataModelType::I32
-        me.add_type(OwnedNamedType::from(<i32 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<i32 as Schema>::SCHEMA));
         // DataModelType::I64
-        me.add_type(OwnedNamedType::from(<i64 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<i64 as Schema>::SCHEMA));
         // DataModelType::I128
-        me.add_type(OwnedNamedType::from(<i128 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<i128 as Schema>::SCHEMA));
         // DataModelType::U16
-        me.add_type(OwnedNamedType::from(<u16 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<u16 as Schema>::SCHEMA));
         // DataModelType::U32
-        me.add_type(OwnedNamedType::from(<u32 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<u32 as Schema>::SCHEMA));
         // DataModelType::U64
-        me.add_type(OwnedNamedType::from(<u64 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<u64 as Schema>::SCHEMA));
         // DataModelType::U128
-        me.add_type(OwnedNamedType::from(<u128 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<u128 as Schema>::SCHEMA));
         // // DataModelType::Usize
-        // me.add_type(OwnedNamedType::from(<usize as Schema>::SCHEMA));
+        // me.add_type(OwnedDataModelType::from(<usize as Schema>::SCHEMA));
         // // DataModelType::Isize
-        // me.add_type(OwnedNamedType::from(<isize as Schema>::SCHEMA));
+        // me.add_type(OwnedDataModelType::from(<isize as Schema>::SCHEMA));
         // DataModelType::F32
-        me.add_type(OwnedNamedType::from(<f32 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<f32 as Schema>::SCHEMA));
         // DataModelType::F64
-        me.add_type(OwnedNamedType::from(<f64 as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<f64 as Schema>::SCHEMA));
         // DataModelType::Char
-        me.add_type(OwnedNamedType::from(<char as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<char as Schema>::SCHEMA));
         // DataModelType::String
-        me.add_type(OwnedNamedType::from(<String as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<String as Schema>::SCHEMA));
         // DataModelType::ByteArray
-        me.add_type(OwnedNamedType::from(<Vec<u8> as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<Vec<u8> as Schema>::SCHEMA));
         // DataModelType::Unit
-        me.add_type(OwnedNamedType::from(<() as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(<() as Schema>::SCHEMA));
         // DataModelType::Schema
-        me.add_type(OwnedNamedType::from(<OwnedNamedType as Schema>::SCHEMA));
+        me.add_type(OwnedDataModelType::from(
+            <OwnedDataModelType as Schema>::SCHEMA,
+        ));
 
         me
     }
@@ -1055,7 +1057,7 @@ pub struct TopicReport {
     /// The Key of the topic (which hashes the path and type)
     pub key: Key,
     /// The schema of the type of the message
-    pub ty: OwnedNamedType,
+    pub ty: OwnedDataModelType,
 }
 
 /// A description of a single Endpoint
@@ -1066,11 +1068,11 @@ pub struct EndpointReport {
     /// The Key of the request (which hashes the path and type)
     pub req_key: Key,
     /// The schema of the request type
-    pub req_ty: OwnedNamedType,
+    pub req_ty: OwnedDataModelType,
     /// The Key of the response (which hashes the path and type)
     pub resp_key: Key,
     /// The schema of the response type
-    pub resp_ty: OwnedNamedType,
+    pub resp_ty: OwnedDataModelType,
 }
 
 /// An error that denotes we were unable to resolve the type used by a given key
@@ -1079,7 +1081,7 @@ pub struct UnableToFindType;
 
 impl SchemaReport {
     /// Insert a new type
-    pub fn add_type(&mut self, t: OwnedNamedType) {
+    pub fn add_type(&mut self, t: OwnedDataModelType) {
         self.types.insert(t);
     }
 
