@@ -113,6 +113,7 @@
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 #![deny(missing_docs)]
+#![deny(unused_imports)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
 /// Re-export used by macros

@@ -4,7 +4,7 @@ use std::future::Future;
 
 use nusb::{
     transfer::{Direction, EndpointType, Queue, RequestBuffer, TransferError},
-    DeviceInfo, InterfaceInfo,
+    DeviceInfo,
 };
 use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
@@ -157,7 +157,7 @@ where
     #[cfg(not(target_os = "windows"))]
     pub fn try_new_raw_nusb_with_interface<
         F1: FnMut(&DeviceInfo) -> bool,
-        F2: FnMut(&InterfaceInfo) -> bool,
+        F2: FnMut(&nusb::InterfaceInfo) -> bool,
     >(
         device_func: F1,
         interface_func: F2,
