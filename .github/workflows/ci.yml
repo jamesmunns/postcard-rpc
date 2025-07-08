@@ -17,8 +17,12 @@ concurrency:
 permissions: {}
 
 jobs:
-  ubuntu:
-    runs-on: ubuntu-latest
+  ci:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - run: ./ci.sh
+        shell: bash
