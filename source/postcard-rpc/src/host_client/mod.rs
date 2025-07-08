@@ -186,6 +186,12 @@ pub struct HostClient<WireErr> {
     _pd: PhantomData<fn() -> WireErr>,
 }
 
+impl<W> core::fmt::Debug for HostClient<W> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HostClient").finish_non_exhaustive()
+    }
+}
+
 /// # Constructor Methods
 impl<WireErr> HostClient<WireErr>
 where
@@ -927,6 +933,12 @@ pub struct HostContext {
     map: WaitMap<VarHeader, (VarHeader, Vec<u8>)>,
     seq: AtomicU32,
     subscription_timeout: Duration,
+}
+
+impl core::fmt::Debug for HostContext {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HostContext").finish_non_exhaustive()
+    }
 }
 
 /// The I/O worker has closed.
