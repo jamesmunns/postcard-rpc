@@ -57,6 +57,22 @@ pub enum WireError {
     KeyTooSmall,
 }
 
+impl core::fmt::Display for WireError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            WireError::FrameTooLong(e) => write!(f, "The frame exceeded the buffering capabilities of the server: {} > {}", e.len, e.max),
+            WireError::FrameTooShort(e) => write!(f, "The frame was shorter than the minimum frame size and was rejected: {}", e.len),
+            WireError::DeserFailed => f.write_str("Deserialization of a message failed"),
+            WireError::SerFailed => f.write_str("Serialization of a message failed, usually due to a lack of space to buffer the serialized form"),
+            WireError::UnknownKey => f.write_str("The key associated with this request was unknown"),
+            WireError::FailedToSpawn => f.write_str("The server was unable to spawn the associated handler, typically due to an exhaustion of resources"),
+            WireError::KeyTooSmall => f.write_str("The provided key is below the minimum key size calculated to avoid hash collisions, and was rejected to avoid potential misunderstanding"),
+        }
+    }
+}
+
+impl core::error::Error for WireError {}
+
 /// A single element of schema information
 #[cfg(not(feature = "use-std"))]
 #[derive(Serialize, Schema, Debug, PartialEq, Copy, Clone)]
