@@ -69,7 +69,7 @@ endpoint!(
     SleepEndpoint,  // This is the NAME of the Endpoint
     Sleep,          // This is the Request type
     SleepDone,      // This is the Response type
-    "sleep",        // This is the "path" of the endpoint
+    "sleep"         // This is the "path" of the endpoint
 );
 
 
