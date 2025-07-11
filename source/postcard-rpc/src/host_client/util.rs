@@ -182,7 +182,7 @@ where
 {
     loop {
         let Some(msg) = rec.recv().await else {
-            tracing::warn!("Receiver Closed, this could be bad");
+            tracing::info!("Receiver Closed");
             return;
         };
         if let Err(e) = wire.send(msg.to_bytes()).await {
