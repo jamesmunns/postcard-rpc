@@ -10,9 +10,9 @@ use core::fmt::Arguments;
 use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_executor::{SpawnError, SpawnToken, Spawner};
 use embassy_futures::select::{select, Either};
-use embassy_sync_0_6::{blocking_mutex::raw::RawMutex, mutex::Mutex};
+use embassy_sync_0_7::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_time::Timer;
-use embassy_usb_driver_0_1::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
+use embassy_usb_driver_0_2::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use serde::Serialize;
 use static_cell::ConstStaticCell;
 
@@ -21,13 +21,16 @@ struct PoststationHandler {}
 static STINDX: AtomicU8 = AtomicU8::new(0xFF);
 static HDLR: ConstStaticCell<PoststationHandler> = ConstStaticCell::new(PoststationHandler {});
 
-impl embassy_usb_0_3::Handler for PoststationHandler {
+/// Default time in milliseconds to wait for the completion of sending
+pub const DEFAULT_TIMEOUT_MS_PER_FRAME: usize = 2;
+
+impl embassy_usb_0_5::Handler for PoststationHandler {
     fn get_string(
         &mut self,
-        index: embassy_usb_0_3::types::StringIndex,
+        index: embassy_usb_0_5::types::StringIndex,
         lang_id: u16,
     ) -> Option<&str> {
-        use embassy_usb_0_3::descriptor::lang_id;
+        use embassy_usb_0_5::descriptor::lang_id;
 
         let stindx = STINDX.load(Ordering::Relaxed);
         if stindx == 0xFF {
@@ -44,17 +47,19 @@ impl embassy_usb_0_3::Handler for PoststationHandler {
 /// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
     pub use super::embassy_spawn as spawn_fn;
-    use super::{EUsbWireRx, EUsbWireTx, EUsbWireTxInner, UsbDeviceBuffers};
+    use super::{
+        EUsbWireRx, EUsbWireTx, EUsbWireTxInner, UsbDeviceBuffers, DEFAULT_TIMEOUT_MS_PER_FRAME,
+    };
 
     /// Used for defining the USB interface
     pub const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
-    use embassy_sync_0_6::{blocking_mutex::raw::RawMutex, mutex::Mutex};
-    use embassy_usb_0_3::{
+    use embassy_sync_0_7::{blocking_mutex::raw::RawMutex, mutex::Mutex};
+    use embassy_usb_0_5::{
         msos::{self, windows_version},
         Builder, Config, UsbDevice,
     };
-    use embassy_usb_driver_0_1::Driver;
+    use embassy_usb_driver_0_2::Driver;
     use static_cell::{ConstStaticCell, StaticCell};
 
     /// Type alias for `WireTx` impl
@@ -142,8 +147,8 @@ pub mod dispatch_impl {
             let stindx = interface.string();
             super::STINDX.store(stindx.0, core::sync::atomic::Ordering::Relaxed);
             let mut alt = interface.alt_setting(0xFF, 0xCA, 0x7D, Some(stindx));
-            let ep_out = alt.endpoint_bulk_out(64);
-            let ep_in = alt.endpoint_bulk_in(64);
+            let ep_out = alt.endpoint_bulk_out(None, 64);
+            let ep_in = alt.endpoint_bulk_in(None, 64);
             drop(function);
 
             let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
@@ -151,6 +156,7 @@ pub mod dispatch_impl {
                 log_seq: 0,
                 tx_buf,
                 pending_frame: false,
+                timeout_ms_per_frame: DEFAULT_TIMEOUT_MS_PER_FRAME,
             }));
 
             // Build the builder.
@@ -210,8 +216,8 @@ pub mod dispatch_impl {
             let mut function = builder.function(0xFF, 0, 0);
             let mut interface = function.interface();
             let mut alt = interface.alt_setting(0xFF, 0, 0, None);
-            let ep_out = alt.endpoint_bulk_out(64);
-            let ep_in = alt.endpoint_bulk_in(64);
+            let ep_out = alt.endpoint_bulk_out(None, 64);
+            let ep_in = alt.endpoint_bulk_in(None, 64);
             drop(function);
 
             let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
@@ -219,6 +225,7 @@ pub mod dispatch_impl {
                 log_seq: 0,
                 tx_buf,
                 pending_frame: false,
+                timeout_ms_per_frame: DEFAULT_TIMEOUT_MS_PER_FRAME,
             }));
 
             (builder, EUsbWireTx { inner: wtx }, EUsbWireRx { ep_out })
@@ -236,12 +243,48 @@ pub struct EUsbWireTxInner<D: Driver<'static>> {
     log_seq: u16,
     tx_buf: &'static mut [u8],
     pending_frame: bool,
+    timeout_ms_per_frame: usize,
 }
 
-/// A [`WireTx`] implementation for embassy-usb 0.3.
+/// A [`WireTx`] implementation for embassy-usb 0.4.
 #[derive(Copy)]
 pub struct EUsbWireTx<M: RawMutex + 'static, D: Driver<'static> + 'static> {
     inner: &'static Mutex<M, EUsbWireTxInner<D>>,
+}
+
+impl<M: RawMutex + 'static, D: Driver<'static> + 'static> EUsbWireTx<M, D> {
+    /// Set the timeout in milliseconds per USB frame
+    ///
+    /// The sender will wait `(frames * timeout)` in milliseconds before reporting
+    /// the send as failed. This timeout is used to avoid apparent "hangs" in the
+    /// case that USB is disconnected or not working appropriately. A timeout will
+    /// cause the postcard-rpc dispatch loop to return an error. This timer is not
+    /// started until the sender has exclusive access to the underlying USB
+    /// connection, meaning that if two tasks start sending at the same time,
+    /// the second sender's timer will not start until the first sender has
+    /// completed.
+    ///
+    /// A "frame" refers to the USB frame, not a postcard-rpc frame. For example,
+    /// if the USB endpoint can handle USB frames of 64 bytes max (limit for USB
+    /// Full Speed), and you attempt to send 120 bytes of postcard-rpc data, that
+    /// would be two frames, so sending would have a timeout of 4ms at the default
+    /// value.
+    ///
+    /// This number can be increased in cases where your system is heavily loaded,
+    /// and sending may be delayed due to CPU capacity. This may cause tasks sending
+    /// data to also remain pending.
+    ///
+    /// This defaults to 2ms/frame. The provided `timeout` value will be clamped
+    /// to the range `1..=60000`. The new timeout will apply to the NEXT sent
+    /// frame.
+    pub async fn set_timeout_ms_per_frame(&self, timeout: usize) {
+        // Clamp input
+        let timeout = timeout.min(60_000).max(1);
+
+        // Set timeout
+        let mut guard = self.inner.lock().await;
+        guard.timeout_ms_per_frame = timeout;
+    }
 }
 
 impl<M: RawMutex + 'static, D: Driver<'static> + 'static> Clone for EUsbWireTx<M, D> {
@@ -270,6 +313,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             log_seq: _,
             tx_buf,
             pending_frame,
+            timeout_ms_per_frame,
         }: &mut EUsbWireTxInner<D> = &mut inner;
 
         let (hdr_used, remain) = hdr.write_to_slice(tx_buf).ok_or(WireTxErrorKind::Other)?;
@@ -277,7 +321,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         let used_ttl = hdr_used.len() + bdy_used.len();
 
         if let Some(used) = tx_buf.get(..used_ttl) {
-            send_all::<D>(ep_in, used, pending_frame).await
+            send_all::<D>(ep_in, used, pending_frame, *timeout_ms_per_frame).await
         } else {
             Err(WireTxErrorKind::Other)
         }
@@ -288,9 +332,10 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         let EUsbWireTxInner {
             ep_in,
             pending_frame,
+            timeout_ms_per_frame,
             ..
         }: &mut EUsbWireTxInner<D> = &mut inner;
-        send_all::<D>(ep_in, buf, pending_frame).await
+        send_all::<D>(ep_in, buf, pending_frame, *timeout_ms_per_frame).await
     }
 
     async fn send_log_str(&self, kkind: VarKeyKind, s: &str) -> Result<(), Self::Error> {
@@ -301,6 +346,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             log_seq,
             tx_buf,
             pending_frame,
+            timeout_ms_per_frame,
         }: &mut EUsbWireTxInner<D> = &mut inner;
 
         let key = match kkind {
@@ -321,7 +367,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         let used_ttl = hdr_used.len() + bdy_used.len();
 
         if let Some(used) = tx_buf.get(..used_ttl) {
-            send_all::<D>(ep_in, used, pending_frame).await
+            send_all::<D>(ep_in, used, pending_frame, *timeout_ms_per_frame).await
         } else {
             Err(WireTxErrorKind::Other)
         }
@@ -339,6 +385,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             log_seq,
             tx_buf,
             pending_frame,
+            timeout_ms_per_frame,
         }: &mut EUsbWireTxInner<D> = &mut inner;
         let ttl_len = tx_buf.len();
 
@@ -409,7 +456,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         // Calculate the TOTAL amount
         let act_used = ttl_len - remain;
 
-        send_all::<D>(ep_in, &tx_buf[..act_used], pending_frame).await
+        send_all::<D>(ep_in, &tx_buf[..act_used], pending_frame, *timeout_ms_per_frame).await
     }
 }
 
@@ -418,6 +465,7 @@ async fn send_all<D>(
     ep_in: &mut D::EndpointIn,
     out: &[u8],
     pending_frame: &mut bool,
+    timeout_ms_per_frame: usize,
 ) -> Result<(), WireTxErrorKind>
 where
     D: Driver<'static>,
@@ -427,9 +475,9 @@ where
     }
 
     // Calculate an estimated timeout based on the number of frames we need to send
-    // For now, we use 2ms/frame, rounded UP
+    // For now, we use 2ms/frame by default, rounded UP
     let frames = (out.len() + 63) / 64;
-    let timeout_ms = frames * 2;
+    let timeout_ms = frames * timeout_ms_per_frame;
 
     let send_fut = async {
         // If we left off a pending frame, send one now so we don't leave an unterminated
@@ -537,7 +585,7 @@ fn actual_varint_max_len(largest: usize) -> usize {
 // RX
 //////////////////////////////////////////////////////////////////////////////
 
-/// A [`WireRx`] implementation for embassy-usb 0.3.
+/// A [`WireRx`] implementation for embassy-usb 0.4.
 pub struct EUsbWireRx<D: Driver<'static>> {
     ep_out: D::EndpointOut,
 }
@@ -689,7 +737,7 @@ pub mod fake {
         topics,
     };
     use crate::{header::VarHeader, Schema};
-    use embassy_usb_driver_0_1::{Bus, ControlPipe, EndpointIn, EndpointOut};
+    use embassy_usb_driver_0_2::{Bus, ControlPipe, EndpointIn, EndpointOut};
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Schema)]
@@ -751,8 +799,8 @@ pub mod fake {
     pub struct FakeCtlPipe;
     pub struct FakeBus;
 
-    impl embassy_usb_driver_0_1::Endpoint for FakeEpOut {
-        fn info(&self) -> &embassy_usb_driver_0_1::EndpointInfo {
+    impl embassy_usb_driver_0_2::Endpoint for FakeEpOut {
+        fn info(&self) -> &embassy_usb_driver_0_2::EndpointInfo {
             todo!()
         }
 
@@ -765,13 +813,13 @@ pub mod fake {
         async fn read(
             &mut self,
             _buf: &mut [u8],
-        ) -> Result<usize, embassy_usb_driver_0_1::EndpointError> {
+        ) -> Result<usize, embassy_usb_driver_0_2::EndpointError> {
             todo!()
         }
     }
 
-    impl embassy_usb_driver_0_1::Endpoint for FakeEpIn {
-        fn info(&self) -> &embassy_usb_driver_0_1::EndpointInfo {
+    impl embassy_usb_driver_0_2::Endpoint for FakeEpIn {
+        fn info(&self) -> &embassy_usb_driver_0_2::EndpointInfo {
             todo!()
         }
 
@@ -781,7 +829,7 @@ pub mod fake {
     }
 
     impl EndpointIn for FakeEpIn {
-        async fn write(&mut self, _buf: &[u8]) -> Result<(), embassy_usb_driver_0_1::EndpointError> {
+        async fn write(&mut self, _buf: &[u8]) -> Result<(), embassy_usb_driver_0_2::EndpointError> {
             todo!()
         }
     }
@@ -800,7 +848,7 @@ pub mod fake {
             _buf: &mut [u8],
             _first: bool,
             _last: bool,
-        ) -> Result<usize, embassy_usb_driver_0_1::EndpointError> {
+        ) -> Result<usize, embassy_usb_driver_0_2::EndpointError> {
             todo!()
         }
 
@@ -809,7 +857,7 @@ pub mod fake {
             _data: &[u8],
             _first: bool,
             _last: bool,
-        ) -> Result<(), embassy_usb_driver_0_1::EndpointError> {
+        ) -> Result<(), embassy_usb_driver_0_2::EndpointError> {
             todo!()
         }
 
@@ -835,13 +883,13 @@ pub mod fake {
             todo!()
         }
 
-        async fn poll(&mut self) -> embassy_usb_driver_0_1::Event {
+        async fn poll(&mut self) -> embassy_usb_driver_0_2::Event {
             todo!()
         }
 
         fn endpoint_set_enabled(
             &mut self,
-            _ep_addr: embassy_usb_driver_0_1::EndpointAddress,
+            _ep_addr: embassy_usb_driver_0_2::EndpointAddress,
             _enabled: bool,
         ) {
             todo!()
@@ -849,22 +897,22 @@ pub mod fake {
 
         fn endpoint_set_stalled(
             &mut self,
-            _ep_addr: embassy_usb_driver_0_1::EndpointAddress,
+            _ep_addr: embassy_usb_driver_0_2::EndpointAddress,
             _stalled: bool,
         ) {
             todo!()
         }
 
-        fn endpoint_is_stalled(&mut self, _ep_addr: embassy_usb_driver_0_1::EndpointAddress) -> bool {
+        fn endpoint_is_stalled(&mut self, _ep_addr: embassy_usb_driver_0_2::EndpointAddress) -> bool {
             todo!()
         }
 
-        async fn remote_wakeup(&mut self) -> Result<(), embassy_usb_driver_0_1::Unsupported> {
+        async fn remote_wakeup(&mut self) -> Result<(), embassy_usb_driver_0_2::Unsupported> {
             todo!()
         }
     }
 
-    impl embassy_usb_driver_0_1::Driver<'static> for FakeDriver {
+    impl embassy_usb_driver_0_2::Driver<'static> for FakeDriver {
         type EndpointOut = FakeEpOut;
 
         type EndpointIn = FakeEpIn;
@@ -875,19 +923,19 @@ pub mod fake {
 
         fn alloc_endpoint_out(
             &mut self,
-            _ep_type: embassy_usb_driver_0_1::EndpointType,
+            _ep_type: embassy_usb_driver_0_2::EndpointType,
             _max_packet_size: u16,
             _interval_ms: u8,
-        ) -> Result<Self::EndpointOut, embassy_usb_driver_0_1::EndpointAllocError> {
+        ) -> Result<Self::EndpointOut, embassy_usb_driver_0_2::EndpointAllocError> {
             todo!()
         }
 
         fn alloc_endpoint_in(
             &mut self,
-            _ep_type: embassy_usb_driver_0_1::EndpointType,
+            _ep_type: embassy_usb_driver_0_2::EndpointType,
             _max_packet_size: u16,
             _interval_ms: u8,
-        ) -> Result<Self::EndpointIn, embassy_usb_driver_0_1::EndpointAllocError> {
+        ) -> Result<Self::EndpointIn, embassy_usb_driver_0_2::EndpointAllocError> {
             todo!()
         }
 
@@ -896,7 +944,7 @@ pub mod fake {
         }
     }
 
-    unsafe impl embassy_sync_0_6::blocking_mutex::raw::RawMutex for FakeMutex {
+    unsafe impl embassy_sync_0_7::blocking_mutex::raw::RawMutex for FakeMutex {
         const INIT: Self = Self;
 
         fn lock<R>(&self, _f: impl FnOnce() -> R) -> R {

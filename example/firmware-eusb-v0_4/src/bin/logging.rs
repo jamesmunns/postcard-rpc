@@ -1,23 +1,20 @@
-//! This gives a minimal example for a postcard-rpc project.
-
 #![no_std]
 #![no_main]
-
-#![deny(missing_docs)]
 
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::{peripherals::USB, usb};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_time::{Duration, Ticker};
 use embassy_usb::{Config, UsbDevice};
 use postcard_rpc::{
-    define_dispatch,
+    define_dispatch, sender_fmt,
     server::{
-        impls::embassy_usb_v0_5::{
+        impls::embassy_usb_v0_4::{
             dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl},
             PacketBuffers,
         },
-        Dispatch, Server,
+        Dispatch, Sender, Server,
     },
 };
 use static_cell::ConstStaticCell;
@@ -25,7 +22,6 @@ use workbook_fw::Irqs;
 use workbook_icd::{ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
 use {defmt_rtt as _, panic_probe as _};
 
-/// Context shared between the different postcard-rpc functions.
 pub struct Context {}
 
 type AppDriver = usb::Driver<'static, USB>;
@@ -101,11 +97,28 @@ async fn main(spawner: Spawner) {
         dispatcher,
         vkk,
     );
+    let sender = server.sender();
     spawner.must_spawn(usb_task(device));
     spawner.must_spawn(server_task(server));
+    spawner.must_spawn(logging_task(sender));
 }
 
-/// Run the postcard-rpc server forever.
+#[embassy_executor::task]
+pub async fn logging_task(sender: Sender<AppTx>) {
+    let mut ticker = Ticker::every(Duration::from_millis(1000));
+    let mut ctr = 0u16;
+    loop {
+        ticker.next().await;
+        defmt::info!("logging");
+        if ctr & 0b1 != 0 {
+            let _ = sender.log_str("Hello world!").await;
+        } else {
+            let _ = sender_fmt!(sender, "formatted: {ctr}").await;
+        }
+        ctr = ctr.wrapping_add(1);
+    }
+}
+
 #[embassy_executor::task]
 pub async fn server_task(mut server: AppServer) {
     loop {

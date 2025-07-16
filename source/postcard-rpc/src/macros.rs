@@ -271,7 +271,6 @@ macro_rules! topic {
 ///    | Topic2         | Message2      | "topics/two"      |
 /// }
 /// ```
-
 #[macro_export]
 macro_rules! topics {
     (@tp_tys ( $dir:expr ) $([[$($meta:meta)?] $tp_name:ident])*) => {

@@ -11,7 +11,7 @@ use smart_leds::colors;
 use workbook_fw::{
     get_unique_id,
     ws2812::{self, Ws2812},
-    Buttons, Potentiometer, NUM_SMARTLEDS,
+    Accelerometer, Buttons, Potentiometer, NUM_SMARTLEDS,
 };
 
 // GPIO pins we'll need for this part:
@@ -22,6 +22,10 @@ use workbook_fw::{
 // | GPIO01    | Button 2                  | Button Pad (left) - active LOW    |
 // | GPIO02    | Button 3                  | Button Pad (left) - active LOW    |
 // | GPIO03    | Button 4                  | Button Pad (left) - active LOW    |
+// | GPIO04    | SPI MISO/CIPO             | LIS3DH                            |
+// | GPIO05    | SPI CSn                   | LIS3DH                            |
+// | GPIO06    | SPI CLK                   | LIS3DH                            |
+// | GPIO07    | SPI MOSI/COPI             | LIS3DH                            |
 // | GPIO18    | Button 5                  | Button Pad (right) - active LOW   |
 // | GPIO19    | Button 6                  | Button Pad (right) - active LOW   |
 // | GPIO20    | Button 7                  | Button Pad (right) - active LOW   |
@@ -34,7 +38,7 @@ async fn main(spawner: Spawner) {
     info!("Start");
 
     let mut p = embassy_rp::init(Default::default());
-    let unique_id = get_unique_id(p.FLASH.reborrow()).unwrap();
+    let unique_id = get_unique_id(&mut p.FLASH).unwrap();
     info!("id: {=u64:016X}", unique_id);
 
     // PIO/WS2812 INIT
@@ -50,6 +54,10 @@ async fn main(spawner: Spawner) {
         p.PIN_0, p.PIN_1, p.PIN_2, p.PIN_3, p.PIN_18, p.PIN_19, p.PIN_20, p.PIN_21,
     );
     let potentiometer = Potentiometer::new(p.ADC, p.PIN_26);
+    let accel = Accelerometer::new(
+        p.SPI0, p.PIN_6, p.PIN_7, p.PIN_4, p.PIN_5, p.DMA_CH1, p.DMA_CH2,
+    )
+    .await;
 
     // Start the LED task
     spawner.must_spawn(led_task(ws2812));
@@ -59,6 +67,20 @@ async fn main(spawner: Spawner) {
 
     // Start the Potentiometer task
     spawner.must_spawn(pot_task(potentiometer));
+
+    // Start the accelerometer task
+    spawner.must_spawn(accel_task(accel));
+}
+
+// This is our Accelerometer task
+#[embassy_executor::task]
+async fn accel_task(mut accel: Accelerometer) {
+    let mut ticker = Ticker::every(Duration::from_millis(250));
+    loop {
+        ticker.next().await;
+        let reading = accel.read().await;
+        info!("accelerometer: {:?}", reading);
+    }
 }
 
 // This is our Button task
@@ -112,7 +134,7 @@ async fn led_task(mut ws2812: Ws2812<'static, PIO0, 0, NUM_SMARTLEDS>) {
             .take(4)
             .for_each(|l| {
                 // The LEDs are very bright!
-                *l = colors::BLUE / 16;
+                *l = colors::WHITE / 16;
             });
 
         ws2812.write(&colors).await;
