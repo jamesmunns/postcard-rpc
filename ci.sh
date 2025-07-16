@@ -51,15 +51,23 @@ cargo check \
     --no-default-features \
     --features=embassy-usb-0_4-server \
     --target thumbv7em-none-eabihf
+cargo check \
+    --manifest-path source/postcard-rpc/Cargo.toml \
+    --no-default-features \
+    --features=embassy-usb-0_5-server \
+    --target thumbv7em-none-eabihf
 
 # Example projects
 cargo build \
     --manifest-path example/workbook-host/Cargo.toml
-# Current (embassy-usb v0.4)
+# Current (embassy-usb v0.5)
 cargo build \
     --manifest-path example/firmware/Cargo.toml \
     --target thumbv6m-none-eabi
-# Legacy (embassy-usb v0.3)
+# Legacy (embassy-usb v0.3/v0.4)
+cargo build \
+    --manifest-path example/firmware-eusb-v0_4/Cargo.toml \
+    --target thumbv6m-none-eabi
 cargo build \
     --manifest-path example/firmware-eusb-v0_3/Cargo.toml \
     --target thumbv6m-none-eabi

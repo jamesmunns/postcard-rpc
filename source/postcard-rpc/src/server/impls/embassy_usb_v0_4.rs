@@ -10,9 +10,9 @@ use core::fmt::Arguments;
 use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_executor::{SpawnError, SpawnToken, Spawner};
 use embassy_futures::select::{select, Either};
-use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
+use embassy_sync_0_6::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_time::Timer;
-use embassy_usb_driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
+use embassy_usb_driver_0_1::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use serde::Serialize;
 use static_cell::ConstStaticCell;
 
@@ -54,12 +54,12 @@ pub mod dispatch_impl {
     /// Used for defining the USB interface
     pub const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
-    use embassy_sync::{blocking_mutex::raw::RawMutex, mutex::Mutex};
+    use embassy_sync_0_6::{blocking_mutex::raw::RawMutex, mutex::Mutex};
     use embassy_usb_0_4::{
         msos::{self, windows_version},
         Builder, Config, UsbDevice,
     };
-    use embassy_usb_driver::Driver;
+    use embassy_usb_driver_0_1::Driver;
     use static_cell::{ConstStaticCell, StaticCell};
 
     /// Type alias for `WireTx` impl
@@ -737,7 +737,7 @@ pub mod fake {
         topics,
     };
     use crate::{header::VarHeader, Schema};
-    use embassy_usb_driver::{Bus, ControlPipe, EndpointIn, EndpointOut};
+    use embassy_usb_driver_0_1::{Bus, ControlPipe, EndpointIn, EndpointOut};
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Schema)]
@@ -799,8 +799,8 @@ pub mod fake {
     pub struct FakeCtlPipe;
     pub struct FakeBus;
 
-    impl embassy_usb_driver::Endpoint for FakeEpOut {
-        fn info(&self) -> &embassy_usb_driver::EndpointInfo {
+    impl embassy_usb_driver_0_1::Endpoint for FakeEpOut {
+        fn info(&self) -> &embassy_usb_driver_0_1::EndpointInfo {
             todo!()
         }
 
@@ -813,13 +813,13 @@ pub mod fake {
         async fn read(
             &mut self,
             _buf: &mut [u8],
-        ) -> Result<usize, embassy_usb_driver::EndpointError> {
+        ) -> Result<usize, embassy_usb_driver_0_1::EndpointError> {
             todo!()
         }
     }
 
-    impl embassy_usb_driver::Endpoint for FakeEpIn {
-        fn info(&self) -> &embassy_usb_driver::EndpointInfo {
+    impl embassy_usb_driver_0_1::Endpoint for FakeEpIn {
+        fn info(&self) -> &embassy_usb_driver_0_1::EndpointInfo {
             todo!()
         }
 
@@ -829,7 +829,7 @@ pub mod fake {
     }
 
     impl EndpointIn for FakeEpIn {
-        async fn write(&mut self, _buf: &[u8]) -> Result<(), embassy_usb_driver::EndpointError> {
+        async fn write(&mut self, _buf: &[u8]) -> Result<(), embassy_usb_driver_0_1::EndpointError> {
             todo!()
         }
     }
@@ -848,7 +848,7 @@ pub mod fake {
             _buf: &mut [u8],
             _first: bool,
             _last: bool,
-        ) -> Result<usize, embassy_usb_driver::EndpointError> {
+        ) -> Result<usize, embassy_usb_driver_0_1::EndpointError> {
             todo!()
         }
 
@@ -857,7 +857,7 @@ pub mod fake {
             _data: &[u8],
             _first: bool,
             _last: bool,
-        ) -> Result<(), embassy_usb_driver::EndpointError> {
+        ) -> Result<(), embassy_usb_driver_0_1::EndpointError> {
             todo!()
         }
 
@@ -883,13 +883,13 @@ pub mod fake {
             todo!()
         }
 
-        async fn poll(&mut self) -> embassy_usb_driver::Event {
+        async fn poll(&mut self) -> embassy_usb_driver_0_1::Event {
             todo!()
         }
 
         fn endpoint_set_enabled(
             &mut self,
-            _ep_addr: embassy_usb_driver::EndpointAddress,
+            _ep_addr: embassy_usb_driver_0_1::EndpointAddress,
             _enabled: bool,
         ) {
             todo!()
@@ -897,22 +897,22 @@ pub mod fake {
 
         fn endpoint_set_stalled(
             &mut self,
-            _ep_addr: embassy_usb_driver::EndpointAddress,
+            _ep_addr: embassy_usb_driver_0_1::EndpointAddress,
             _stalled: bool,
         ) {
             todo!()
         }
 
-        fn endpoint_is_stalled(&mut self, _ep_addr: embassy_usb_driver::EndpointAddress) -> bool {
+        fn endpoint_is_stalled(&mut self, _ep_addr: embassy_usb_driver_0_1::EndpointAddress) -> bool {
             todo!()
         }
 
-        async fn remote_wakeup(&mut self) -> Result<(), embassy_usb_driver::Unsupported> {
+        async fn remote_wakeup(&mut self) -> Result<(), embassy_usb_driver_0_1::Unsupported> {
             todo!()
         }
     }
 
-    impl embassy_usb_driver::Driver<'static> for FakeDriver {
+    impl embassy_usb_driver_0_1::Driver<'static> for FakeDriver {
         type EndpointOut = FakeEpOut;
 
         type EndpointIn = FakeEpIn;
@@ -923,19 +923,19 @@ pub mod fake {
 
         fn alloc_endpoint_out(
             &mut self,
-            _ep_type: embassy_usb_driver::EndpointType,
+            _ep_type: embassy_usb_driver_0_1::EndpointType,
             _max_packet_size: u16,
             _interval_ms: u8,
-        ) -> Result<Self::EndpointOut, embassy_usb_driver::EndpointAllocError> {
+        ) -> Result<Self::EndpointOut, embassy_usb_driver_0_1::EndpointAllocError> {
             todo!()
         }
 
         fn alloc_endpoint_in(
             &mut self,
-            _ep_type: embassy_usb_driver::EndpointType,
+            _ep_type: embassy_usb_driver_0_1::EndpointType,
             _max_packet_size: u16,
             _interval_ms: u8,
-        ) -> Result<Self::EndpointIn, embassy_usb_driver::EndpointAllocError> {
+        ) -> Result<Self::EndpointIn, embassy_usb_driver_0_1::EndpointAllocError> {
             todo!()
         }
 
@@ -944,7 +944,7 @@ pub mod fake {
         }
     }
 
-    unsafe impl embassy_sync::blocking_mutex::raw::RawMutex for FakeMutex {
+    unsafe impl embassy_sync_0_6::blocking_mutex::raw::RawMutex for FakeMutex {
         const INIT: Self = Self;
 
         fn lock<R>(&self, _f: impl FnOnce() -> R) -> R {
@@ -970,7 +970,7 @@ pub mod fake {
     }
 
     // TODO: How to do module path concat?
-    use crate::server::impls::embassy_usb_v0_3::dispatch_impl::{
+    use crate::server::impls::embassy_usb_v0_4::dispatch_impl::{
         spawn_fn, WireSpawnImpl, WireTxImpl,
     };
 

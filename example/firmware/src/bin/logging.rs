@@ -10,7 +10,7 @@ use embassy_usb::{Config, UsbDevice};
 use postcard_rpc::{
     define_dispatch, sender_fmt,
     server::{
-        impls::embassy_usb_v0_4::{
+        impls::embassy_usb_v0_5::{
             dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl},
             PacketBuffers,
         },

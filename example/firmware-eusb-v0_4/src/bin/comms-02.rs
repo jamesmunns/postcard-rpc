@@ -20,7 +20,7 @@ use postcard_rpc::{
     define_dispatch,
     header::VarHeader,
     server::{
-        impls::embassy_usb_v0_5::{
+        impls::embassy_usb_v0_4::{
             dispatch_impl::{
                 spawn_fn, WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl,
             },
@@ -126,7 +126,7 @@ async fn main(spawner: Spawner) {
     // SYSTEM INIT
     info!("Start");
     let mut p = embassy_rp::init(Default::default());
-    let unique_id = defmt::unwrap!(get_unique_id(p.FLASH.reborrow()));
+    let unique_id = defmt::unwrap!(get_unique_id(&mut p.FLASH));
     info!("id: {=u64:016X}", unique_id);
 
     // PIO/WS2812 INIT
