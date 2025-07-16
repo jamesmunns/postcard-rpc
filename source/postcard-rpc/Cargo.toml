@@ -183,14 +183,7 @@ features = ["std"]
 
 [features]
 default = []
-test-utils = [
-    "use-std",
-    "postcard-schema/use-std",
-    # windows linker gets mad if we don't have embassy-time/embassy-executor
-    # impls available during test stub checks
-    "embassy-time/std",
-    "embassy-executor/arch-std",
-]
+test-utils = ["use-std", "postcard-schema/use-std"]
 use-std = [
     "dep:maitake-sync",
     "dep:tokio",

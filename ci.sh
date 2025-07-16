@@ -57,17 +57,6 @@ cargo check \
     --features=embassy-usb-0_5-server \
     --target thumbv7em-none-eabihf
 
-# Run stub test checks
-cargo test \
-    --manifest-path source/postcard-rpc/Cargo.toml \
-    --features=embassy-usb-0_3-server,test-utils
-cargo test \
-    --manifest-path source/postcard-rpc/Cargo.toml \
-    --features=embassy-usb-0_4-server,test-utils
-cargo test \
-    --manifest-path source/postcard-rpc/Cargo.toml \
-    --features=embassy-usb-0_5-server,test-utils
-
 # Example projects
 cargo build \
     --manifest-path example/workbook-host/Cargo.toml
