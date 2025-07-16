@@ -588,6 +588,7 @@ dependencies = [
 name = "postcard-rpc"
 version = "0.11.10"
 dependencies = [
+ "embassy-executor",
  "embassy-time",
  "heapless 0.8.0",
  "maitake-sync",

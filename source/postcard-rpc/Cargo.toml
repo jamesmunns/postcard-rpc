@@ -186,9 +186,10 @@ default = []
 test-utils = [
     "use-std",
     "postcard-schema/use-std",
-    # windows linker gets mad if we don't have embassy-time impls available
-    # during test stub checks
+    # windows linker gets mad if we don't have embassy-time/embassy-executor
+    # impls available during test stub checks
     "embassy-time/std",
+    "embassy-executor/arch-std",
 ]
 use-std = [
     "dep:maitake-sync",
