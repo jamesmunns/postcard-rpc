@@ -970,7 +970,7 @@ pub mod fake {
     }
 
     // TODO: How to do module path concat?
-    use crate::server::impls::embassy_usb_v0_3::dispatch_impl::{
+    use crate::server::impls::embassy_usb_v0_4::dispatch_impl::{
         spawn_fn, WireSpawnImpl, WireTxImpl,
     };
 

@@ -456,7 +456,13 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         // Calculate the TOTAL amount
         let act_used = ttl_len - remain;
 
-        send_all::<D>(ep_in, &tx_buf[..act_used], pending_frame, *timeout_ms_per_frame).await
+        send_all::<D>(
+            ep_in,
+            &tx_buf[..act_used],
+            pending_frame,
+            *timeout_ms_per_frame,
+        )
+        .await
     }
 }
 
@@ -737,7 +743,7 @@ pub mod fake {
         topics,
     };
     use crate::{header::VarHeader, Schema};
-    use embassy_usb_driver_0_2::{Bus, ControlPipe, EndpointIn, EndpointOut};
+    use embassy_usb_driver_0_2::{Bus, ControlPipe, EndpointAddress, EndpointIn, EndpointOut};
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Schema)]
@@ -829,7 +835,10 @@ pub mod fake {
     }
 
     impl EndpointIn for FakeEpIn {
-        async fn write(&mut self, _buf: &[u8]) -> Result<(), embassy_usb_driver_0_2::EndpointError> {
+        async fn write(
+            &mut self,
+            _buf: &[u8],
+        ) -> Result<(), embassy_usb_driver_0_2::EndpointError> {
             todo!()
         }
     }
@@ -903,7 +912,10 @@ pub mod fake {
             todo!()
         }
 
-        fn endpoint_is_stalled(&mut self, _ep_addr: embassy_usb_driver_0_2::EndpointAddress) -> bool {
+        fn endpoint_is_stalled(
+            &mut self,
+            _ep_addr: embassy_usb_driver_0_2::EndpointAddress,
+        ) -> bool {
             todo!()
         }
 
@@ -924,6 +936,7 @@ pub mod fake {
         fn alloc_endpoint_out(
             &mut self,
             _ep_type: embassy_usb_driver_0_2::EndpointType,
+            _ep_addr: Option<EndpointAddress>,
             _max_packet_size: u16,
             _interval_ms: u8,
         ) -> Result<Self::EndpointOut, embassy_usb_driver_0_2::EndpointAllocError> {
@@ -933,6 +946,7 @@ pub mod fake {
         fn alloc_endpoint_in(
             &mut self,
             _ep_type: embassy_usb_driver_0_2::EndpointType,
+            _ep_addr: Option<EndpointAddress>,
             _max_packet_size: u16,
             _interval_ms: u8,
         ) -> Result<Self::EndpointIn, embassy_usb_driver_0_2::EndpointAllocError> {
@@ -970,7 +984,7 @@ pub mod fake {
     }
 
     // TODO: How to do module path concat?
-    use crate::server::impls::embassy_usb_v0_3::dispatch_impl::{
+    use crate::server::impls::embassy_usb_v0_5::dispatch_impl::{
         spawn_fn, WireSpawnImpl, WireTxImpl,
     };
 
