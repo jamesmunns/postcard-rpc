@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-
-# TODO: I should be a CI check, but I'm not yet.
 set -euxo pipefail
 
 rustup target add \
