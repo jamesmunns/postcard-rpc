@@ -85,6 +85,12 @@ pub mod dispatch_impl {
         pub cell: StaticCell<Mutex<M, EUsbWireTxInner<D>>>,
     }
 
+    /// A helper type for `static` storage of buffers and driver components
+    pub struct WireStorageNoUsb<M: RawMutex + 'static, D: Driver<'static> + 'static> {
+        /// WireTx/Sender static storage
+        pub cell: StaticCell<Mutex<M, EUsbWireTxInner<D>>>,
+    }
+
     impl<
             M: RawMutex + 'static,
             D: Driver<'static> + 'static,
@@ -228,6 +234,103 @@ pub mod dispatch_impl {
             }));
 
             (builder, EUsbWireTx { inner: wtx }, EUsbWireRx { ep_out })
+        }
+    }
+
+    impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireStorageNoUsb<M, D> {
+        /// Create a new, uninitialized static set of buffers
+        pub const fn new() -> Self {
+            Self {
+                cell: StaticCell::new(),
+            }
+        }
+
+        /// Initialize the static storage, reporting as poststation compatible
+        ///
+        /// This must only be called once.
+        pub fn init_poststation(
+            &'static self,
+            builder: &mut Builder<'static, D>,
+            tx_buf: &'static mut [u8],
+        ) -> (WireTxImpl<M, D>, WireRxImpl<D>) {
+            // Register a poststation-compatible string handler
+            let hdlr = super::HDLR.take();
+            builder.handler(hdlr);
+
+            // Add the Microsoft OS Descriptor (MSOS/MOD) descriptor.
+            // We tell Windows that this entire device is compatible with the "WINUSB" feature,
+            // which causes it to use the built-in WinUSB driver automatically, which in turn
+            // can be used by libusb/rusb software without needing a custom driver or INF file.
+            // In principle you might want to call msos_feature() just on a specific function,
+            // if your device also has other functions that still use standard class drivers.
+            builder.msos_descriptor(windows_version::WIN8_1, 0);
+            builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+            builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+                "DeviceInterfaceGUIDs",
+                msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+            ));
+
+            // Add a vendor-specific function (class 0xFF), and corresponding interface,
+            // that uses our custom handler.
+            let mut function = builder.function(0xFF, 0, 0);
+            let mut interface = function.interface();
+            let stindx = interface.string();
+            super::STINDX.store(stindx.0, core::sync::atomic::Ordering::Relaxed);
+            let mut alt = interface.alt_setting(0xFF, 0xCA, 0x7D, Some(stindx));
+            let ep_out = alt.endpoint_bulk_out(64);
+            let ep_in = alt.endpoint_bulk_in(64);
+            drop(function);
+
+            let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
+                ep_in,
+                log_seq: 0,
+                tx_buf,
+                pending_frame: false,
+            }));
+
+            (EUsbWireTx { inner: wtx }, EUsbWireRx { ep_out })
+        }
+
+        /// Initialize the static storage.
+        ///
+        /// This must only be called once.
+        pub fn init(
+            &'static self,
+            builder: &mut Builder<'static, D>,
+            tx_buf: &'static mut [u8],
+        ) -> (WireTxImpl<M, D>, WireRxImpl<D>) {
+            // Add the Microsoft OS Descriptor (MSOS/MOD) descriptor.
+            // We tell Windows that this entire device is compatible with the "WINUSB" feature,
+            // which causes it to use the built-in WinUSB driver automatically, which in turn
+            // can be used by libusb/rusb software without needing a custom driver or INF file.
+            // In principle you might want to call msos_feature() just on a specific function,
+            // if your device also has other functions that still use standard class drivers.
+
+            // TODO: increase ariel MSOS descriptors
+            // builder.msos_descriptor(windows_version::WIN8_1, 0);
+            // builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+            // builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+            //     "DeviceInterfaceGUIDs",
+            //     msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+            // ));
+
+            // Add a vendor-specific function (class 0xFF), and corresponding interface,
+            // that uses our custom handler.
+            let mut function = builder.function(0xFF, 0, 0);
+            let mut interface = function.interface();
+            let mut alt = interface.alt_setting(0xFF, 0, 0, None);
+            let ep_out = alt.endpoint_bulk_out(64);
+            let ep_in = alt.endpoint_bulk_in(64);
+            drop(function);
+
+            let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
+                ep_in,
+                log_seq: 0,
+                tx_buf,
+                pending_frame: false,
+            }));
+
+            (EUsbWireTx { inner: wtx }, EUsbWireRx { ep_out })
         }
     }
 }
