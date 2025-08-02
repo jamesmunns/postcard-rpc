@@ -188,9 +188,7 @@ features = ["std"]
 
 
 [features]
-default = [
-    "embedded-io-async-0_6-server",
-]
+default = []
 test-utils = ["use-std", "postcard-schema/use-std"]
 use-std = [
     "dep:maitake-sync",
