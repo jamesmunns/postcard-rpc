@@ -1,0 +1,13 @@
+[package]
+name = "serial-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+postcard-rpc = { version = "0.11", features = ["cobs-serial", "use-std"] }
+tokio = { version = "1.43.0", features = ["macros", "rt-multi-thread", "time"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+
+[patch.crates-io]
+postcard-rpc = { path = "../../source/postcard-rpc" }

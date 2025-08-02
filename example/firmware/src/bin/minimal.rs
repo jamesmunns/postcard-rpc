@@ -1,5 +1,9 @@
+//! This gives a minimal example for a postcard-rpc project.
+
 #![no_std]
 #![no_main]
+
+#![deny(missing_docs)]
 
 use defmt::info;
 use embassy_executor::Spawner;
@@ -9,7 +13,7 @@ use embassy_usb::{Config, UsbDevice};
 use postcard_rpc::{
     define_dispatch,
     server::{
-        impls::embassy_usb_v0_4::{
+        impls::embassy_usb_v0_5::{
             dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl},
             PacketBuffers,
         },
@@ -21,6 +25,7 @@ use workbook_fw::Irqs;
 use workbook_icd::{ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
 use {defmt_rtt as _, panic_probe as _};
 
+/// Context shared between the different postcard-rpc functions.
 pub struct Context {}
 
 type AppDriver = usb::Driver<'static, USB>;
@@ -100,6 +105,7 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(server_task(server));
 }
 
+/// Run the postcard-rpc server forever.
 #[embassy_executor::task]
 pub async fn server_task(mut server: AppServer) {
     loop {

@@ -49,6 +49,11 @@ pub trait WireTx {
     /// use your own custom type that implements [`AsWireTxErrorKind`].
     type Error: AsWireTxErrorKind;
 
+    /// Wait for the connection to be established
+    ///
+    /// Should be implemented for connection oriented wire protocols
+    async fn wait_connection(&self) {}
+
     /// Send a single frame to the client, returning when send is complete.
     async fn send<T: Serialize + ?Sized>(&self, hdr: VarHeader, msg: &T)
         -> Result<(), Self::Error>;
@@ -109,6 +114,11 @@ pub trait WireRx {
     /// For simple cases, you can use [`WireRxErrorKind`] directly. You can also
     /// use your own custom type that implements [`AsWireRxErrorKind`].
     type Error: AsWireRxErrorKind;
+
+    /// Wait for the connection to be established
+    ///
+    /// Should be implemented for connection oriented wire protocols
+    async fn wait_connection(&mut self) {}
 
     /// Receive a single frame
     ///
@@ -425,6 +435,8 @@ where
                 buf,
                 dis: d,
             } = self;
+            rx.wait_connection().await;
+            tx.tx.wait_connection().await;
             let used = match rx.receive(buf).await {
                 Ok(u) => u,
                 Err(e) => {
@@ -586,7 +598,7 @@ pub const fn min_key_needed(lists: &[&[Key]]) -> usize {
         u32::from_le_bytes(crate::Key4::from_key8(key).0)
     }
     const fn eight(key: Key) -> u64 {
-        u64::from_le_bytes(key.0)
+        u64::from_le_bytes(key.to_bytes())
     }
 
     keycheck! {

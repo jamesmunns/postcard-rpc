@@ -20,7 +20,7 @@ use postcard_rpc::{
     define_dispatch,
     header::VarHeader,
     server::{
-        impls::embassy_usb_v0_4::{
+        impls::embassy_usb_v0_5::{
             dispatch_impl::{
                 spawn_fn, WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl,
             },
@@ -126,7 +126,7 @@ async fn main(spawner: Spawner) {
     // SYSTEM INIT
     info!("Start");
     let mut p = embassy_rp::init(Default::default());
-    let unique_id = defmt::unwrap!(get_unique_id(&mut p.FLASH));
+    let unique_id = defmt::unwrap!(get_unique_id(p.FLASH.reborrow()));
     info!("id: {=u64:016X}", unique_id);
 
     // PIO/WS2812 INIT
@@ -163,6 +163,10 @@ async fn main(spawner: Spawner) {
     };
 
     let (device, tx_impl, rx_impl) = STORAGE.init(driver, config, pbufs.tx_buf.as_mut_slice());
+
+    // Set timeout to 4ms/frame, instead of the default 2ms/frame
+    tx_impl.set_timeout_ms_per_frame(4).await;
+
     let dispatcher = MyApp::new(context, spawner.into());
     let vkk = dispatcher.min_key_len();
     let mut server: AppServer = Server::new(

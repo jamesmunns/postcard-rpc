@@ -96,7 +96,7 @@ macro_rules! endpoints {
     };
     (@ep_tys omit_std=true; $([[$($meta:meta)?] $ep_name:ident])*) => {
         const {
-            const LISTS: &[&[&'static postcard_schema::schema::NamedType]] = &[
+            const LISTS: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
                 $(
                     $(#[$meta])?
                     $crate::unique_types!(<$ep_name as $crate::Endpoint>::Request),
@@ -106,24 +106,24 @@ macro_rules! endpoints {
             ];
 
             const TTL_COUNT: usize = $crate::uniques::total_len(LISTS);
-            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
-            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
+            const SMALL_RPT: [&'static $crate::postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
     };
     (@ep_tys omit_std=false; $([[$($meta:meta)?] $ep_name:ident])*) => {
         const {
-            const USER_TYS: &[&'static postcard_schema::schema::NamedType] =
+            const USER_TYS: &[&'static $crate::postcard_schema::schema::NamedType] =
                 $crate::endpoints!(@ep_tys omit_std=true; $([[$($meta)?] $ep_name])*);
-            const STD_TYS: &[&'static postcard_schema::schema::NamedType]
+            const STD_TYS: &[&'static $crate::postcard_schema::schema::NamedType]
                 = $crate::standard_icd::STANDARD_ICD_ENDPOINTS.types;
 
-            const BOTH: &[&[&'static postcard_schema::schema::NamedType]] = &[
+            const BOTH: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
                 USER_TYS, STD_TYS,
             ];
             const TTL_COUNT: usize = $crate::uniques::total_len(BOTH);
-            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(BOTH);
-            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(BOTH);
+            const SMALL_RPT: [&'static $crate::postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
     };
@@ -271,7 +271,6 @@ macro_rules! topic {
 ///    | Topic2         | Message2      | "topics/two"      |
 /// }
 /// ```
-
 #[macro_export]
 macro_rules! topics {
     (@tp_tys ( $dir:expr ) $([[$($meta:meta)?] $tp_name:ident])*) => {
@@ -279,7 +278,7 @@ macro_rules! topics {
     };
     (@tp_tys ( $dir:expr ) omit_std=true; $([[$($meta:meta)?] $tp_name:ident])*) => {
         const {
-            const LISTS: &[&[&'static postcard_schema::schema::NamedType]] = &[
+            const LISTS: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
                 $(
                     $(#[$meta])?
                     $crate::unique_types!(<$tp_name as $crate::Topic>::Message),
@@ -287,28 +286,28 @@ macro_rules! topics {
             ];
 
             const TTL_COUNT: usize = $crate::uniques::total_len(LISTS);
-            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
-            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
+            const SMALL_RPT: [&'static $crate::postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
     };
     (@tp_tys ( $dir:expr ) omit_std=false; $([[$($meta:meta)?] $tp_name:ident])*) => {
         const {
-            const USER_TYS: &[&'static postcard_schema::schema::NamedType] =
+            const USER_TYS: &[&'static $crate::postcard_schema::schema::NamedType] =
                 $crate::topics!(@tp_tys ( $dir ) omit_std=true; $([[$($meta)?] $tp_name])*);
-            const STD_TYS: &[&'static postcard_schema::schema::NamedType] = const {
+            const STD_TYS: &[&'static $crate::postcard_schema::schema::NamedType] = const {
                 match $dir {
                     $crate::TopicDirection::ToServer => $crate::standard_icd::STANDARD_ICD_TOPICS_IN.types,
                     $crate::TopicDirection::ToClient => $crate::standard_icd::STANDARD_ICD_TOPICS_OUT.types,
                 }
             };
 
-            const BOTH: &[&[&'static postcard_schema::schema::NamedType]] = &[
+            const BOTH: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
                 STD_TYS, USER_TYS,
             ];
             const TTL_COUNT: usize = $crate::uniques::total_len(BOTH);
-            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(BOTH);
-            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+            const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(BOTH);
+            const SMALL_RPT: [&'static $crate::postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
     };

@@ -42,20 +42,39 @@ RUSTFLAGS="--cfg=web_sys_unstable_apis" \
 cargo check \
     --manifest-path source/postcard-rpc/Cargo.toml \
     --no-default-features \
-    --features=embassy-usb-0_3-server,embassy-usb-0_4-server,embedded-io-async-0_6-server \
+    --features=embassy-usb-0_3-server,embassy-usb-0_4-server \
+    --target thumbv7em-none-eabihf
+cargo check \
+    --manifest-path source/postcard-rpc/Cargo.toml \
+    --no-default-features \
+    --features=embassy-usb-0_5-server \
+    --target thumbv7em-none-eabihf
+cargo check \
+    --manifest-path source/postcard-rpc/Cargo.toml \
+    --no-default-features \
+    --features=embedded-io-async-0_6-server \
     --target thumbv7em-none-eabihf
 
 # Example projects
 cargo build \
     --manifest-path example/workbook-host/Cargo.toml
-# Current (embassy-usb v0.4)
+cargo build \
+    --manifest-path example/serial-host/Cargo.toml
+# Current (embassy-usb v0.5)
 cargo build \
     --manifest-path example/firmware/Cargo.toml \
     --target thumbv6m-none-eabi
-# Legacy (embassy-usb v0.3)
+# Legacy (embassy-usb v0.3/v0.4)
+cargo build \
+    --manifest-path example/firmware-eusb-v0_4/Cargo.toml \
+    --target thumbv6m-none-eabi
 cargo build \
     --manifest-path example/firmware-eusb-v0_3/Cargo.toml \
     --target thumbv6m-none-eabi
+# embedded-io support
+cargo build \
+    --manifest-path example/nrf52840-serial/Cargo.toml \
+    --target thumbv7em-none-eabihf
 
 # Test Project
 cargo test \

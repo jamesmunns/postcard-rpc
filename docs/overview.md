@@ -261,3 +261,25 @@ let client = HostClient::<WireError>::new("/dev/ttyUSB0", "error")?;
 let resp: Result<SleepDone, WireError> = client
     .req_resp::<Sleep, SleepDone>("sleep").await;
 ```
+
+#### Permissions on host
+
+Note that depending on your operating system you might need to grant access to the device for non-privileged users.
+For the provided example you can use the following [udev rules] on Linux:
+
+```
+# These rules are based on the udev rules from the OpenOCD + probe.rs projects
+#
+# This file is available under the GNU General Public License v2.0
+#
+# SETUP INSTRUCTIONS:
+#
+# 1. Copy/write/update this file to `/etc/udev/rules.d/60-postcard-rpc.rules`
+# 2. Run `sudo udevadm control --reload` to ensure the new rules are used
+# 3. Run `sudo udevadm trigger` to ensure the new rules are applied to already added devices.
+
+# Default demos from postcard-rpc - 16c0:27dd
+ACTION=="add|change", SUBSYSTEM=="usb|tty|hidraw", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="27dd", MODE="660", GROUP="plugdev", TAG+="uaccess"
+```
+
+[udev rules]: https://www.kernel.org/pub/linux/utils/kernel/hotplug/udev/udev.html

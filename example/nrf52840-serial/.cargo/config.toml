@@ -1,0 +1,12 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "probe-rs run --chip nrf52840_xxAA --protocol swd"
+
+[build]
+target = "thumbv7em-none-eabihf"
+
+[env]
+DEFMT_LOG = "debug"
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["panic_immediate_abort"]

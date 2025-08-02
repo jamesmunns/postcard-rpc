@@ -17,8 +17,24 @@ concurrency:
 permissions: {}
 
 jobs:
-  ubuntu:
-    runs-on: ubuntu-latest
+  ci-nowindows:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - run: ./ci.sh
+        shell: bash
+      - run: ./ci-stubs.sh
+        shell: bash
+  ci-windows:
+    strategy:
+      matrix:
+        os: [windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./ci.sh
+        shell: bash
+      # don't run ci-stubs on windows, the linker gets mad

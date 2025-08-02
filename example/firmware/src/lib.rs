@@ -12,7 +12,7 @@ use {
             PIN_26, PIN_3, PIN_4, PIN_5, PIN_6, PIN_7, SPI0, USB,
         },
         spi::{self, Async, Spi},
-        usb,
+        usb, Peri,
     },
     embassy_time::Delay,
     embedded_hal_bus::spi::ExclusiveDevice,
@@ -30,7 +30,7 @@ bind_interrupts!(pub struct Irqs {
 pub const NUM_SMARTLEDS: usize = 24;
 
 /// Helper to get unique ID from flash
-pub fn get_unique_id(flash: &mut FLASH) -> Option<u64> {
+pub fn get_unique_id(flash: Peri<'_, FLASH>) -> Option<u64> {
     let mut flash: Flash<'_, FLASH, Blocking, { 16 * 1024 * 1024 }> = Flash::new_blocking(flash);
 
     // TODO: For different flash chips, we want to handle things
@@ -64,14 +64,14 @@ impl Buttons {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        b01: PIN_0,
-        b02: PIN_1,
-        b03: PIN_2,
-        b04: PIN_3,
-        b05: PIN_18,
-        b06: PIN_19,
-        b07: PIN_20,
-        b08: PIN_21,
+        b01: Peri<'static, PIN_0>,
+        b02: Peri<'static, PIN_1>,
+        b03: Peri<'static, PIN_2>,
+        b04: Peri<'static, PIN_3>,
+        b05: Peri<'static, PIN_18>,
+        b06: Peri<'static, PIN_19>,
+        b07: Peri<'static, PIN_20>,
+        b08: Peri<'static, PIN_21>,
     ) -> Self {
         Self {
             buttons: [
@@ -106,7 +106,7 @@ pub struct Potentiometer {
 }
 
 impl Potentiometer {
-    pub fn new(adc: ADC, pin: PIN_26) -> Self {
+    pub fn new(adc: Peri<'static, ADC>, pin: Peri<'static, PIN_26>) -> Self {
         let adc = Adc::new(adc, Irqs, AdcConfig::default());
         let p26 = adc::Channel::new_pin(pin, Pull::None);
         Self { adc, p26 }
@@ -145,13 +145,13 @@ pub struct AccelReading {
 
 impl Accelerometer {
     pub async fn new(
-        periph: SPI0,
-        clk: PIN_6,
-        copi: PIN_7,
-        cipo: PIN_4,
-        csn: PIN_5,
-        tx_dma: DMA_CH1,
-        rx_dma: DMA_CH2,
+        periph: Peri<'static, SPI0>,
+        clk: Peri<'static, PIN_6>,
+        copi: Peri<'static, PIN_7>,
+        cipo: Peri<'static, PIN_4>,
+        csn: Peri<'static, PIN_5>,
+        tx_dma: Peri<'static, DMA_CH1>,
+        rx_dma: Peri<'static, DMA_CH2>,
     ) -> Self {
         let mut cfg = spi::Config::default();
         cfg.frequency = 1_000_000;

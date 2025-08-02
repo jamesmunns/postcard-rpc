@@ -38,7 +38,7 @@ async fn main(spawner: Spawner) {
     info!("Start");
 
     let mut p = embassy_rp::init(Default::default());
-    let unique_id = get_unique_id(&mut p.FLASH).unwrap();
+    let unique_id = get_unique_id(p.FLASH.reborrow()).unwrap();
     info!("id: {=u64:016X}", unique_id);
 
     // PIO/WS2812 INIT

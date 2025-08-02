@@ -69,7 +69,7 @@ endpoint!(
     SleepEndpoint,  // This is the NAME of the Endpoint
     Sleep,          // This is the Request type
     SleepDone,      // This is the Response type
-    "sleep",        // This is the "path" of the endpoint
+    "sleep"         // This is the "path" of the endpoint
 );
 
 
@@ -83,7 +83,7 @@ Although many problems can be solved using a Request/Response pattern, it is als
 "unsolicited" messages. Two common cases are "streaming" and "notifications".
 
 "Streaming" is relevant when you are sending a LOT of messages, for example sending continuous
-sendor readings, and where making one request for every response would add a lot of overhead.
+sensor readings, and where making one request for every response would add a lot of overhead.
 
 "Notifications" are relevant when you are RARELY sending messages, but don't want to constantly
 "poll" for a result.

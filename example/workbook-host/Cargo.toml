@@ -15,10 +15,6 @@ features = [
     "cobs-serial",
 ]
 
-[dependencies.postcard-schema]
-version = "0.2"
-features = ["derive"]
-
 [dependencies.tokio]
 version = "1.37.0"
 features = [

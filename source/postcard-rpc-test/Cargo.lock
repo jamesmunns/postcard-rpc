@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "postcard-rpc"
-version = "0.11.5"
+version = "0.11.11"
 dependencies = [
  "heapless 0.8.0",
  "maitake-sync",
@@ -423,9 +423,9 @@ dependencies = [
 
 [[package]]
 name = "postcard-schema"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7532d2f032349d41dc760c9fe5247fcb5660c689caf4884822603983a5a9a66"
+checksum = "c98992e1df1b362752a27492fc45d8a8d3c73a5a65fa4a049e34a2fdb582cde3"
 dependencies = [
  "postcard-derive 0.2.1",
  "serde",
