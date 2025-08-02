@@ -89,7 +89,7 @@ impl<Rx: Read, Tx: Write, M: RawMutex + 'static, const RXB: usize, const TXB: us
     }
 
     /// Create a new Wire pair using this storage
-    pub fn init(&'static self, t: Tx, r: Rx) -> Option<(EioWireRx<Rx>, EioWireTx<M, Tx>)> {
+    pub fn init(&'static self, r: Rx, t: Tx) -> Option<(EioWireRx<Rx>, EioWireTx<M, Tx>)> {
         let (rxb, txb) = self.bufs.try_take()?;
         let txi = self.tx.try_init(Mutex::new(EioWireTxInner {
             t,
