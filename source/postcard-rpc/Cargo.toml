@@ -27,7 +27,7 @@ features = [
 ]
 
 [dependencies]
-cobs = { version = "0.2.3", optional = true, default-features = false }
+cobs = { version = "0.4", optional = true, default-features = false }
 defmt = { version = "0.3.5", optional = true }
 heapless = "0.8.0"
 postcard = { version = "1.0.10" }
@@ -188,7 +188,9 @@ features = ["std"]
 
 
 [features]
-default = []
+default = [
+    "embedded-io-async-0_6-server",
+]
 test-utils = ["use-std", "postcard-schema/use-std"]
 use-std = [
     "dep:maitake-sync",
