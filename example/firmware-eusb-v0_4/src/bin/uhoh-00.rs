@@ -1,3 +1,5 @@
+//! This is what will be flashed to all boards before the workshop starts.
+
 #![no_std]
 #![no_main]
 
@@ -7,7 +9,7 @@ use embassy_rp::{peripherals::PIO0, pio::Pio};
 
 use embassy_time::{Duration, Ticker};
 
-use smart_leds::colors;
+use smart_leds::RGB;
 use workbook_fw::{
     get_unique_id,
     ws2812::{self, Ws2812},
@@ -26,7 +28,7 @@ async fn main(spawner: Spawner) {
     info!("Start");
 
     let mut p = embassy_rp::init(Default::default());
-    let unique_id = get_unique_id(p.FLASH.reborrow()).unwrap();
+    let unique_id = get_unique_id(&mut p.FLASH).unwrap();
     info!("id: {=u64:016X}", unique_id);
 
     // PIO/WS2812 INIT
@@ -34,42 +36,39 @@ async fn main(spawner: Spawner) {
         mut common, sm0, ..
     } = Pio::new(p.PIO0, ws2812::Irqs);
 
-    // GPIO25 is used for Smart LEDs
+    // GPIO25 is used for
     let ws2812: Ws2812<'static, PIO0, 0, NUM_SMARTLEDS> =
         Ws2812::new(&mut common, sm0, p.DMA_CH0, p.PIN_25);
 
-    // Start the LED task
+    // Start the
     spawner.must_spawn(led_task(ws2812));
 }
 
 // This is our LED task
 #[embassy_executor::task]
 async fn led_task(mut ws2812: Ws2812<'static, PIO0, 0, NUM_SMARTLEDS>) {
-    // Tick every 100ms
-    let mut ticker = Ticker::every(Duration::from_millis(100));
-    let mut idx = 0;
+    let mut ticker = Ticker::every(Duration::from_millis(25));
+    // Fade red up and down so I can see who hasn't been able to flash their board yet
     loop {
-        // Wait for the next update time
-        ticker.next().await;
+        // Up
+        for i in 0..=32 {
+            ticker.next().await;
+            let color = RGB { r: i, g: 0, b: 0 };
+            let colors = [color; NUM_SMARTLEDS];
+            ws2812.write(&colors).await;
+        }
 
-        let mut colors = [colors::BLACK; NUM_SMARTLEDS];
+        // Down
+        for i in (0..=32).rev() {
+            ticker.next().await;
+            let color = RGB { r: i, g: 0, b: 0 };
+            let colors = [color; NUM_SMARTLEDS];
+            ws2812.write(&colors).await;
+        }
 
-        // A little iterator trickery to pick a moving set of four LEDs
-        // to light up
-        let (before, after) = colors.split_at_mut(idx);
-        after
-            .iter_mut()
-            .chain(before.iter_mut())
-            .take(4)
-            .for_each(|l| {
-                // The LEDs are very bright!
-                *l = colors::GREEN / 16;
-            });
-
-        ws2812.write(&colors).await;
-        idx += 1;
-        if idx >= NUM_SMARTLEDS {
-            idx = 0;
+        // Wait
+        for _ in 0..=32 {
+            ticker.next().await;
         }
     }
 }

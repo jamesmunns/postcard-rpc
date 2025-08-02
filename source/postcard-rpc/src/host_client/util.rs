@@ -34,6 +34,14 @@ pub struct Stopper {
     inner: Arc<WaitQueue>,
 }
 
+impl core::fmt::Debug for Stopper {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Stopper")
+            .field("is_stopped", &self.is_stopped())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Stopper {
     /// Create a new Stopper
     pub fn new() -> Self {
@@ -174,7 +182,7 @@ where
 {
     loop {
         let Some(msg) = rec.recv().await else {
-            tracing::warn!("Receiver Closed, this could be bad");
+            tracing::info!("Receiver Closed");
             return;
         };
         if let Err(e) = wire.send(msg.to_bytes()).await {

@@ -1,3 +1,5 @@
+#![deny(missing_debug_implementations)]
+
 pub mod client;
 pub use workbook_icd as icd;
 

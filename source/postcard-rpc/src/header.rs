@@ -95,7 +95,9 @@ impl PartialEq for VarKey {
             (VarKey::Key1(self_key), VarKey::Key1(other_key)) => self_key.0.eq(&other_key.0),
             (VarKey::Key2(self_key), VarKey::Key2(other_key)) => self_key.0.eq(&other_key.0),
             (VarKey::Key4(self_key), VarKey::Key4(other_key)) => self_key.0.eq(&other_key.0),
-            (VarKey::Key8(self_key), VarKey::Key8(other_key)) => self_key.0.eq(&other_key.0),
+            (VarKey::Key8(self_key), VarKey::Key8(other_key)) => {
+                self_key.to_bytes().eq(&other_key.to_bytes())
+            }
 
             // For the rest of the options, degrade the LARGER key to the SMALLER key, and then
             // check for equivalence after that.
@@ -415,7 +417,7 @@ impl VarHeader {
             }
             VarKey::Key8(k) => {
                 disc_out = Self::KEY_EIGHT_BITS;
-                out.extend_from_slice(&k.0);
+                out.extend_from_slice(&k.to_bytes());
             }
         }
         match &self.seq_no {
@@ -475,7 +477,7 @@ impl VarHeader {
             VarKey::Key8(k) => {
                 *disc_out = Self::KEY_EIGHT_BITS;
                 let (keybs, remain2) = remain.split_at_mut_checked(8)?;
-                keybs.copy_from_slice(&k.0);
+                keybs.copy_from_slice(&k.to_bytes());
                 remain = remain2;
                 used += 8;
             }
@@ -542,7 +544,7 @@ impl VarHeader {
                 remain = remain2;
                 let mut buf = [0u8; 8];
                 buf.copy_from_slice(keybs);
-                VarKey::Key8(Key(buf))
+                VarKey::Key8(unsafe { Key::from_bytes(buf) })
             }
             // Impossible: all bits covered
             _ => unreachable!(),
@@ -630,7 +632,9 @@ mod test {
             ),
             (
                 VarHeader {
-                    key: VarKey::Key8(Key([0x12, 0x23, 0x34, 0x45, 0x56, 0x67, 0x78, 0x89])),
+                    key: VarKey::Key8(unsafe {
+                        Key::from_bytes([0x12, 0x23, 0x34, 0x45, 0x56, 0x67, 0x78, 0x89])
+                    }),
                     seq_no: VarSeq::Seq4(0x42_AF_AA_BB),
                 },
                 &[

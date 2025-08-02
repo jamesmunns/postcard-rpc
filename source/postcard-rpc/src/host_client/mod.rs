@@ -14,6 +14,8 @@ use std::{
     },
 };
 
+use thiserror::Error;
+
 use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,
@@ -56,6 +58,9 @@ pub enum HostErr<WireErr> {
     Wire(WireErr),
     /// We got a response that didn't match the expected value or the
     /// user specified wire error type
+    ///
+    /// This is also (misused) to report when duplicate sequence numbers
+    /// in-flight at the same time are detected.
     BadResponse,
     /// Deserialization of the message failed
     Postcard(postcard::Error),
@@ -179,6 +184,12 @@ pub struct HostClient<WireErr> {
     stopper: Stopper,
     seq_kind: VarSeqKind,
     _pd: PhantomData<fn() -> WireErr>,
+}
+
+impl<W> core::fmt::Debug for HostClient<W> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HostClient").finish_non_exhaustive()
+    }
 }
 
 /// # Constructor Methods
@@ -361,7 +372,9 @@ where
         resp_key.shrink_to(kkind);
         err_key.shrink_to(kkind);
 
-        // TODO: Do I need something like a .subscribe method to ensure this is enqueued?
+        // Prepare to receive the reply, BEFORE we send the request.
+        // This uses the `enqueue` feature of WaitMap, which makes sure that
+        // our receiver is ready to "catch" before we even send the request.
         let ok_resp = self.ctx.map.wait(VarHeader {
             seq_no: rqst.header.seq_no,
             key: resp_key,
@@ -370,6 +383,35 @@ where
             seq_no: rqst.header.seq_no,
             key: err_key,
         });
+        let mut ok_resp = std::pin::pin!(ok_resp);
+        let mut err_resp = std::pin::pin!(err_resp);
+        let setup_fut: Result<(), WaitError> = async {
+            ok_resp.as_mut().enqueue().await?;
+            err_resp.as_mut().enqueue().await?;
+            Ok(())
+        }
+        .await;
+
+        // If registering for the response failed, return an error
+        if let Err(e) = setup_fut {
+            return Err(match e {
+                WaitError::Closed => HostErr::Closed,
+                WaitError::Duplicate => {
+                    tracing::error!("Attempted to register a duplicate wait for a reply. This can happen if sequence numbers are reused.");
+                    // TODO: This is the wrong kind of error, but we don't want to report closed.
+                    // Fix this in the next breaking change of postcard-rpc, or make HostErr non-exhaustive
+                    HostErr::BadResponse
+                }
+
+                // These should never happen: NeverAdded and AlreadyConsumed
+                _ => {
+                    tracing::error!("Internal error setting up reply: {e:?}, closing");
+                    self.close();
+                    HostErr::Closed
+                }
+            });
+        };
+
         self.out.send(rqst).await.map_err(|_| HostErr::Closed)?;
 
         select! {
@@ -809,11 +851,13 @@ pub struct MultiSubscription<M> {
 }
 
 /// Recv
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 pub enum MultiSubRxError {
     /// The receiver was closed
+    #[error("Receiver closed")]
     IoClosed,
     /// Lagged behind, this many messages were lost
+    #[error("Lagged behind, lost {0} messages")]
     Lagged(u64),
 }
 
@@ -891,24 +935,34 @@ pub struct HostContext {
     subscription_timeout: Duration,
 }
 
+impl core::fmt::Debug for HostContext {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HostContext").finish_non_exhaustive()
+    }
+}
+
 /// The I/O worker has closed.
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("The I/O worker has closed")]
 pub struct IoClosed;
 
 /// The I/O worker has closed.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum SubscribeError {
     /// The subscription was already active
+    #[error("The subscription was already active")]
     AlreadySubscribed,
     /// The I/O worker has closed.
+    #[error("The I/O worker has closed")]
     IoClosed,
 }
 
 /// Error for [HostContext::process].
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 pub enum ProcessError {
     /// All [HostClient]s have been dropped, no further requests
     /// will be made and no responses will be processed.
+    #[error("All clients have been dropped")]
     Closed,
 }
 

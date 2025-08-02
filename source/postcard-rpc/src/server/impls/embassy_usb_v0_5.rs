@@ -2,16 +2,17 @@
 
 use crate::{
     header::{VarHeader, VarKey, VarKeyKind, VarSeq},
-    server::{WireRx, WireRxErrorKind, WireTx, WireTxErrorKind},
+    server::{WireRx, WireRxErrorKind, WireSpawn, WireTx, WireTxErrorKind},
     standard_icd::LoggingTopic,
     Topic,
 };
 use core::fmt::Arguments;
 use core::sync::atomic::{AtomicU8, Ordering};
+use embassy_executor::{SpawnError, SpawnToken, Spawner};
 use embassy_futures::select::{select, Either};
-use embassy_sync_0_6::{blocking_mutex::raw::RawMutex, mutex::Mutex};
+use embassy_sync_0_7::{blocking_mutex::raw::RawMutex, mutex::Mutex};
 use embassy_time::Timer;
-use embassy_usb_driver_0_1::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
+use embassy_usb_driver_0_2::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use serde::Serialize;
 use static_cell::ConstStaticCell;
 
@@ -23,13 +24,13 @@ static HDLR: ConstStaticCell<PoststationHandler> = ConstStaticCell::new(Poststat
 /// Default time in milliseconds to wait for the completion of sending
 pub const DEFAULT_TIMEOUT_MS_PER_FRAME: usize = 2;
 
-impl embassy_usb_0_4::Handler for PoststationHandler {
+impl embassy_usb_0_5::Handler for PoststationHandler {
     fn get_string(
         &mut self,
-        index: embassy_usb_0_4::types::StringIndex,
+        index: embassy_usb_0_5::types::StringIndex,
         lang_id: u16,
     ) -> Option<&str> {
-        use embassy_usb_0_4::descriptor::lang_id;
+        use embassy_usb_0_5::descriptor::lang_id;
 
         let stindx = STINDX.load(Ordering::Relaxed);
         if stindx == 0xFF {
@@ -45,20 +46,20 @@ impl embassy_usb_0_4::Handler for PoststationHandler {
 
 /// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
+    pub use super::embassy_spawn as spawn_fn;
     use super::{
         EUsbWireRx, EUsbWireTx, EUsbWireTxInner, UsbDeviceBuffers, DEFAULT_TIMEOUT_MS_PER_FRAME,
     };
-    pub use crate::server::impls::embassy_shared::embassy_spawn as spawn_fn;
 
     /// Used for defining the USB interface
     pub const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
-    use embassy_sync_0_6::{blocking_mutex::raw::RawMutex, mutex::Mutex};
-    use embassy_usb_0_4::{
+    use embassy_sync_0_7::{blocking_mutex::raw::RawMutex, mutex::Mutex};
+    use embassy_usb_0_5::{
         msos::{self, windows_version},
         Builder, Config, UsbDevice,
     };
-    use embassy_usb_driver_0_1::Driver;
+    use embassy_usb_driver_0_2::Driver;
     use static_cell::{ConstStaticCell, StaticCell};
 
     /// Type alias for `WireTx` impl
@@ -66,7 +67,7 @@ pub mod dispatch_impl {
     /// Type alias for `WireRx` impl
     pub type WireRxImpl<D> = super::EUsbWireRx<D>;
     /// Type alias for `WireSpawn` impl
-    pub type WireSpawnImpl = crate::server::impls::embassy_shared::EmbassyWireSpawn;
+    pub type WireSpawnImpl = super::EUsbWireSpawn;
     /// Type alias for the receive buffer
     pub type WireRxBuf = &'static mut [u8];
 
@@ -146,8 +147,8 @@ pub mod dispatch_impl {
             let stindx = interface.string();
             super::STINDX.store(stindx.0, core::sync::atomic::Ordering::Relaxed);
             let mut alt = interface.alt_setting(0xFF, 0xCA, 0x7D, Some(stindx));
-            let ep_out = alt.endpoint_bulk_out(64);
-            let ep_in = alt.endpoint_bulk_in(64);
+            let ep_out = alt.endpoint_bulk_out(None, 64);
+            let ep_in = alt.endpoint_bulk_in(None, 64);
             drop(function);
 
             let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
@@ -215,8 +216,8 @@ pub mod dispatch_impl {
             let mut function = builder.function(0xFF, 0, 0);
             let mut interface = function.interface();
             let mut alt = interface.alt_setting(0xFF, 0, 0, None);
-            let ep_out = alt.endpoint_bulk_out(64);
-            let ep_in = alt.endpoint_bulk_in(64);
+            let ep_out = alt.endpoint_bulk_out(None, 64);
+            let ep_in = alt.endpoint_bulk_in(None, 64);
             drop(function);
 
             let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
@@ -455,7 +456,13 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         // Calculate the TOTAL amount
         let act_used = ttl_len - remain;
 
-        send_all::<D>(ep_in, &tx_buf[..act_used], pending_frame, *timeout_ms_per_frame).await
+        send_all::<D>(
+            ep_in,
+            &tx_buf[..act_used],
+            pending_frame,
+            *timeout_ms_per_frame,
+        )
+        .await
     }
 }
 
@@ -638,8 +645,38 @@ impl<D: Driver<'static>> WireRx for EUsbWireRx<D> {
 //////////////////////////////////////////////////////////////////////////////
 // SPAWN
 //////////////////////////////////////////////////////////////////////////////
-pub use super::embassy_shared::embassy_spawn;
-pub use super::embassy_shared::EmbassyWireSpawn as EUsbWireSpawn;
+
+/// A [`WireSpawn`] impl using the embassy executor
+#[derive(Clone)]
+pub struct EUsbWireSpawn {
+    /// The embassy-executor spawner
+    pub spawner: Spawner,
+}
+
+impl From<Spawner> for EUsbWireSpawn {
+    fn from(value: Spawner) -> Self {
+        Self { spawner: value }
+    }
+}
+
+impl WireSpawn for EUsbWireSpawn {
+    type Error = SpawnError;
+
+    type Info = Spawner;
+
+    fn info(&self) -> &Self::Info {
+        &self.spawner
+    }
+}
+
+/// Attempt to spawn the given token
+pub fn embassy_spawn<Sp, S: Sized>(sp: &Sp, tok: SpawnToken<S>) -> Result<(), Sp::Error>
+where
+    Sp: WireSpawn<Error = SpawnError, Info = Spawner>,
+{
+    let info = sp.info();
+    info.spawn(tok)
+}
 
 //////////////////////////////////////////////////////////////////////////////
 // OTHER
@@ -706,7 +743,7 @@ pub mod fake {
         topics,
     };
     use crate::{header::VarHeader, Schema};
-    use embassy_usb_driver_0_1::{Bus, ControlPipe, EndpointIn, EndpointOut};
+    use embassy_usb_driver_0_2::{Bus, ControlPipe, EndpointAddress, EndpointIn, EndpointOut};
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Schema)]
@@ -768,8 +805,8 @@ pub mod fake {
     pub struct FakeCtlPipe;
     pub struct FakeBus;
 
-    impl embassy_usb_driver_0_1::Endpoint for FakeEpOut {
-        fn info(&self) -> &embassy_usb_driver_0_1::EndpointInfo {
+    impl embassy_usb_driver_0_2::Endpoint for FakeEpOut {
+        fn info(&self) -> &embassy_usb_driver_0_2::EndpointInfo {
             todo!()
         }
 
@@ -782,13 +819,13 @@ pub mod fake {
         async fn read(
             &mut self,
             _buf: &mut [u8],
-        ) -> Result<usize, embassy_usb_driver_0_1::EndpointError> {
+        ) -> Result<usize, embassy_usb_driver_0_2::EndpointError> {
             todo!()
         }
     }
 
-    impl embassy_usb_driver_0_1::Endpoint for FakeEpIn {
-        fn info(&self) -> &embassy_usb_driver_0_1::EndpointInfo {
+    impl embassy_usb_driver_0_2::Endpoint for FakeEpIn {
+        fn info(&self) -> &embassy_usb_driver_0_2::EndpointInfo {
             todo!()
         }
 
@@ -798,7 +835,10 @@ pub mod fake {
     }
 
     impl EndpointIn for FakeEpIn {
-        async fn write(&mut self, _buf: &[u8]) -> Result<(), embassy_usb_driver_0_1::EndpointError> {
+        async fn write(
+            &mut self,
+            _buf: &[u8],
+        ) -> Result<(), embassy_usb_driver_0_2::EndpointError> {
             todo!()
         }
     }
@@ -817,7 +857,7 @@ pub mod fake {
             _buf: &mut [u8],
             _first: bool,
             _last: bool,
-        ) -> Result<usize, embassy_usb_driver_0_1::EndpointError> {
+        ) -> Result<usize, embassy_usb_driver_0_2::EndpointError> {
             todo!()
         }
 
@@ -826,7 +866,7 @@ pub mod fake {
             _data: &[u8],
             _first: bool,
             _last: bool,
-        ) -> Result<(), embassy_usb_driver_0_1::EndpointError> {
+        ) -> Result<(), embassy_usb_driver_0_2::EndpointError> {
             todo!()
         }
 
@@ -852,13 +892,13 @@ pub mod fake {
             todo!()
         }
 
-        async fn poll(&mut self) -> embassy_usb_driver_0_1::Event {
+        async fn poll(&mut self) -> embassy_usb_driver_0_2::Event {
             todo!()
         }
 
         fn endpoint_set_enabled(
             &mut self,
-            _ep_addr: embassy_usb_driver_0_1::EndpointAddress,
+            _ep_addr: embassy_usb_driver_0_2::EndpointAddress,
             _enabled: bool,
         ) {
             todo!()
@@ -866,22 +906,25 @@ pub mod fake {
 
         fn endpoint_set_stalled(
             &mut self,
-            _ep_addr: embassy_usb_driver_0_1::EndpointAddress,
+            _ep_addr: embassy_usb_driver_0_2::EndpointAddress,
             _stalled: bool,
         ) {
             todo!()
         }
 
-        fn endpoint_is_stalled(&mut self, _ep_addr: embassy_usb_driver_0_1::EndpointAddress) -> bool {
+        fn endpoint_is_stalled(
+            &mut self,
+            _ep_addr: embassy_usb_driver_0_2::EndpointAddress,
+        ) -> bool {
             todo!()
         }
 
-        async fn remote_wakeup(&mut self) -> Result<(), embassy_usb_driver_0_1::Unsupported> {
+        async fn remote_wakeup(&mut self) -> Result<(), embassy_usb_driver_0_2::Unsupported> {
             todo!()
         }
     }
 
-    impl embassy_usb_driver_0_1::Driver<'static> for FakeDriver {
+    impl embassy_usb_driver_0_2::Driver<'static> for FakeDriver {
         type EndpointOut = FakeEpOut;
 
         type EndpointIn = FakeEpIn;
@@ -892,19 +935,21 @@ pub mod fake {
 
         fn alloc_endpoint_out(
             &mut self,
-            _ep_type: embassy_usb_driver_0_1::EndpointType,
+            _ep_type: embassy_usb_driver_0_2::EndpointType,
+            _ep_addr: Option<EndpointAddress>,
             _max_packet_size: u16,
             _interval_ms: u8,
-        ) -> Result<Self::EndpointOut, embassy_usb_driver_0_1::EndpointAllocError> {
+        ) -> Result<Self::EndpointOut, embassy_usb_driver_0_2::EndpointAllocError> {
             todo!()
         }
 
         fn alloc_endpoint_in(
             &mut self,
-            _ep_type: embassy_usb_driver_0_1::EndpointType,
+            _ep_type: embassy_usb_driver_0_2::EndpointType,
+            _ep_addr: Option<EndpointAddress>,
             _max_packet_size: u16,
             _interval_ms: u8,
-        ) -> Result<Self::EndpointIn, embassy_usb_driver_0_1::EndpointAllocError> {
+        ) -> Result<Self::EndpointIn, embassy_usb_driver_0_2::EndpointAllocError> {
             todo!()
         }
 
@@ -913,7 +958,7 @@ pub mod fake {
         }
     }
 
-    unsafe impl embassy_sync_0_6::blocking_mutex::raw::RawMutex for FakeMutex {
+    unsafe impl embassy_sync_0_7::blocking_mutex::raw::RawMutex for FakeMutex {
         const INIT: Self = Self;
 
         fn lock<R>(&self, _f: impl FnOnce() -> R) -> R {
@@ -939,7 +984,7 @@ pub mod fake {
     }
 
     // TODO: How to do module path concat?
-    use crate::server::impls::embassy_usb_v0_4::dispatch_impl::{
+    use crate::server::impls::embassy_usb_v0_5::dispatch_impl::{
         spawn_fn, WireSpawnImpl, WireTxImpl,
     };
 

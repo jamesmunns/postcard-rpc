@@ -113,13 +113,20 @@
 
 #![cfg_attr(not(any(test, feature = "use-std")), no_std)]
 #![deny(missing_docs)]
+#![deny(unused_imports)]
 #![deny(rustdoc::broken_intra_doc_links)]
+
+/// Re-export used by macros
+#[doc(hidden)]
+pub use postcard;
+/// Re-export used by macros
+#[doc(hidden)]
+pub use postcard_schema;
 
 use header::{VarKey, VarKeyKind};
 use postcard_schema::{schema::NamedType, Schema};
 use serde::{Deserialize, Serialize};
 
-pub mod hash;
 pub mod header;
 mod macros;
 pub mod server;
@@ -135,87 +142,10 @@ pub mod host_client;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-/// The `Key` uniquely identifies what "kind" of message this is.
-///
-/// In order to generate it, `postcard-rpc` takes two pieces of data:
-///
-/// * a `&str` "path" URI, similar to how you would use URIs as part of an HTTP path
-/// * The schema of the message type itself, using the experimental [schema] feature of `postcard`.
-///
-/// [schema]: https://docs.rs/postcard/latest/postcard/experimental/index.html#message-schema-generation
-///
-/// Specifically, we use [`Fnv1a`](https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function),
-/// and produce a 64-bit digest, by first hashing the path, then hashing the
-/// schema. Fnv1a is a non-cryptographic hash function, designed to be reasonably
-/// efficient to compute even on small platforms like microcontrollers.
-///
-/// Changing **anything** about *either* of the path or the schema will produce
-/// a drastically different `Key` value.
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash, Schema)]
-pub struct Key([u8; 8]);
-
-impl core::fmt::Debug for Key {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("Key(")?;
-        for b in self.0.iter() {
-            f.write_fmt(format_args!("{} ", b))?;
-        }
-        f.write_str(")")
-    }
-}
-
-impl Key {
-    /// Create a Key for the given type and path
-    pub const fn for_path<T>(path: &str) -> Self
-    where
-        T: Schema + ?Sized,
-    {
-        Key(crate::hash::fnv1a64::hash_ty_path::<T>(path))
-    }
-
-    /// Unsafely create a key from a given 8-byte value
-    ///
-    /// ## Safety
-    ///
-    /// This MUST only be used with pre-calculated values. Incorrectly
-    /// created keys could lead to the improper deserialization of
-    /// messages.
-    pub const unsafe fn from_bytes(bytes: [u8; 8]) -> Self {
-        Self(bytes)
-    }
-
-    /// Extract the bytes making up this key
-    pub const fn to_bytes(&self) -> [u8; 8] {
-        self.0
-    }
-
-    /// Compare 2 keys in const context.
-    pub const fn const_cmp(&self, other: &Self) -> bool {
-        let mut i = 0;
-        while i < self.0.len() {
-            if self.0[i] != other.0[i] {
-                return false;
-            }
-
-            i += 1;
-        }
-
-        true
-    }
-}
-
-#[cfg(feature = "use-std")]
-mod key_owned {
-    use super::*;
-    use postcard_schema::schema::owned::OwnedNamedType;
-    impl Key {
-        /// Calculate the Key for the given path and [`OwnedNamedType`]
-        pub fn for_owned_schema_path(path: &str, nt: &OwnedNamedType) -> Key {
-            Key(crate::hash::fnv1a64_owned::hash_ty_path_owned(path, nt))
-        }
-    }
-}
+// Re-export Key components that now live in postcard-schema instead
+// of here in postcard-rpc
+pub use postcard_schema::key::hash;
+pub use postcard_schema::key::Key;
 
 /// A compacted 2-byte key
 ///
@@ -268,7 +198,7 @@ impl Key1 {
     /// This is a lossy conversion, and can never fail
     #[inline]
     pub const fn from_key8(value: Key) -> Self {
-        let [a, b, c, d, e, f, g, h] = value.0;
+        let [a, b, c, d, e, f, g, h] = value.to_bytes();
         Self(a ^ b ^ c ^ d ^ e ^ f ^ g ^ h)
     }
 
@@ -308,7 +238,7 @@ impl Key2 {
     /// This is a lossy conversion, and can never fail
     #[inline]
     pub const fn from_key8(value: Key) -> Self {
-        let [a, b, c, d, e, f, g, h] = value.0;
+        let [a, b, c, d, e, f, g, h] = value.to_bytes();
         Self([a ^ b ^ c ^ d, e ^ f ^ g ^ h])
     }
 
@@ -338,7 +268,7 @@ impl Key4 {
     /// This is a lossy conversion, and can never fail
     #[inline]
     pub const fn from_key8(value: Key) -> Self {
-        let [a, b, c, d, e, f, g, h] = value.0;
+        let [a, b, c, d, e, f, g, h] = value.to_bytes();
         Self([a ^ b, c ^ d, e ^ f, g ^ h])
     }
 
@@ -362,21 +292,46 @@ impl Key4 {
     }
 }
 
-impl Key {
-    /// This is an identity function, used for consistency
-    #[inline]
-    pub const fn from_key8(value: Key) -> Self {
-        value
-    }
+/// The source type was too small to create from
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct TooSmall;
 
-    /// Attempt to create a [`Key`] from a [`VarKey`].
-    ///
-    /// Only succeeds if `value` is a `VarKey::Key8`.
+impl TryFrom<&VarKey> for Key1 {
+    type Error = TooSmall;
+
     #[inline]
-    pub fn try_from_varkey(value: &VarKey) -> Option<Self> {
-        match value {
-            VarKey::Key8(key) => Some(*key),
-            _ => None,
+    fn try_from(value: &VarKey) -> Result<Self, Self::Error> {
+        Self::try_from_varkey(value).ok_or(TooSmall)
+    }
+}
+
+impl TryFrom<&VarKey> for Key2 {
+    type Error = TooSmall;
+
+    #[inline]
+    fn try_from(value: &VarKey) -> Result<Self, Self::Error> {
+        Self::try_from_varkey(value).ok_or(TooSmall)
+    }
+}
+
+impl TryFrom<&VarKey> for Key4 {
+    type Error = TooSmall;
+
+    #[inline]
+    fn try_from(value: &VarKey) -> Result<Self, Self::Error> {
+        Self::try_from_varkey(value).ok_or(TooSmall)
+    }
+}
+
+impl TryFrom<&VarKey> for Key {
+    type Error = TooSmall;
+
+    #[inline]
+    fn try_from(value: &VarKey) -> Result<Self, Self::Error> {
+        if let VarKey::Key8(key) = value {
+            Ok(*key)
+        } else {
+            Err(TooSmall)
         }
     }
 }

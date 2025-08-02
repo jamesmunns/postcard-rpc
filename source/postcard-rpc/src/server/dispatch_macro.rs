@@ -142,7 +142,7 @@ macro_rules! define_dispatch {
                 body: &[u8],
             ) -> Result<(), <Self::Tx as $crate::server::WireTx>::Error> {
                 let key = hdr.key;
-                let Some(keyb) = <$key_ty>::try_from_varkey(&key) else {
+                let Ok(keyb) = <$key_ty>::try_from(&key) else {
                     let err = $crate::standard_icd::WireError::KeyTooSmall;
                     return tx.error(hdr.seq_no, err).await;
                 };
@@ -150,7 +150,7 @@ macro_rules! define_dispatch {
                     // Standard ICD endpoints
                     <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$req_key_name => {
                         // Can we deserialize the request?
-                        let Ok(req) = postcard::from_bytes::<<$crate::standard_icd::PingEndpoint as $crate::Endpoint>::Request>(body) else {
+                        let Ok(req) = $crate::postcard::from_bytes::<<$crate::standard_icd::PingEndpoint as $crate::Endpoint>::Request>(body) else {
                             let err = $crate::standard_icd::WireError::DeserFailed;
                             return tx.error(hdr.seq_no, err).await;
                         };
@@ -164,7 +164,7 @@ macro_rules! define_dispatch {
                     $(
                         <$endpoint as $crate::Endpoint>::$req_key_name => {
                             // Can we deserialize the request?
-                            let Ok(req) = postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
+                            let Ok(req) = $crate::postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
                                 let err = $crate::standard_icd::WireError::DeserFailed;
                                 return tx.error(hdr.seq_no, err).await;
                             };
@@ -185,7 +185,7 @@ macro_rules! define_dispatch {
                     $(
                         <$topic_in as $crate::Topic>::$topic_key_name => {
                             // Can we deserialize the request?
-                            let Ok(msg) = postcard::from_bytes::<<$topic_in as $crate::Topic>::Message>(body) else {
+                            let Ok(msg) = $crate::postcard::from_bytes::<<$topic_in as $crate::Topic>::Message>(body) else {
                                 // This is a topic, not much to be done
                                 return Ok(());
                             };
@@ -387,6 +387,7 @@ macro_rules! define_dispatch {
         // This is overly complicated because I'm mixing const-time capabilities with
         // macro-time capabilities. I'm very open to other suggestions that achieve the
         // same outcome.
+        #[doc=concat!("This defines the postcard-rpc app implementation for ", stringify!($app_name))]
         pub type $app_name = impls::$app_name<{ sizer::NEEDED_SZ }>;
 
         mod impls {
@@ -406,15 +407,15 @@ macro_rules! define_dispatch {
                 ) -> Self {
                     const MAP: &$crate::DeviceMap = &$crate::DeviceMap {
                         types: const {
-                            const LISTS: &[&[&'static postcard_schema::schema::NamedType]] = &[
+                            const LISTS: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
                                 $endpoint_list.types,
                                 $topic_in_list.types,
                                 $topic_out_list.types,
                             ];
                             const TTL_COUNT: usize = $endpoint_list.types.len() + $topic_in_list.types.len() + $topic_out_list.types.len();
 
-                            const BIG_RPT: ([Option<&'static postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
-                            const SMALL_RPT: [&'static postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+                            const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
+                            const SMALL_RPT: [&'static $crate::postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
                             SMALL_RPT.as_slice()
                         },
                         endpoints: &$endpoint_list.endpoints,
