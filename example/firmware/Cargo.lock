@@ -1360,6 +1360,7 @@ dependencies = [
  "postcard-schema",
  "serde",
  "static_cell",
+ "thiserror 2.0.10",
 ]
 
 [[package]]
