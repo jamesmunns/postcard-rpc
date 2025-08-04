@@ -64,8 +64,8 @@ version = "0.3.69"
 optional = true
 
 [dependencies.thiserror]
-version = "1.0"
-optional = true
+version = "2"
+default-features = false
 
 [dependencies.web-sys]
 
@@ -195,7 +195,7 @@ use-std = [
     "dep:tokio",
     "postcard/use-std",
     "postcard-schema/use-std",
-    "dep:thiserror",
+    "thiserror/std",
     "dep:tracing",
     "dep:trait-variant",
     "dep:ssmarshal",

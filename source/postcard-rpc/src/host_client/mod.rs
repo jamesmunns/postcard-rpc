@@ -13,7 +13,6 @@ use std::{
         Arc, RwLock,
     },
 };
-
 use thiserror::Error;
 
 use maitake_sync::{
@@ -52,26 +51,24 @@ pub(crate) mod util;
 pub mod test_channels;
 
 /// Host Error Kind
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 pub enum HostErr<WireErr> {
     /// An error of the user-specified wire error type
+    #[error("a wire error occurred")]
     Wire(WireErr),
     /// We got a response that didn't match the expected value or the
     /// user specified wire error type
     ///
     /// This is also (misused) to report when duplicate sequence numbers
     /// in-flight at the same time are detected.
+    #[error("the response received didn't match the expected value or the wire error type")]
     BadResponse,
     /// Deserialization of the message failed
-    Postcard(postcard::Error),
+    #[error("message deserialization failed")]
+    Postcard(#[from] postcard::Error),
     /// The interface has been closed, and no further messages are possible
+    #[error("the interface has been closed, and no further messages are possible")]
     Closed,
-}
-
-impl<T> From<postcard::Error> for HostErr<T> {
-    fn from(value: postcard::Error) -> Self {
-        Self::Postcard(value)
-    }
 }
 
 impl<T> From<WaitError> for HostErr<T> {
@@ -230,17 +227,23 @@ where
 }
 
 /// Errors related to retrieving the schema
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum SchemaError<WireErr> {
     /// Some kind of communication error occurred
-    Comms(HostErr<WireErr>),
+    #[error("A communication error occurred")]
+    Comms(#[from] HostErr<WireErr>),
     /// An error occurred internally. Please open an issue.
+    #[error("An error occurred internally. Please open an issue.")]
     TaskError,
     /// Invalid report data was received, including endpoints or
     /// tasks that referred to unknown types. Please open an issue
+    #[error("Invalid report data was received. Please open an issue.")]
     InvalidReportData,
     /// Data was lost while transmitting. If a retry does not solve
     /// this, please open an issue.
+    #[error(
+        "Data was lost while transmitting. If a retry does not solve this, please open an issue."
+    )]
     LostData,
 }
 

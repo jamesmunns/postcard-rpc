@@ -675,6 +675,7 @@ dependencies = [
  "postcard-schema",
  "serde",
  "static_cell",
+ "thiserror",
 ]
 
 [[package]]
