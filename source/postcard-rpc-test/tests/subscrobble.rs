@@ -6,7 +6,10 @@ use std::sync::Arc;
 
 use postcard_schema::Schema;
 use serde::{Deserialize, Serialize};
-use tokio::{sync::mpsc, time::{sleep, timeout}};
+use tokio::{
+    sync::mpsc,
+    time::{sleep, timeout},
+};
 
 use postcard_rpc::{
     define_dispatch, endpoints,
@@ -262,9 +265,18 @@ async fn exclusive_subs_work() {
     let cli = client::new_from_channels(client_tx, client_rx, VarSeqKind::Seq1);
     #[allow(deprecated)]
     let mut sub = cli.subscribe::<ZetaTopic10>(16).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(10)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(20)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(30)).await.unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(10))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(20))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(30))
+        .await
+        .unwrap();
     let get_fut = async move {
         assert_eq!(sub.recv().await.unwrap(), ZMsg(10));
         assert_eq!(sub.recv().await.unwrap(), ZMsg(20));
@@ -275,9 +287,18 @@ async fn exclusive_subs_work() {
     // Old subs are killed
     #[allow(deprecated)]
     let mut sub2 = cli.subscribe::<ZetaTopic10>(16).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(11)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(21)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(31)).await.unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(11))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(21))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(31))
+        .await
+        .unwrap();
     // Ensure the sender has a chance to send the messages
     sleep(Duration::from_millis(10)).await;
     #[allow(deprecated)]
@@ -290,9 +311,18 @@ async fn exclusive_subs_work() {
         assert!(sub2.recv().await.is_none());
     };
     let _: () = timeout(Duration::from_millis(100), get_fut).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(12)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(22)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(32)).await.unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(12))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(22))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(32))
+        .await
+        .unwrap();
     let get_fut = async move {
         assert_eq!(sub3.recv().await.unwrap(), ZMsg(12));
         assert_eq!(sub3.recv().await.unwrap(), ZMsg(22));
@@ -300,15 +330,23 @@ async fn exclusive_subs_work() {
     };
     let _: () = timeout(Duration::from_millis(100), get_fut).await.unwrap();
 
-
     // Broadcast does not interfere
     #[allow(deprecated)]
     let mut sub4 = cli.subscribe::<ZetaTopic10>(16).await.unwrap();
     let mut sub5 = cli.subscribe_multi::<ZetaTopic10>(16).await.unwrap();
     sleep(Duration::from_millis(10)).await;
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(15)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(25)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(35)).await.unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(15))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(25))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(35))
+        .await
+        .unwrap();
     // Ensure the sender has a chance to send the messages
     sleep(Duration::from_millis(10)).await;
     #[allow(deprecated)]
@@ -322,8 +360,12 @@ async fn exclusive_subs_work() {
         assert_eq!(sub5.recv().await.unwrap(), ZMsg(25));
         assert_eq!(sub5.recv().await.unwrap(), ZMsg(35));
     };
-    let _: () = timeout(Duration::from_millis(100), get_fut_excl).await.unwrap();
-    let _: () = timeout(Duration::from_millis(100), get_fut_bcst).await.unwrap();
+    let _: () = timeout(Duration::from_millis(100), get_fut_excl)
+        .await
+        .unwrap();
+    let _: () = timeout(Duration::from_millis(100), get_fut_bcst)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -363,9 +405,18 @@ async fn broadcast_subs_work() {
     // Multi-Subbing works
     let mut sub1 = cli.subscribe_multi::<ZetaTopic10>(16).await.unwrap();
     let mut sub2 = cli.subscribe_multi::<ZetaTopic10>(16).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(10)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(20)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(30)).await.unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(10))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(20))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(30))
+        .await
+        .unwrap();
     let get_fut1 = async move {
         assert_eq!(sub1.recv().await.unwrap(), ZMsg(10));
         assert_eq!(sub1.recv().await.unwrap(), ZMsg(20));
@@ -384,9 +435,18 @@ async fn broadcast_subs_work() {
     let mut sub4 = cli.subscribe_multi::<ZetaTopic10>(16).await.unwrap();
     #[allow(deprecated)]
     let mut sub5 = cli.subscribe::<ZetaTopic10>(16).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(10)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(20)).await.unwrap();
-    server_sender.publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(30)).await.unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(10))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(20))
+        .await
+        .unwrap();
+    server_sender
+        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(30))
+        .await
+        .unwrap();
     let get_fut1 = async move {
         assert_eq!(sub3.recv().await.unwrap(), ZMsg(10));
         assert_eq!(sub3.recv().await.unwrap(), ZMsg(20));
@@ -405,5 +465,4 @@ async fn broadcast_subs_work() {
     let _: () = timeout(Duration::from_millis(100), get_fut1).await.unwrap();
     let _: () = timeout(Duration::from_millis(100), get_fut2).await.unwrap();
     let _: () = timeout(Duration::from_millis(100), get_fut3).await.unwrap();
-
 }

@@ -455,7 +455,13 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         // Calculate the TOTAL amount
         let act_used = ttl_len - remain;
 
-        send_all::<D>(ep_in, &tx_buf[..act_used], pending_frame, *timeout_ms_per_frame).await
+        send_all::<D>(
+            ep_in,
+            &tx_buf[..act_used],
+            pending_frame,
+            *timeout_ms_per_frame,
+        )
+        .await
     }
 }
 
@@ -798,7 +804,10 @@ pub mod fake {
     }
 
     impl EndpointIn for FakeEpIn {
-        async fn write(&mut self, _buf: &[u8]) -> Result<(), embassy_usb_driver_0_1::EndpointError> {
+        async fn write(
+            &mut self,
+            _buf: &[u8],
+        ) -> Result<(), embassy_usb_driver_0_1::EndpointError> {
             todo!()
         }
     }
@@ -872,7 +881,10 @@ pub mod fake {
             todo!()
         }
 
-        fn endpoint_is_stalled(&mut self, _ep_addr: embassy_usb_driver_0_1::EndpointAddress) -> bool {
+        fn endpoint_is_stalled(
+            &mut self,
+            _ep_addr: embassy_usb_driver_0_1::EndpointAddress,
+        ) -> bool {
             todo!()
         }
 

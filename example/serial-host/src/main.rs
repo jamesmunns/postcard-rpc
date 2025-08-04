@@ -1,6 +1,10 @@
 use std::time::Duration;
 
-use postcard_rpc::{header::VarSeqKind, host_client::HostClient, standard_icd::{PingEndpoint, WireError}};
+use postcard_rpc::{
+    header::VarSeqKind,
+    host_client::HostClient,
+    standard_icd::{PingEndpoint, WireError},
+};
 use tokio::time::sleep;
 
 #[tokio::main]
@@ -12,13 +16,8 @@ async fn main() {
 
     println!("Connecting to {dev}...");
 
-    let client = HostClient::<WireError>::new_serial_cobs(
-        dev,
-        "error",
-        64,
-        115_200,
-        VarSeqKind::Seq2,
-    );
+    let client =
+        HostClient::<WireError>::new_serial_cobs(dev, "error", 64, 115_200, VarSeqKind::Seq2);
 
     println!("Connected :)");
 

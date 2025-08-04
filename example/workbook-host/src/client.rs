@@ -55,13 +55,7 @@ impl WorkbookClient {
     }
 
     pub fn new_serial(port: &str) -> Self {
-        let client = HostClient::new_serial_cobs(
-            port,
-            ERROR_PATH,
-            8,
-            9600,
-            VarSeqKind::Seq2,
-        );
+        let client = HostClient::new_serial_cobs(port, ERROR_PATH, 8, 9600, VarSeqKind::Seq2);
         Self { client }
     }
 

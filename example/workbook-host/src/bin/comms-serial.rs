@@ -80,7 +80,11 @@ async fn main() {
                     }
                 };
 
-                let mut sub = client.client.subscribe_multi::<icd::AccelTopic>(8).await.unwrap();
+                let mut sub = client
+                    .client
+                    .subscribe_multi::<icd::AccelTopic>(8)
+                    .await
+                    .unwrap();
                 client.start_accelerometer(ms, range).await.unwrap();
                 println!("Started!");
                 let dur = Duration::from_millis(dur.into());
