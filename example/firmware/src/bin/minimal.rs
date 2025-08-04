@@ -2,7 +2,6 @@
 
 #![no_std]
 #![no_main]
-
 #![deny(missing_docs)]
 
 use defmt::info;

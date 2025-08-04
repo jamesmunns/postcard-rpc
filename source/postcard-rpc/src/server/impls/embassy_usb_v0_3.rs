@@ -750,7 +750,10 @@ pub mod fake {
     }
 
     impl EndpointIn for FakeEpIn {
-        async fn write(&mut self, _buf: &[u8]) -> Result<(), embassy_usb_driver_0_1::EndpointError> {
+        async fn write(
+            &mut self,
+            _buf: &[u8],
+        ) -> Result<(), embassy_usb_driver_0_1::EndpointError> {
             todo!()
         }
     }
@@ -824,7 +827,10 @@ pub mod fake {
             todo!()
         }
 
-        fn endpoint_is_stalled(&mut self, _ep_addr: embassy_usb_driver_0_1::EndpointAddress) -> bool {
+        fn endpoint_is_stalled(
+            &mut self,
+            _ep_addr: embassy_usb_driver_0_1::EndpointAddress,
+        ) -> bool {
             todo!()
         }
 

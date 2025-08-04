@@ -7,6 +7,17 @@ rustup target add \
     riscv32imac-unknown-none-elf \
     wasm32-unknown-unknown
 
+# formatting
+cargo fmt --all --manifest-path source/postcard-rpc/Cargo.toml -- --check
+cargo fmt --all --manifest-path example/workbook-host/Cargo.toml -- --check
+cargo fmt --all --manifest-path example/serial-host/Cargo.toml -- --check
+cargo fmt --all --manifest-path example/firmware/Cargo.toml -- --check
+cargo fmt --all --manifest-path example/firmware-eusb-v0_4/Cargo.toml -- --check
+cargo fmt --all --manifest-path example/firmware-eusb-v0_3/Cargo.toml -- --check
+cargo fmt --all --manifest-path example/nrf52840-serial/Cargo.toml -- --check
+cargo fmt --all --manifest-path example/esp32c6-serial/Cargo.toml -- --check
+cargo fmt --all --manifest-path source/postcard-rpc-test/Cargo.toml -- --check
+
 # Host + STD checks
 cargo check \
     --manifest-path source/postcard-rpc/Cargo.toml \
