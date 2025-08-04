@@ -29,13 +29,13 @@ pub mod impls;
 
 use core::{fmt::Arguments, ops::DerefMut};
 
-use postcard_schema::Schema;
-use serde::Serialize;
-
 use crate::{
     header::{VarHeader, VarKey, VarKeyKind, VarSeq},
     DeviceMap, Key, TopicDirection,
 };
+use postcard_schema::Schema;
+use serde::Serialize;
+use thiserror::Error;
 
 //////////////////////////////////////////////////////////////////////////////
 // TX
@@ -77,21 +77,24 @@ pub trait WireTx {
 }
 
 /// The base [`WireTx`] Error Kind
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Error)]
 #[non_exhaustive]
 pub enum WireTxErrorKind {
     /// The connection has been closed, and is unlikely to succeed until
     /// the connection is re-established. This will cause the Server run
     /// loop to terminate.
+    #[error("connection closed")]
     ConnectionClosed,
     /// Other unspecified errors
+    #[error("other")]
     Other,
     /// Timeout (WireTx impl specific) reached
+    #[error("timeout reached")]
     Timeout,
 }
 
 /// A conversion trait to convert a user error into a base Kind type
-pub trait AsWireTxErrorKind {
+pub trait AsWireTxErrorKind: core::error::Error {
     /// Convert the error type into a base type
     fn as_kind(&self) -> WireTxErrorKind;
 }
@@ -127,21 +130,24 @@ pub trait WireRx {
 }
 
 /// The base [`WireRx`] Error Kind
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Error)]
 #[non_exhaustive]
 pub enum WireRxErrorKind {
     /// The connection has been closed, and is unlikely to succeed until
     /// the connection is re-established. This will cause the Server run
     /// loop to terminate.
+    #[error("connection closed")]
     ConnectionClosed,
     /// The received message was too large for the server to handle
+    #[error("the received message was too large for the server to handle")]
     ReceivedMessageTooLarge,
     /// Other message kinds
+    #[error("other")]
     Other,
 }
 
 /// A conversion trait to convert a user error into a base Kind type
-pub trait AsWireRxErrorKind {
+pub trait AsWireRxErrorKind: core::error::Error {
     /// Convert the error type into a base type
     fn as_kind(&self) -> WireRxErrorKind;
 }
@@ -384,15 +390,18 @@ where
 }
 
 /// A type representing the different errors [`Server::run()`] may return
+#[derive(Debug, Error)]
 pub enum ServerError<Tx, Rx>
 where
     Tx: WireTx,
     Rx: WireRx,
 {
     /// A fatal error occurred with the [`WireTx::send()`] implementation
-    TxFatal(Tx::Error),
+    #[error("A fatal error occurred while transmitting")]
+    TxFatal(#[source] Tx::Error),
     /// A fatal error occurred with the [`WireRx::receive()`] implementation
-    RxFatal(Rx::Error),
+    #[error("A fatal error occurred while receiving")]
+    RxFatal(#[source] Rx::Error),
 }
 
 impl<Tx, Rx, Buf, D> Server<Tx, Rx, Buf, D>
