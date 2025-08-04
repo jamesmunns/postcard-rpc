@@ -18,6 +18,7 @@ use crate::{
     Topic,
 };
 use core::fmt::Arguments;
+use thiserror::Error;
 use tokio::{select, sync::mpsc};
 
 //////////////////////////////////////////////////////////////////////////////
@@ -212,9 +213,10 @@ impl WireTx for ChannelWireTx {
 }
 
 /// A wire tx error
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ChannelWireTxError {
     /// The receiver closed the channel
+    #[error("channel closed")]
     ChannelClosed,
 }
 
@@ -279,11 +281,13 @@ impl WireRx for ChannelWireRx {
 }
 
 /// A wire rx error
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ChannelWireRxError {
     /// The sender closed the channel
+    #[error("channel closed")]
     ChannelClosed,
     /// The sender sent a too-large message
+    #[error("message too large")]
     MessageTooLarge,
 }
 
