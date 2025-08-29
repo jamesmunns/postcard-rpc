@@ -127,6 +127,39 @@ macro_rules! define_dispatch {
         ($($endpoint:ty | $ep_flavor:tt | $ep_handler:ident)*)
         ($($topic_in:ty | $tp_flavor:tt | $tp_handler:ident)*)
     ) => {
+        impl $app_name<$n> {
+            /// Check if there are any unexpected duplicates, typically this occurs because
+            /// the user has set `omit_std`
+            #[doc(hidden)]
+            pub const fn has_dupe() -> bool {
+                const DUPE: bool = const {
+                    const ALL_KEYS: &[$key_ty] = &[
+                        <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$req_key_name,
+                        <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::$req_key_name,
+                        $(
+                            <$endpoint as $crate::Endpoint>::$req_key_name,
+                        )*
+                        $(
+                            <$topic_in as $crate::Topic>::$topic_key_name,
+                        )*
+                    ];
+                    const LEN: usize = ALL_KEYS.len();
+                    let mut i = 0;
+                    let mut dupe = false;
+                    while i < LEN {
+                        let mut j = i + 1;
+                        while j < LEN {
+                            dupe |= ALL_KEYS[i].const_cmp(&ALL_KEYS[j]);
+                            j += 1;
+                        }
+                        i += 1;
+                    }
+                    dupe
+                };
+                DUPE
+            }
+        }
+
         impl $crate::server::Dispatch for $app_name<$n> {
             type Tx = $tx_impl;
 
@@ -148,6 +181,9 @@ macro_rules! define_dispatch {
                 };
                 match keyb {
                     // Standard ICD endpoints
+                    //
+                    // WARNING! If you add any more standard icd endpoints, make sure you ALSO add them
+                    // to has_dupe above!
                     <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$req_key_name => {
                         // Can we deserialize the request?
                         let Ok(req) = $crate::postcard::from_bytes::<<$crate::standard_icd::PingEndpoint as $crate::Endpoint>::Request>(body) else {
@@ -160,7 +196,10 @@ macro_rules! define_dispatch {
                     <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::$req_key_name => {
                         tx.send_all_schemas(hdr, self.device_map).await
                     }
-                    // end
+                    // WARNING! If you add any more standard icd endpoints, make sure you ALSO add them
+                    // to has_dupe above!
+                    //
+                    // end standard_icd endpoints
                     $(
                         <$endpoint as $crate::Endpoint>::$req_key_name => {
                             // Can we deserialize the request?
@@ -389,6 +428,10 @@ macro_rules! define_dispatch {
         // same outcome.
         #[doc=concat!("This defines the postcard-rpc app implementation for ", stringify!($app_name))]
         pub type $app_name = impls::$app_name<{ sizer::NEEDED_SZ }>;
+        const HAS_DUPE: bool = $app_name::has_dupe();
+        const _DUPE_CHECK: () = const {
+            assert!(!HAS_DUPE, "Caught duplicate items. Is `omit_std` set? This is likely a bug in your code. See https://github.com/jamesmunns/postcard-rpc/issues/135.");
+        };
 
         mod impls {
             use super::*;
