@@ -142,6 +142,8 @@ pub struct SchemaTotals {
 
 endpoints! {
     list = STANDARD_ICD_ENDPOINTS;
+    // NOTE: "omit_std" should ONLY be used by the standard_icd! You should NOT set this
+    // in your code!
     omit_std = true;
     | EndpointTy            | RequestTy     | ResponseTy    | Path                       |
     | ----------            | ---------     | ----------    | ----                       |
@@ -152,6 +154,8 @@ endpoints! {
 topics! {
     list = STANDARD_ICD_TOPICS_OUT;
     direction = crate::TopicDirection::ToClient;
+    // NOTE: "omit_std" should ONLY be used by the standard_icd! You should NOT set this
+    // in your code!
     omit_std = true;
     | TopicTy               | MessageTy         | Path                          | Cfg                           |
     | -------               | ---------         | ----                          | ---                           |
@@ -164,6 +168,8 @@ topics! {
 topics! {
     list = STANDARD_ICD_TOPICS_IN;
     direction = crate::TopicDirection::ToServer;
+    // NOTE: "omit_std" should ONLY be used by the standard_icd! You should NOT set this
+    // in your code!
     omit_std = true;
     | TopicTy           | MessageTy         | Path                          | Cfg                           |
     | -------           | ---------         | ----                          | ---                           |
