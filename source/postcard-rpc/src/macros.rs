@@ -52,6 +52,8 @@ macro_rules! endpoint {
 /// Used to define multiple Endpoint marker types that implements the
 /// [Endpoint][crate::Endpoint] trait.
 ///
+/// NOTE: Do NOT set the `omit_std` flag in your code! This is for internal use only.
+///
 /// ```rust
 /// # use postcard_schema::Schema;
 /// # use serde::{Serialize, Deserialize};
@@ -244,6 +246,8 @@ macro_rules! topic {
 ///
 /// Used to define multiple Topic marker types that implements the
 /// [Topic][crate::Topic] trait.
+///
+/// NOTE: Do NOT set the `omit_std` flag in your code! This is for internal use only.
 ///
 /// ```rust
 /// # use postcard_schema::Schema;

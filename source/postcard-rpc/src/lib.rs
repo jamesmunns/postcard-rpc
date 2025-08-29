@@ -184,6 +184,12 @@ impl Key1 {
         Self(a ^ b)
     }
 
+    /// Compare if the keys match in a const context
+    #[inline]
+    pub const fn const_cmp(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+
     /// Convert from a 4-byte key
     ///
     /// This is a lossy conversion, and can never fail
@@ -233,6 +239,19 @@ impl Key2 {
         Self([a ^ b, c ^ d])
     }
 
+    /// Compare if the keys match in a const context
+    #[inline]
+    pub const fn const_cmp(&self, other: &Self) -> bool {
+        let mut i = 0;
+        while i < self.0.len() {
+            if self.0[i] == other.0[i] {
+                return true;
+            }
+            i += 1;
+        }
+        false
+    }
+
     /// Convert from a full size 8-byte key
     ///
     /// This is a lossy conversion, and can never fail
@@ -270,6 +289,19 @@ impl Key4 {
     pub const fn from_key8(value: Key) -> Self {
         let [a, b, c, d, e, f, g, h] = value.to_bytes();
         Self([a ^ b, c ^ d, e ^ f, g ^ h])
+    }
+
+    /// Compare if the keys match in a const context
+    #[inline]
+    pub const fn const_cmp(&self, other: &Self) -> bool {
+        let mut i = 0;
+        while i < self.0.len() {
+            if self.0[i] == other.0[i] {
+                return true;
+            }
+            i += 1;
+        }
+        false
     }
 
     /// Convert to the inner byte representation

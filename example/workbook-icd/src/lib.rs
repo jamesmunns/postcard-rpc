@@ -11,7 +11,6 @@ pub type AllLedArray = [Rgb8; 24];
 
 endpoints! {
     list = ENDPOINT_LIST;
-    omit_std = true;
     | EndpointTy                | RequestTy     | ResponseTy            | Path              |
     | ----------                | ---------     | ----------            | ----              |
     | PingEndpoint              | u32           | u32                   | "ping"            |
