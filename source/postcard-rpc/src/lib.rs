@@ -243,13 +243,12 @@ impl Key2 {
     #[inline]
     pub const fn const_cmp(&self, other: &Self) -> bool {
         let mut i = 0;
+        let mut all_match = true;
         while i < self.0.len() {
-            if self.0[i] == other.0[i] {
-                return true;
-            }
+            all_match &= self.0[i] == other.0[i];
             i += 1;
         }
-        false
+        all_match
     }
 
     /// Convert from a full size 8-byte key
@@ -295,13 +294,12 @@ impl Key4 {
     #[inline]
     pub const fn const_cmp(&self, other: &Self) -> bool {
         let mut i = 0;
+        let mut all_match = true;
         while i < self.0.len() {
-            if self.0[i] == other.0[i] {
-                return true;
-            }
+            all_match &= self.0[i] == other.0[i];
             i += 1;
         }
-        false
+        all_match
     }
 
     /// Convert to the inner byte representation
@@ -509,4 +507,51 @@ pub struct TopicMap {
     pub types: &'static [&'static NamedType],
     /// The list of topics by path string and topic key
     pub topics: &'static [(&'static str, Key)],
+}
+
+#[cfg(test)]
+mod test {
+    use postcard_schema::key::Key;
+
+    use crate::{Key1, Key2, Key4};
+
+    const K1: Key = unsafe { Key::from_bytes([1, 2, 3, 4, 5, 6, 7, 8]) };
+    const K2: Key = unsafe { Key::from_bytes([1, 2, 3, 4, 5, 6, 7, 9]) };
+    const K3: Key = unsafe { Key::from_bytes([1, 2, 3, 4, 5, 6, 7, 8]) };
+
+    #[test]
+    fn const_cmp8() {
+        assert!(K1.const_cmp(&K3));
+        assert!(!K1.const_cmp(&K2));
+    }
+
+    #[test]
+    fn const_cmp4() {
+        let k1 = Key4::from_key8(K1);
+        let k2 = Key4::from_key8(K2);
+        let k3 = Key4::from_key8(K3);
+
+        assert!(k1.const_cmp(&k3));
+        assert!(!k1.const_cmp(&k2));
+    }
+
+    #[test]
+    fn const_cmp2() {
+        let k1 = Key2::from_key8(K1);
+        let k2 = Key2::from_key8(K2);
+        let k3 = Key2::from_key8(K3);
+
+        assert!(k1.const_cmp(&k3));
+        assert!(!k1.const_cmp(&k2));
+    }
+
+    #[test]
+    fn const_cmp1() {
+        let k1 = Key1::from_key8(K1);
+        let k2 = Key1::from_key8(K2);
+        let k3 = Key1::from_key8(K3);
+
+        assert!(k1.const_cmp(&k3));
+        assert!(!k1.const_cmp(&k2));
+    }
 }
