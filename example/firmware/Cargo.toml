@@ -4,30 +4,44 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cortex-m                = { version = "0.7.6", features = ["inline-asm"] }
-embassy-executor        = { version = "0.7.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-rp              = { version = "0.6.0", features = ["rp2040", "defmt", "unstable-pac", "time-driver", "critical-section-impl"] }
-embassy-sync            = { version = "0.7.0", features = ["defmt"] }
-embassy-time            = { version = "0.4", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-usb             = { version = "0.5.0", features = ["defmt"] }
-embedded-hal-bus        = { version = "0.1",   features = ["async"] }
-lis3dh-async            = { version = "0.9.2", features = ["defmt"] }
-panic-probe             = { version = "0.3",   features = ["print-defmt"] }
-postcard-rpc            = { version = "0.11",   features = ["embassy-usb-0_5-server"] }
-portable-atomic         = { version = "1.6.0", features = ["critical-section"] }
+cortex-m = { version = "0.7.6", features = ["inline-asm"] }
+embassy-executor = { version = "0.9", features = [
+  "arch-cortex-m",
+  "executor-thread",
+  "executor-interrupt",
+  "defmt",
+] }
+embassy-rp = { version = "0.8.0", features = [
+  "rp2040",
+  "defmt",
+  "unstable-pac",
+  "time-driver",
+  "critical-section-impl",
+] }
+embassy-sync = { version = "0.7", features = ["defmt"] }
+embassy-time = { version = "0.5", features = [
+  "defmt",
+  "defmt-timestamp-uptime",
+] }
+embassy-usb = { version = "0.5.0", features = ["defmt"] }
+embedded-hal-bus = { version = "0.1", features = ["async"] }
+lis3dh-async = { version = "0.9.2", features = ["defmt"] }
+panic-probe = { version = "1", features = ["print-defmt"] }
+postcard-rpc = { version = "0.11", features = ["embassy-usb-0_5-server"] }
+portable-atomic = { version = "1.6.0", features = ["critical-section"] }
 
-workbook-icd            = { path = "../workbook-icd" }
+workbook-icd = { path = "../workbook-icd" }
 
-cortex-m-rt         = "0.7.0"
-defmt               = "1.0"
-defmt-rtt           = "1.0"
-embedded-hal-async  = "1.0"
-fixed               = "1.23.1"
-fixed-macro         = "1.2"
-pio                 = "0.2.1"
-pio-proc            = "0.2"
-smart-leds          = "0.4.0"
-static_cell         = "2.1"
+cortex-m-rt = "0.7.0"
+defmt = "1.0"
+defmt-rtt = "1.0"
+embedded-hal-async = "1.0"
+fixed = "1.23.1"
+fixed-macro = "1.2"
+pio = "0.3"
+pio-proc = "0.3"
+smart-leds = "0.4.0"
+static_cell = "2.1"
 
 [profile.release]
 debug = 2
@@ -37,4 +51,4 @@ codegen-units = 1
 incremental = false
 
 [patch.crates-io]
-postcard-rpc         = { path = "../../source/postcard-rpc" }
+postcard-rpc = { path = "../../source/postcard-rpc" }

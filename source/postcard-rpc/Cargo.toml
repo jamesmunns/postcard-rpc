@@ -14,22 +14,20 @@ readme = "../../README.md"
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "doc_cfg"]
 features = [
-    "test-utils",
-    "use-std",
-    "cobs-serial",
-    "raw-nusb",
-    "embassy-usb-0_3-server",
-    "embassy-usb-0_4-server",
-    "embassy-usb-0_5-server",
-    "embedded-io-async-0_6-server",
-    "_docs-fix",
-    # TODO: What to do about the webusb feature? Can we do separate target builds?
+  "test-utils",
+  "use-std",
+  "cobs-serial",
+  "raw-nusb",
+  "embassy-usb-0_5-server",
+  "embedded-io-async-0_6-server",
+  "_docs-fix",
+  # TODO: What to do about the webusb feature? Can we do separate target builds?
 ]
 
 [dependencies]
 cobs = { version = "0.4", optional = true, default-features = false }
-defmt = { version = "0.3.5", optional = true }
-heapless = "0.8.0"
+defmt = { version = "1.0", optional = true }
+heapless = "0.9"
 postcard = { version = "1.0.10" }
 serde = { version = "1.0.192", default-features = false, features = ["derive"] }
 postcard-schema = { version = "0.2.2", features = ["derive"] }
@@ -72,22 +70,22 @@ default-features = false
 version = "0.3.69"
 optional = true
 features = [
-    "Element",
-    "Navigator",
-    'Usb',
-    'UsbAlternateInterface',
-    'UsbConfiguration',
-    'UsbDeviceRequestOptions',
-    'UsbDevice',
-    'UsbDirection',
-    'UsbEndpoint',
-    'UsbInTransferResult',
-    'UsbControlTransferParameters',
-    'UsbOutTransferResult',
-    'UsbInterface',
-    'UsbRecipient',
-    'UsbRequestType',
-    "UsbTransferStatus",
+  "Element",
+  "Navigator",
+  'Usb',
+  'UsbAlternateInterface',
+  'UsbConfiguration',
+  'UsbDeviceRequestOptions',
+  'UsbDevice',
+  'UsbDirection',
+  'UsbEndpoint',
+  'UsbInTransferResult',
+  'UsbControlTransferParameters',
+  'UsbOutTransferResult',
+  'UsbInterface',
+  'UsbRecipient',
+  'UsbRequestType',
+  "UsbTransferStatus",
 ]
 
 [dependencies.gloo]
@@ -114,35 +112,14 @@ optional = true
 #
 # no_std-only features
 #
-
-[dependencies.embassy-usb-0_3]
-package = "embassy-usb"
-version = "0.3"
-optional = true
-
-[dependencies.embassy-usb-0_4]
-package = "embassy-usb"
-version = "0.4"
-optional = true
-
 [dependencies.embassy-usb-0_5]
 package = "embassy-usb"
 version = "0.5"
 optional = true
 
-[dependencies.embassy-usb-driver-0_1]
-package = "embassy-usb-driver"
-version = "0.1"
-optional = true
-
 [dependencies.embassy-usb-driver-0_2]
 package = "embassy-usb-driver"
 version = "0.2"
-optional = true
-
-[dependencies.embassy-sync-0_6]
-package = "embassy-sync"
-version = "0.6"
 optional = true
 
 [dependencies.embassy-sync-0_7]
@@ -155,7 +132,7 @@ version = "2.1"
 optional = true
 
 [dependencies.embassy-executor]
-version = "0.7"
+version = "0.9"
 optional = true
 
 [dependencies.embassy-futures]
@@ -163,7 +140,7 @@ version = "0.1"
 optional = true
 
 [dependencies.embassy-time]
-version = "0.4"
+version = "0.5"
 optional = true
 
 [dependencies.portable-atomic]
@@ -191,14 +168,14 @@ features = ["std"]
 default = []
 test-utils = ["use-std", "postcard-schema/use-std"]
 use-std = [
-    "dep:maitake-sync",
-    "dep:tokio",
-    "postcard/use-std",
-    "postcard-schema/use-std",
-    "thiserror/std",
-    "dep:tracing",
-    "dep:trait-variant",
-    "dep:ssmarshal",
+  "dep:maitake-sync",
+  "dep:tokio",
+  "postcard/use-std",
+  "postcard-schema/use-std",
+  "thiserror/std",
+  "dep:tracing",
+  "dep:trait-variant",
+  "dep:ssmarshal",
 ]
 
 # Cobs Serial support.
@@ -226,50 +203,31 @@ raw-nusb = ["dep:nusb", "use-std"]
 # rustflags = "--cfg=web_sys_unstable_apis"
 # ```
 webusb = [
-    "dep:gloo",
-    "dep:web-sys",
-    "dep:serde_json",
-    "dep:wasm-bindgen",
-    "dep:wasm-bindgen-futures",
-    "dep:js-sys",
-    "use-std",
-]
-embassy-usb-0_3-server = [
-    "dep:embassy-usb-0_3",
-    "dep:embassy-sync-0_6",
-    "dep:static_cell",
-    "dep:embassy-usb-driver-0_1",
-    "dep:embassy-executor",
-    "dep:embassy-time",
-    "dep:embassy-futures",
-]
-
-embassy-usb-0_4-server = [
-    "dep:embassy-usb-0_4",
-    "dep:embassy-sync-0_6",
-    "dep:static_cell",
-    "dep:embassy-usb-driver-0_1",
-    "dep:embassy-executor",
-    "dep:embassy-time",
-    "dep:embassy-futures",
+  "dep:gloo",
+  "dep:web-sys",
+  "dep:serde_json",
+  "dep:wasm-bindgen",
+  "dep:wasm-bindgen-futures",
+  "dep:js-sys",
+  "use-std",
 ]
 
 embassy-usb-0_5-server = [
-    "dep:embassy-usb-0_5",
-    "dep:embassy-sync-0_7",
-    "dep:static_cell",
-    "dep:embassy-usb-driver-0_2",
-    "dep:embassy-executor",
-    "dep:embassy-time",
-    "dep:embassy-futures",
+  "dep:embassy-usb-0_5",
+  "dep:embassy-sync-0_7",
+  "dep:static_cell",
+  "dep:embassy-usb-driver-0_2",
+  "dep:embassy-executor",
+  "dep:embassy-time",
+  "dep:embassy-futures",
 ]
 
 embedded-io-async-0_6-server = [
-    "dep:embassy-sync-0_7",
-    "dep:static_cell",
-    "dep:embassy-executor",
-    "dep:embedded-io-async-0_6",
-    "cobs",
+  "dep:embassy-sync-0_7",
+  "dep:static_cell",
+  "dep:embassy-executor",
+  "dep:embedded-io-async-0_6",
+  "cobs",
 ]
 
 # NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal

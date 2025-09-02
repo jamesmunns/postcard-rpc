@@ -4,22 +4,42 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cortex-m-rt         = "0.7.0"
-defmt               = "0.3"
-defmt-rtt           = "0.4"
-embedded-io-async   = "0.6.1"
-static_cell         = "2.1"
+cortex-m-rt = "0.7.0"
+defmt = "1.0"
+defmt-rtt = "1.0"
+embedded-io-async = "0.6.1"
+static_cell = "2.1"
 
-cortex-m            = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
-embassy-executor    = { version = "0.7.0", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-nrf         = { version = "0.5.0", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
-embassy-sync        = { version = "0.7", features = ["defmt"] }
-embassy-time        = { version = "0.4.0", features = ["defmt", "defmt-timestamp-uptime"] }
-panic-probe         = { version = "0.3",   features = ["print-defmt"] }
-postcard            = { version = "1.1.0" }
-postcard-rpc        = { version = "0.11.0",   features = ["embedded-io-async-0_6-server"] }
-postcard-schema     = { version = "0.2.0", features = ["derive"] }
-serde               = { version = "1.0", default-features = false }
+cortex-m = { version = "0.7.6", features = [
+  "inline-asm",
+  "critical-section-single-core",
+] }
+embassy-executor = { version = "0.9", features = [
+  "arch-cortex-m",
+  "executor-thread",
+  "executor-interrupt",
+  "defmt",
+] }
+embassy-nrf = { version = "0.7", features = [
+  "defmt",
+  "nrf52840",
+  "time-driver-rtc1",
+  "gpiote",
+  "unstable-pac",
+  "time",
+] }
+embassy-sync = { version = "0.7", features = ["defmt"] }
+embassy-time = { version = "0.5", features = [
+  "defmt",
+  "defmt-timestamp-uptime",
+] }
+panic-probe = { version = "1.0", features = ["print-defmt"] }
+postcard = { version = "1.1.0" }
+postcard-rpc = { version = "0.11.0", features = [
+  "embedded-io-async-0_6-server",
+] }
+postcard-schema = { version = "0.2.0", features = ["derive"] }
+serde = { version = "1.0", default-features = false }
 
 [profile.release]
 debug = 2
