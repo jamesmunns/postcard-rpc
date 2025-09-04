@@ -22,6 +22,10 @@ static HDLR: ConstStaticCell<PoststationHandler> = ConstStaticCell::new(Poststat
 
 /// Default time in milliseconds to wait for the completion of sending
 pub const DEFAULT_TIMEOUT_MS_PER_FRAME: usize = 2;
+/// Default max packet size for USB Full Speed
+pub const USB_FS_MAX_PACKET_SIZE: usize = 64;
+/// Default max packet size for USB High Speed
+pub const USB_HS_MAX_PACKET_SIZE: usize = 512;
 
 impl embassy_usb_0_5::Handler for PoststationHandler {
     fn get_string(
@@ -110,6 +114,7 @@ pub mod dispatch_impl {
             driver: D,
             config: Config<'static>,
             tx_buf: &'static mut [u8],
+            max_usb_frame_size: usize,
         ) -> (UsbDevice<'static, D>, WireTxImpl<M, D>, WireRxImpl<D>) {
             let bufs = self.bufs_usb.take();
 
@@ -156,6 +161,7 @@ pub mod dispatch_impl {
                 tx_buf,
                 pending_frame: false,
                 timeout_ms_per_frame: DEFAULT_TIMEOUT_MS_PER_FRAME,
+                max_usb_frame_size: max_usb_frame_size,
             }));
 
             // Build the builder.
@@ -172,8 +178,10 @@ pub mod dispatch_impl {
             driver: D,
             config: Config<'static>,
             tx_buf: &'static mut [u8],
+            max_usb_frame_size: usize,
         ) -> (UsbDevice<'static, D>, WireTxImpl<M, D>, WireRxImpl<D>) {
-            let (builder, wtx, wrx) = self.init_without_build(driver, config, tx_buf);
+            let (builder, wtx, wrx) =
+                self.init_without_build(driver, config, tx_buf, max_usb_frame_size);
             let usb = builder.build();
             (usb, wtx, wrx)
         }
@@ -185,7 +193,9 @@ pub mod dispatch_impl {
             driver: D,
             config: Config<'static>,
             tx_buf: &'static mut [u8],
+            max_usb_frame_size: usize,
         ) -> (Builder<'static, D>, WireTxImpl<M, D>, WireRxImpl<D>) {
+            assert!(max_usb_frame_size.is_power_of_two());
             let bufs = self.bufs_usb.take();
 
             let mut builder = Builder::new(
@@ -215,8 +225,8 @@ pub mod dispatch_impl {
             let mut function = builder.function(0xFF, 0, 0);
             let mut interface = function.interface();
             let mut alt = interface.alt_setting(0xFF, 0, 0, None);
-            let ep_out = alt.endpoint_bulk_out(None, 64);
-            let ep_in = alt.endpoint_bulk_in(None, 64);
+            let ep_out = alt.endpoint_bulk_out(None, max_usb_frame_size as u16);
+            let ep_in = alt.endpoint_bulk_in(None, max_usb_frame_size as u16);
             drop(function);
 
             let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
@@ -225,6 +235,7 @@ pub mod dispatch_impl {
                 tx_buf,
                 pending_frame: false,
                 timeout_ms_per_frame: DEFAULT_TIMEOUT_MS_PER_FRAME,
+                max_usb_frame_size: max_usb_frame_size,
             }));
 
             (builder, EUsbWireTx { inner: wtx }, EUsbWireRx { ep_out })
@@ -243,6 +254,7 @@ pub struct EUsbWireTxInner<D: Driver<'static>> {
     tx_buf: &'static mut [u8],
     pending_frame: bool,
     timeout_ms_per_frame: usize,
+    max_usb_frame_size: usize,
 }
 
 /// A [`WireTx`] implementation for embassy-usb 0.4.
@@ -313,6 +325,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             tx_buf,
             pending_frame,
             timeout_ms_per_frame,
+            max_usb_frame_size,
         }: &mut EUsbWireTxInner<D> = &mut inner;
 
         let (hdr_used, remain) = hdr.write_to_slice(tx_buf).ok_or(WireTxErrorKind::Other)?;
@@ -320,7 +333,14 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         let used_ttl = hdr_used.len() + bdy_used.len();
 
         if let Some(used) = tx_buf.get(..used_ttl) {
-            send_all::<D>(ep_in, used, pending_frame, *timeout_ms_per_frame).await
+            send_all::<D>(
+                ep_in,
+                used,
+                pending_frame,
+                *timeout_ms_per_frame,
+                *max_usb_frame_size,
+            )
+            .await
         } else {
             Err(WireTxErrorKind::Other)
         }
@@ -332,9 +352,17 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             ep_in,
             pending_frame,
             timeout_ms_per_frame,
+            max_usb_frame_size,
             ..
         }: &mut EUsbWireTxInner<D> = &mut inner;
-        send_all::<D>(ep_in, buf, pending_frame, *timeout_ms_per_frame).await
+        send_all::<D>(
+            ep_in,
+            buf,
+            pending_frame,
+            *timeout_ms_per_frame,
+            *max_usb_frame_size,
+        )
+        .await
     }
 
     async fn send_log_str(&self, kkind: VarKeyKind, s: &str) -> Result<(), Self::Error> {
@@ -346,6 +374,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             tx_buf,
             pending_frame,
             timeout_ms_per_frame,
+            max_usb_frame_size,
         }: &mut EUsbWireTxInner<D> = &mut inner;
 
         let key = match kkind {
@@ -366,7 +395,14 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
         let used_ttl = hdr_used.len() + bdy_used.len();
 
         if let Some(used) = tx_buf.get(..used_ttl) {
-            send_all::<D>(ep_in, used, pending_frame, *timeout_ms_per_frame).await
+            send_all::<D>(
+                ep_in,
+                used,
+                pending_frame,
+                *timeout_ms_per_frame,
+                *max_usb_frame_size,
+            )
+            .await
         } else {
             Err(WireTxErrorKind::Other)
         }
@@ -385,6 +421,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             tx_buf,
             pending_frame,
             timeout_ms_per_frame,
+            max_usb_frame_size,
         }: &mut EUsbWireTxInner<D> = &mut inner;
         let ttl_len = tx_buf.len();
 
@@ -460,6 +497,7 @@ impl<M: RawMutex + 'static, D: Driver<'static> + 'static> WireTx for EUsbWireTx<
             &tx_buf[..act_used],
             pending_frame,
             *timeout_ms_per_frame,
+            *max_usb_frame_size,
         )
         .await
     }
@@ -471,6 +509,7 @@ async fn send_all<D>(
     out: &[u8],
     pending_frame: &mut bool,
     timeout_ms_per_frame: usize,
+    max_usb_frame_size: usize,
 ) -> Result<(), WireTxErrorKind>
 where
     D: Driver<'static>,
@@ -481,7 +520,7 @@ where
 
     // Calculate an estimated timeout based on the number of frames we need to send
     // For now, we use 2ms/frame by default, rounded UP
-    let frames = (out.len() + 63) / 64;
+    let frames = out.len().div_ceil(max_usb_frame_size);
     let timeout_ms = frames * timeout_ms_per_frame;
 
     let send_fut = async {
@@ -492,17 +531,17 @@ where
         }
         *pending_frame = true;
 
-        // write in segments of 64. The last chunk may
-        // be 0 < len <= 64.
-        for ch in out.chunks(64) {
+        // write in segments of max_usb_frame_size. The last chunk may
+        // be 0 < len <= max_usb_frame_size.
+        for ch in out.chunks(max_usb_frame_size) {
             if ep_in.write(ch).await.is_err() {
                 return Err(WireTxErrorKind::ConnectionClosed);
             }
         }
-        // If the total we sent was a multiple of 64, send an
+        // If the total we sent was a multiple of max_usb_frame_size, send an
         // empty message to "flush" the transaction. We already checked
         // above that the len != 0.
-        if (out.len() & (64 - 1)) == 0 && ep_in.write(&[]).await.is_err() {
+        if (out.len() & (max_usb_frame_size - 1)) == 0 && ep_in.write(&[]).await.is_err() {
             return Err(WireTxErrorKind::ConnectionClosed);
         }
 
