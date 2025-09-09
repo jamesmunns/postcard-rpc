@@ -9,19 +9,11 @@ features = ["use-std"]
 
 [dependencies.postcard-rpc]
 version = "0.11"
-features = [
-    "use-std",
-    "raw-nusb",
-    "cobs-serial",
-]
+features = ["use-std", "raw-nusb", "cobs-serial"]
 
 [dependencies.tokio]
 version = "1.37.0"
-features = [
-    "rt-multi-thread",
-    "macros",
-    "time",
-]
+features = ["rt-multi-thread", "macros", "time"]
 
 [dependencies.tokio-serial]
 version = "5.4.4"

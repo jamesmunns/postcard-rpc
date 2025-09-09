@@ -10,9 +10,9 @@ embassy-executor = { version = "0.9", features = ["defmt"] }
 embassy-sync = { version = "0.7", features = ["defmt"] }
 embassy-time = "0.5"
 esp-hal = { version = "1.0.0-rc.0", features = [
-  "defmt",
-  "esp32c6",
-  "unstable",
+    "defmt",
+    "esp32c6",
+    "unstable",
 ] }
 esp-bootloader-esp-idf = { version = "0.2", features = ["esp32c6"] }
 esp-hal-smartled = { git = "https://github.com/esp-rs/esp-hal-community", rev = "20badf1b03727153074fd647b5a3c2a26310ad3e" }
