@@ -454,6 +454,7 @@ pub trait Topic {
 
 /// The direction of topic messages
 #[derive(Debug, PartialEq, Clone, Copy, Schema, Serialize, Deserialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TopicDirection {
     /// Topic messages sent TO the SERVER, FROM the CLIENT
     ToServer,

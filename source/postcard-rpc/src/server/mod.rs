@@ -78,6 +78,7 @@ pub trait WireTx {
 
 /// The base [`WireTx`] Error Kind
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum WireTxErrorKind {
     /// The connection has been closed, and is unlikely to succeed until
@@ -128,6 +129,7 @@ pub trait WireRx {
 
 /// The base [`WireRx`] Error Kind
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum WireRxErrorKind {
     /// The connection has been closed, and is unlikely to succeed until
@@ -393,6 +395,20 @@ where
     TxFatal(Tx::Error),
     /// A fatal error occurred with the [`WireRx::receive()`] implementation
     RxFatal(Rx::Error),
+}
+
+#[cfg(feature = "defmt")]
+impl<Tx, Rx> defmt::Format for ServerError<Tx, Rx>
+where
+    Tx: WireTx<Error: defmt::Format>,
+    Rx: WireRx <Error: defmt::Format>,
+{
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            ServerError::TxFatal(e) => defmt::write!(fmt, "Fatal Tx Error: {}", e),
+            ServerError::RxFatal(e) => defmt::write!(fmt, "Fatal Rx Error: {}", e),
+        }
+    }
 }
 
 impl<Tx, Rx, Buf, D> Server<Tx, Rx, Buf, D>
