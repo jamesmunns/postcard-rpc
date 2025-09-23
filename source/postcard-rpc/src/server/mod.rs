@@ -78,6 +78,7 @@ pub trait WireTx {
 
 /// The base [`WireTx`] Error Kind
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum WireTxErrorKind {
     /// The connection has been closed, and is unlikely to succeed until
@@ -128,6 +129,7 @@ pub trait WireRx {
 
 /// The base [`WireRx`] Error Kind
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum WireRxErrorKind {
     /// The connection has been closed, and is unlikely to succeed until
@@ -384,6 +386,7 @@ where
 }
 
 /// A type representing the different errors [`Server::run()`] may return
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ServerError<Tx, Rx>
 where
     Tx: WireTx,
