@@ -1,0 +1,16 @@
+[package]
+name = "workbook-usb-gadget-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+postcard-rpc = { version = "0.11.15", features = [ "usb-gadget", "tokio", "use-std"] }
+
+tokio = { version = "1.32", featrues = ["rt", "sync"] }
+usb-gadget = { version = "0.7", features = ["tokio"] }
+static_cell = "2.1.1"
+
+workbook-icd  = { path = "../workbook-icd" }
+
+[patch.crates-io]
+postcard-rpc = { path = "../../source/postcard-rpc" }
