@@ -254,7 +254,7 @@ impl WireTx for UsbGadgetWireTx {
         _kkind: crate::header::VarKeyKind,
         _s: &str,
     ) -> Result<(), Self::Error> {
-        todo!()
+        unimplemented!()
     }
 
     async fn send_log_fmt<'a>(
@@ -262,7 +262,7 @@ impl WireTx for UsbGadgetWireTx {
         _kkind: crate::header::VarKeyKind,
         _a: core::fmt::Arguments<'a>,
     ) -> Result<(), Self::Error> {
-        todo!()
+        unimplemented!()
     }
 }
 
