@@ -46,46 +46,21 @@ define_dispatch! {
 
 static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
 
-use usb_gadget::{function::custom::Event, Class, Gadget, Id, Strings};
+use usb_gadget::{Class, Gadget, Id, Strings};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     usb_gadget::remove_all().expect("cannot remove all gadgets");
 
     let gadget = Gadget::new(
-        Class::new(255, 255, 3),
+        Class::new(0xEF, 0x02, 0x01),
         Id::new(0xdead, 0xbeef),
-        Strings::new("manufacturer", "custom USB interface", "serial_number"),
+        Strings::new("manufacturer", "ov-twin", "serial_number"),
     );
 
     let context = Context;
-    let ((reg, mut custom), tx_impl, rx_impl) = STORAGE.init(gadget);
+    let (_reg, tx_impl, rx_impl) = STORAGE.init(gadget);
     let dispatcher = Dispatcher::new(context, tokio::runtime::Handle::current().into());
-
-    tokio::spawn(async move {
-        let mut ctrl_data = Vec::new();
-
-        custom.wait_event().await.expect("wait for event failed");
-        println!("event ready");
-        let event = custom.event().expect("event failed");
-
-        println!("Event: {event:?}");
-        match event {
-            Event::SetupHostToDevice(req) => {
-                if req.ctrl_req().request == 255 {
-                    println!("Stopping");
-                    todo!("STOP");
-                }
-                ctrl_data = req.recv_all().unwrap();
-                println!("Control data: {ctrl_data:x?}");
-            }
-            Event::SetupDeviceToHost(req) => {
-                println!("Replying with data");
-                req.send(&ctrl_data).unwrap();
-            }
-            _ => (),
-        }
-    });
 
     let rx_buf = RX_BUF.init([0u8; 1024]);
 
