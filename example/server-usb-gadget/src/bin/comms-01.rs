@@ -10,6 +10,7 @@ use postcard_rpc::{
 };
 use static_cell::StaticCell;
 use workbook_icd::{PingEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
+use usb_gadget::{Class, Gadget, Id, Strings};
 
 pub struct Context;
 
@@ -17,6 +18,9 @@ type AppTx = WireTxImpl;
 type AppRx = WireRxImpl;
 type AppServer = Server<AppTx, AppRx, WireRxBuf, Dispatcher>;
 
+
+static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
 static STORAGE: WireStorage = WireStorage::new();
 
 define_dispatch! {
@@ -44,10 +48,6 @@ define_dispatch! {
     };
 }
 
-static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
-
-use usb_gadget::{Class, Gadget, Id, Strings};
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     usb_gadget::remove_all().expect("cannot remove all gadgets");
@@ -59,10 +59,11 @@ async fn main() {
     );
 
     let context = Context;
-    let (_reg, tx_impl, rx_impl) = STORAGE.init(gadget);
-    let dispatcher = Dispatcher::new(context, tokio::runtime::Handle::current().into());
-
     let rx_buf = RX_BUF.init([0u8; 1024]);
+    let tx_buf = TX_BUF.init([0u8; 1024]);
+
+    let (_reg, tx_impl, rx_impl) = STORAGE.init(gadget, tx_buf.as_mut_slice());
+    let dispatcher = Dispatcher::new(context, tokio::runtime::Handle::current().into());
 
     let vkk = dispatcher.min_key_len();
     let mut server: AppServer =

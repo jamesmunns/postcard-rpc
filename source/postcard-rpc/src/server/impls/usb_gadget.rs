@@ -56,10 +56,14 @@ pub mod dispatch_impl {
             Self {}
         }
 
-        pub fn init(&'static self, gadget: Gadget) -> (RegGadget, WireTxImpl, WireRxImpl) {
+        pub fn init(
+            &'static self,
+            gadget: Gadget,
+            tx_buf: &'static mut [u8],
+        ) -> (RegGadget, WireTxImpl, WireRxImpl) {
             let udc = usb_gadget::default_udc().expect("cannot get UDC");
 
-            let ((gadget, handle), wtx, wrx) = self.init_without_build(gadget);
+            let ((gadget, handle), wtx, wrx) = self.init_without_build(gadget, tx_buf);
             let reg = gadget
                 .with_config(Config::new("config").with_function(handle))
                 .bind(&udc)
@@ -71,6 +75,7 @@ pub mod dispatch_impl {
         pub fn init_without_build(
             &'static self,
             gadget: Gadget,
+            tx_buf: &'static mut [u8],
         ) -> ((Gadget, Handle), WireTxImpl, WireRxImpl) {
             let (ep_tx, ep_tx_dir) = EndpointDirection::device_to_host();
             let (ep_rx, ep_rx_dir) = EndpointDirection::host_to_device();
@@ -119,7 +124,7 @@ pub mod dispatch_impl {
                 });
             }
 
-            let wtx = UsbGadgetWireTx::new(ep_tx, tx_enabled);
+            let wtx = UsbGadgetWireTx::new(ep_tx, tx_enabled, tx_buf);
             let wrx = UsbGadgetWireRx::new(ep_rx, rx_enabled);
 
             ((gadget, handle), wtx, wrx)
@@ -134,11 +139,15 @@ pub struct UsbGadgetWireTx {
 }
 
 impl UsbGadgetWireTx {
-    pub fn new(ep_tx: EndpointSender, ep_enabled: Arc<AtomicBool>) -> Self {
+    pub fn new(
+        ep_tx: EndpointSender,
+        ep_enabled: Arc<AtomicBool>,
+        tx_buf: &'static mut [u8],
+    ) -> Self {
         let inner = UsbGadgetWireTxInner {
             ep_tx,
             ep_enabled,
-            tx_buf: vec![0u8; 1024],
+            tx_buf,
             pending_frame: false,
         };
 
@@ -152,7 +161,7 @@ impl UsbGadgetWireTx {
 struct UsbGadgetWireTxInner {
     ep_tx: EndpointSender,
     ep_enabled: Arc<AtomicBool>,
-    tx_buf: Vec<u8>,
+    tx_buf: &'static mut [u8],
     pending_frame: bool,
 }
 
