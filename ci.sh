@@ -5,7 +5,8 @@ rustup target add \
     thumbv6m-none-eabi \
     thumbv7em-none-eabihf \
     riscv32imac-unknown-none-elf \
-    wasm32-unknown-unknown
+    wasm32-unknown-unknown \
+    x86_64-unknown-linux-gnu
 
 # formatting
 cargo fmt --all --manifest-path source/postcard-rpc/Cargo.toml -- --check
@@ -84,7 +85,8 @@ cargo build \
     --target riscv32imac-unknown-none-elf
 # USB gadget (OTG)
 cargo build \
-    --manifest-path example/server-usb-gadget/Cargo.toml
+    --manifest-path example/server-usb-gadget/Cargo.toml \
+    --target x86_64-unknown-linux-gnu
 
 # Test Project
 cargo test \

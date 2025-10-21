@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 postcard-rpc = { version = "0.11.15", features = [ "usb-gadget", "tokio", "use-std"] }
 
-tokio = { version = "1.32", featrues = ["rt", "sync"] }
+tokio = { version = "1.32", features = ["rt", "sync"] }
 usb-gadget = { version = "0.7", features = ["tokio"] }
 static_cell = "2.1.1"
 
