@@ -62,7 +62,7 @@ async fn main() {
     let rx_buf = RX_BUF.init([0u8; 1024]);
     let tx_buf = TX_BUF.init([0u8; 1024]);
 
-    let (_reg, tx_impl, rx_impl) = STORAGE.init(gadget, tx_buf.as_mut_slice());
+    let (_reg, tx_impl, rx_impl) = STORAGE.init(gadget, tx_buf.as_mut_slice()).expect("Failed to init");
     let dispatcher = Dispatcher::new(context, tokio::runtime::Handle::current().into());
 
     let vkk = dispatcher.min_key_len();

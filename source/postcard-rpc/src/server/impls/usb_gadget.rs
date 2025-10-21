@@ -60,16 +60,15 @@ pub mod dispatch_impl {
             &'static self,
             gadget: Gadget,
             tx_buf: &'static mut [u8],
-        ) -> (RegGadget, WireTxImpl, WireRxImpl) {
-            let udc = usb_gadget::default_udc().expect("cannot get UDC");
+        ) -> Result<(RegGadget, WireTxImpl, WireRxImpl), io::Error> {
+            let udc = usb_gadget::default_udc()?;
 
             let ((gadget, handle), wtx, wrx) = self.init_without_build(gadget, tx_buf);
             let reg = gadget
                 .with_config(Config::new("config").with_function(handle))
-                .bind(&udc)
-                .expect("cannot bind to UDC");
+                .bind(&udc)?;
 
-            (reg, wtx, wrx)
+            Ok((reg, wtx, wrx))
         }
 
         pub fn init_without_build(
