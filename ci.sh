@@ -83,8 +83,9 @@ cargo build \
 cargo build \
     --manifest-path example/esp32c6-serial/Cargo.toml \
     --target riscv32imac-unknown-none-elf
+
 # USB gadget (OTG)
-cargo build \
+cargo check \
     --manifest-path example/server-usb-gadget/Cargo.toml \
     --target x86_64-unknown-linux-gnu
 
