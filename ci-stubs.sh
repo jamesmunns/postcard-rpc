@@ -6,10 +6,4 @@ set -euxo pipefail
 # Run stub test checks
 cargo test \
     --manifest-path source/postcard-rpc/Cargo.toml \
-    --features=embassy-usb-0_3-server
-cargo test \
-    --manifest-path source/postcard-rpc/Cargo.toml \
-    --features=embassy-usb-0_4-server
-cargo test \
-    --manifest-path source/postcard-rpc/Cargo.toml \
     --features=embassy-usb-0_5-server

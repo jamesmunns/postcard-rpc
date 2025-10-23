@@ -2,12 +2,6 @@
 //!
 //! The implementations in this module typically require feature flags to be set.
 
-#[cfg(feature = "embassy-usb-0_3-server")]
-pub mod embassy_usb_v0_3;
-
-#[cfg(feature = "embassy-usb-0_4-server")]
-pub mod embassy_usb_v0_4;
-
 #[cfg(feature = "embassy-usb-0_5-server")]
 pub mod embassy_usb_v0_5;
 
@@ -18,8 +12,6 @@ pub mod embedded_io_async_v0_6;
 pub mod test_channels;
 
 #[cfg(any(
-    feature = "embassy-usb-0_3-server",
-    feature = "embassy-usb-0_4-server",
     feature = "embassy-usb-0_5-server",
     feature = "embedded-io-async-0_6-server",
 ))]

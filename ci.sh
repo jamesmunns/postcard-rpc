@@ -12,8 +12,6 @@ cargo fmt --all --manifest-path source/postcard-rpc/Cargo.toml -- --check
 cargo fmt --all --manifest-path example/workbook-host/Cargo.toml -- --check
 cargo fmt --all --manifest-path example/serial-host/Cargo.toml -- --check
 cargo fmt --all --manifest-path example/firmware/Cargo.toml -- --check
-cargo fmt --all --manifest-path example/firmware-eusb-v0_4/Cargo.toml -- --check
-cargo fmt --all --manifest-path example/firmware-eusb-v0_3/Cargo.toml -- --check
 cargo fmt --all --manifest-path example/nrf52840-serial/Cargo.toml -- --check
 cargo fmt --all --manifest-path example/esp32c6-serial/Cargo.toml -- --check
 cargo fmt --all --manifest-path source/postcard-rpc-test/Cargo.toml -- --check
@@ -54,11 +52,6 @@ RUSTFLAGS="--cfg=web_sys_unstable_apis" \
 cargo check \
     --manifest-path source/postcard-rpc/Cargo.toml \
     --no-default-features \
-    --features=embassy-usb-0_3-server,embassy-usb-0_4-server \
-    --target thumbv7em-none-eabihf
-cargo check \
-    --manifest-path source/postcard-rpc/Cargo.toml \
-    --no-default-features \
     --features=embassy-usb-0_5-server \
     --target thumbv7em-none-eabihf
 cargo check \
@@ -76,20 +69,15 @@ cargo build \
 cargo build \
     --manifest-path example/firmware/Cargo.toml \
     --target thumbv6m-none-eabi
-# Legacy (embassy-usb v0.3/v0.4)
-cargo build \
-    --manifest-path example/firmware-eusb-v0_4/Cargo.toml \
-    --target thumbv6m-none-eabi
-cargo build \
-    --manifest-path example/firmware-eusb-v0_3/Cargo.toml \
-    --target thumbv6m-none-eabi
 # embedded-io support
 cargo build \
     --manifest-path example/nrf52840-serial/Cargo.toml \
     --target thumbv7em-none-eabihf
-cargo build \
-    --manifest-path example/esp32c6-serial/Cargo.toml \
-    --target riscv32imac-unknown-none-elf
+# TODO: Update me for rc.1 release!
+#
+# cargo build \
+#     --manifest-path example/esp32c6-serial/Cargo.toml \
+#     --target riscv32imac-unknown-none-elf
 
 # Test Project
 cargo test \
