@@ -389,8 +389,8 @@ where
         let mut ok_resp = std::pin::pin!(ok_resp);
         let mut err_resp = std::pin::pin!(err_resp);
         let setup_fut: Result<(), WaitError> = async {
-            ok_resp.as_mut().enqueue().await?;
-            err_resp.as_mut().enqueue().await?;
+            ok_resp.as_mut().subscribe().await?;
+            err_resp.as_mut().subscribe().await?;
             Ok(())
         }
         .await;

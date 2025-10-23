@@ -2,7 +2,7 @@
 runner = "probe-rs run --chip RP2040 --speed 12000 --protocol swd"
 
 [build]
-target = "thumbv6m-none-eabi"        # Cortex-M0 and Cortex-M0+
+target = "thumbv6m-none-eabi" # Cortex-M0 and Cortex-M0+
 
 [env]
 DEFMT_LOG = "debug"
