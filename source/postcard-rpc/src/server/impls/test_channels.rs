@@ -214,6 +214,7 @@ impl WireTx for ChannelWireTx {
 
 /// A wire tx error
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ChannelWireTxError {
     /// The receiver closed the channel
     #[error("channel closed")]
@@ -282,6 +283,7 @@ impl WireRx for ChannelWireRx {
 
 /// A wire rx error
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ChannelWireRxError {
     /// The sender closed the channel
     #[error("channel closed")]

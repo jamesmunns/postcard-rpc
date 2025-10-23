@@ -20,6 +20,7 @@ pub const ERROR_PATH: &str = "error";
 
 /// The given frame was too long
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FrameTooLong {
     /// The length of the too-long frame
     pub len: u32,
@@ -29,6 +30,7 @@ pub struct FrameTooLong {
 
 /// The given frame was too short
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FrameTooShort {
     /// The length of the too-short frame
     pub len: u32,
@@ -37,6 +39,7 @@ pub struct FrameTooShort {
 /// A protocol error that is handled outside of the normal request type, usually
 /// indicating a protocol-level error
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WireError {
     /// The frame exceeded the buffering capabilities of the server
     FrameTooLong(FrameTooLong),
@@ -127,6 +130,7 @@ pub enum OwnedSchemaData {
 
 /// A summary of all messages sent when streaming schema data
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SchemaTotals {
     /// A count of the number of (Owned)SchemaData::Type messages sent
     pub types_sent: u32,
