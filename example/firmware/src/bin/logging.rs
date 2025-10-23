@@ -12,7 +12,7 @@ use postcard_rpc::{
     server::{
         impls::embassy_usb_v0_5::{
             dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl},
-            PacketBuffers,
+            PacketBuffers, USB_FS_MAX_PACKET_SIZE,
         },
         Dispatch, Sender, Server,
     },
@@ -87,7 +87,12 @@ async fn main(spawner: Spawner) {
 
     let context = Context {};
 
-    let (device, tx_impl, rx_impl) = STORAGE.init(driver, config, pbufs.tx_buf.as_mut_slice());
+    let (device, tx_impl, rx_impl) = STORAGE.init(
+        driver,
+        config,
+        pbufs.tx_buf.as_mut_slice(),
+        USB_FS_MAX_PACKET_SIZE,
+    );
     let dispatcher = MyApp::new(context, spawner.into());
     let vkk = dispatcher.min_key_len();
     let server: AppServer = Server::new(
