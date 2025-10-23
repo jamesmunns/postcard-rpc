@@ -3,8 +3,8 @@
 
 use embassy_executor::Spawner;
 use esp_hal::{
-    clock::CpuClock, efuse, rmt::Rmt, time::Rate, timer::systimer::SystemTimer,
-    usb_serial_jtag::UsbSerialJtag,
+    clock::CpuClock, efuse, interrupt::software::SoftwareInterruptControl, rmt::Rmt, time::Rate,
+    timer::systimer::SystemTimer, usb_serial_jtag::UsbSerialJtag,
 };
 use esp_hal_smartled::SmartLedsAdapter;
 use panic_rtt_target as _;
@@ -18,14 +18,16 @@ pub mod handlers;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-#[esp_hal_embassy::main]
+#[esp_rtos::main]
 async fn main(spawner: Spawner) {
     rtt_target::rtt_init_defmt!();
 
     let p = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 
+    let sw_int = SoftwareInterruptControl::new(p.SW_INTERRUPT);
     let timer0 = SystemTimer::new(p.SYSTIMER);
-    esp_hal_embassy::init(timer0.alarm0);
+
+    esp_rtos::start(timer0.alarm0, sw_int.software_interrupt0);
 
     let (rx, tx) = UsbSerialJtag::new(p.USB_DEVICE).into_async().split();
     let (rx_impl, tx_impl) = STORAGE.init(rx, tx).unwrap();

@@ -2,11 +2,10 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use esp_hal::Async;
-use esp_hal::rmt::{ConstChannelAccess, Tx as RmtTx};
 use esp_hal::usb_serial_jtag::{UsbSerialJtagRx, UsbSerialJtagTx};
 use panic_rtt_target as _;
 
-use esp_hal_smartled::{SmartLedsAdapter, smart_led_buffer};
+use esp_hal_smartled::{SmartLedsAdapter, buffer_size};
 use postcard_rpc::server::SpawnContext;
 use postcard_rpc::server::impls::embedded_io_async_v0_6::WireStorage;
 use smart_leds::RGB8;
@@ -31,7 +30,7 @@ use crate::handlers::{ping_handler, set_all_led_handler, set_led_handler, unique
 
 // Describe the single smartled on the ESP32-C6-DevKitC-1 board.
 pub const LED_COUNT: usize = 1;
-pub const LED_BUFFER_SIZE: usize = const { smart_led_buffer!(1).len() };
+pub const LED_BUFFER_SIZE: usize = const { buffer_size(1) };
 
 /// Context contains the data that we will pass (as a mutable reference)
 /// to each endpoint or topic handler
@@ -39,7 +38,7 @@ pub struct Context {
     /// We'll use this unique ID to identify ourselves to the poststation
     /// server. This should be unique per device.
     pub unique_id: u64,
-    pub led: SmartLedsAdapter<ConstChannelAccess<RmtTx, 0>, LED_BUFFER_SIZE>,
+    pub led: SmartLedsAdapter<'static, LED_BUFFER_SIZE>,
     pub leds: [RGB8; LED_COUNT],
 }
 
