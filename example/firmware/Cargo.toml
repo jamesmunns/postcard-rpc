@@ -27,7 +27,7 @@ embassy-usb = { version = "0.5.0", features = ["defmt"] }
 embedded-hal-bus = { version = "0.1", features = ["async"] }
 lis3dh-async = { version = "0.9.2", features = ["defmt"] }
 panic-probe = { version = "1", features = ["print-defmt"] }
-postcard-rpc = { version = "0.11", features = ["embassy-usb-0_5-server"] }
+postcard-rpc = { version = "0.12", features = ["embassy-usb-0_5-server"] }
 portable-atomic = { version = "1.6.0", features = ["critical-section"] }
 
 workbook-icd = { path = "../workbook-icd" }
