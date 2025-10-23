@@ -25,7 +25,7 @@ serde = { version = "1.0", default-features = false }
 smart-leds = "0.4.0"
 
 postcard = { version = "1" }
-postcard-rpc = { version = "0.11", features = ["embedded-io-async-0_6-server"] }
+postcard-rpc = { version = "0.12", features = ["embedded-io-async-0_6-server"] }
 postcard-schema = { version = "0.2.0", features = ["derive"] }
 
 workbook-icd = { path = "../workbook-icd" }
