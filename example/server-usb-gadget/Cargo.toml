@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-postcard-rpc = { version = "0.11.15", features = [ "usb-gadget", "tokio", "use-std"] }
+postcard-rpc = { version = "0.12", features = [ "usb-gadget", "tokio", "use-std"] }
 
 tokio = { version = "1.32", features = ["rt", "sync"] }
 usb-gadget = { version = "0.7", features = ["tokio"] }
