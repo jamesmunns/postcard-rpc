@@ -6,7 +6,12 @@ use core::{
 };
 use std::sync::Arc;
 
-use crate::server::{WireRx, WireRxErrorKind, WireTx, WireTxErrorKind};
+use crate::{
+    header::{VarHeader, VarKey, VarKeyKind, VarSeq},
+    server::{WireRx, WireRxErrorKind, WireTx, WireTxErrorKind},
+    standard_icd::LoggingTopic,
+    Topic,
+};
 
 use bytes::Bytes;
 use tokio::sync::Mutex;
@@ -131,6 +136,10 @@ pub mod dispatch_impl {
     }
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// RX
+//////////////////////////////////////////////////////////////////////////////
+
 /// The WireTX impl for usb-gadget
 #[derive(Debug, Clone)]
 pub struct UsbGadgetWireTx {
@@ -146,6 +155,7 @@ impl UsbGadgetWireTx {
         let inner = UsbGadgetWireTxInner {
             ep_tx,
             ep_enabled,
+            log_seq: 0,
             tx_buf,
             pending_frame: false,
         };
@@ -160,6 +170,7 @@ impl UsbGadgetWireTx {
 struct UsbGadgetWireTxInner {
     ep_tx: EndpointSender,
     ep_enabled: Arc<AtomicBool>,
+    log_seq: u16,
     tx_buf: &'static mut [u8],
     pending_frame: bool,
 }
@@ -259,20 +270,208 @@ impl WireTx for UsbGadgetWireTx {
 
     async fn send_log_str(
         &self,
-        _kkind: crate::header::VarKeyKind,
-        _s: &str,
+        kkind: crate::header::VarKeyKind,
+        s: &str,
     ) -> Result<(), Self::Error> {
-        unimplemented!()
+        let bytes = {
+            let mut inner = self.inner.lock().await;
+            let UsbGadgetWireTxInner {
+                log_seq, tx_buf, ..
+            } = &mut *inner;
+
+            let key = match kkind {
+                VarKeyKind::Key1 => VarKey::Key1(LoggingTopic::TOPIC_KEY1),
+                VarKeyKind::Key2 => VarKey::Key2(LoggingTopic::TOPIC_KEY2),
+                VarKeyKind::Key4 => VarKey::Key4(LoggingTopic::TOPIC_KEY4),
+                VarKeyKind::Key8 => VarKey::Key8(LoggingTopic::TOPIC_KEY),
+            };
+            let ctr = *log_seq;
+            *log_seq = log_seq.wrapping_add(1);
+            let wh = VarHeader {
+                key,
+                seq_no: VarSeq::Seq2(ctr),
+            };
+
+            let (hdr_used, remain) = wh.write_to_slice(tx_buf).ok_or(WireTxErrorKind::Other)?;
+            let bdy_used = postcard::to_slice(s, remain).map_err(|_| WireTxErrorKind::Other)?;
+            let used_total = hdr_used.len() + bdy_used.len();
+
+            tx_buf
+                .get(..used_total)
+                .map(|used| Bytes::copy_from_slice(used))
+        };
+
+        match &bytes {
+            Some(bytes) => self.send_raw(bytes).await,
+            None => Err(WireTxErrorKind::Other),
+        }
     }
 
     async fn send_log_fmt<'a>(
         &self,
-        _kkind: crate::header::VarKeyKind,
-        _a: core::fmt::Arguments<'a>,
+        kkind: crate::header::VarKeyKind,
+        args: core::fmt::Arguments<'a>,
     ) -> Result<(), Self::Error> {
-        unimplemented!()
+        let bytes = {
+            let mut inner = self.inner.lock().await;
+            let UsbGadgetWireTxInner {
+                log_seq, tx_buf, ..
+            } = &mut *inner;
+
+            let ttl_len = tx_buf.len();
+            let key = match kkind {
+                VarKeyKind::Key1 => VarKey::Key1(LoggingTopic::TOPIC_KEY1),
+                VarKeyKind::Key2 => VarKey::Key2(LoggingTopic::TOPIC_KEY2),
+                VarKeyKind::Key4 => VarKey::Key4(LoggingTopic::TOPIC_KEY4),
+                VarKeyKind::Key8 => VarKey::Key8(LoggingTopic::TOPIC_KEY),
+            };
+            let ctr = *log_seq;
+            *log_seq = log_seq.wrapping_add(1);
+            let wh = VarHeader {
+                key,
+                seq_no: VarSeq::Seq2(ctr),
+            };
+
+            let Some((_hdr, remaining)) = wh.write_to_slice(tx_buf) else {
+                return Err(WireTxErrorKind::Other);
+            };
+            let max_log_len = actual_varint_max_len(remaining.len());
+
+            // Then, reserve space for non-canonical length fields
+            // We also set all but the last bytes to be "continuation"
+            // bytes
+            if remaining.len() < max_log_len {
+                return Err(WireTxErrorKind::Other);
+            }
+
+            let (len_field, body) = remaining.split_at_mut(max_log_len);
+            for b in len_field.iter_mut() {
+                *b = 0x80;
+            }
+            if let Some(b) = len_field.last_mut() {
+                *b = 0x00;
+            }
+
+            // Then, do the formatting
+            let body_len = body.len();
+            let mut sw = SliceWriter(body);
+            let res = core::fmt::write(&mut sw, args);
+
+            // Calculate the number of bytes used *for formatting*.
+            let remain = sw.0.len();
+            let used = body_len - remain;
+
+            // If we had an error, that's probably because we ran out
+            // of room. If we had an error, AND there is at least three
+            // bytes, then replace those with '.'s like ...
+            if res.is_err() && (body.len() >= 3) {
+                let start = body.len() - 3;
+                body[start..].iter_mut().for_each(|b| *b = b'.');
+            }
+
+            // then go back and fill in the len - we write the len
+            // directly to the reserved bytes, and if we DIDN'T use
+            // the full space, we mark the end of the real length as
+            // a continuation field. This will result in a non-canonical
+            // "extended" length in postcard, and will "spill into" the
+            // bytes we wrote previously above
+            let mut len_bytes = [0u8; varint_max::<usize>()];
+            let len_used = varint_usize(used, &mut len_bytes);
+            if len_used.len() != len_field.len() {
+                if let Some(b) = len_used.last_mut() {
+                    *b |= 0x80;
+                }
+            }
+            len_field[..len_used.len()].copy_from_slice(len_used);
+
+            // Calculate the TOTAL amount
+            let act_used = ttl_len - remain;
+
+            tx_buf
+                .get(..act_used)
+                .map(|used| Bytes::copy_from_slice(used))
+        };
+
+        match &bytes {
+            Some(bytes) => self.send_raw(bytes).await,
+            None => Err(WireTxErrorKind::Other),
+        }
     }
 }
+
+struct SliceWriter<'a>(&'a mut [u8]);
+
+impl<'a> core::fmt::Write for SliceWriter<'a> {
+    fn write_str(&mut self, s: &str) -> Result<(), core::fmt::Error> {
+        let sli = core::mem::take(&mut self.0);
+
+        // If this write would overflow us, note that, but still take
+        // as much as we possibly can here
+        let bad = s.len() > sli.len();
+        let to_write = s.len().min(sli.len());
+        let (now, later) = sli.split_at_mut(to_write);
+        now.copy_from_slice(s.as_bytes());
+        self.0 = later;
+
+        // Now, report whether we overflowed or not
+        if bad {
+            Err(core::fmt::Error)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Returns the maximum number of bytes required to encode T.
+const fn varint_max<T: Sized>() -> usize {
+    const BITS_PER_BYTE: usize = 8;
+    const BITS_PER_VARINT_BYTE: usize = 7;
+
+    // How many data bits do we need for this type?
+    let bits = core::mem::size_of::<T>() * BITS_PER_BYTE;
+
+    // We add (BITS_PER_VARINT_BYTE - 1), to ensure any integer divisions
+    // with a remainder will always add exactly one full byte, but
+    // an evenly divided number of bits will be the same
+    let roundup_bits = bits + (BITS_PER_VARINT_BYTE - 1);
+
+    // Apply division, using normal "round down" integer division
+    roundup_bits / BITS_PER_VARINT_BYTE
+}
+
+#[inline]
+fn varint_usize(n: usize, out: &mut [u8; varint_max::<usize>()]) -> &mut [u8] {
+    let mut value = n;
+    for i in 0..varint_max::<usize>() {
+        out[i] = value.to_le_bytes()[0];
+        if value < 128 {
+            return &mut out[..=i];
+        }
+
+        out[i] |= 0x80;
+        value >>= 7;
+    }
+    debug_assert_eq!(value, 0);
+    &mut out[..]
+}
+
+fn actual_varint_max_len(largest: usize) -> usize {
+    if largest < (2 << 7) {
+        1
+    } else if largest < (2 << 14) {
+        2
+    } else if largest < (2 << 21) {
+        3
+    } else if largest < (2 << 28) {
+        4
+    } else {
+        varint_max::<usize>()
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// RX
+//////////////////////////////////////////////////////////////////////////////
 
 /// The WireRx impl for usb-gadget
 #[derive(Debug, Clone)]
@@ -338,6 +537,6 @@ impl WireRx for UsbGadgetWireRx {
         }
 
         // Ran out of space...?
-        Err(WireRxErrorKind::Other) // TODO
+        Err(WireRxErrorKind::Other)
     }
 }
