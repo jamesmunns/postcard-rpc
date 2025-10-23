@@ -73,11 +73,9 @@ cargo build \
 cargo build \
     --manifest-path example/nrf52840-serial/Cargo.toml \
     --target thumbv7em-none-eabihf
-# TODO: Update me for rc.1 release!
-#
-# cargo build \
-#     --manifest-path example/esp32c6-serial/Cargo.toml \
-#     --target riscv32imac-unknown-none-elf
+cargo build \
+    --manifest-path example/esp32c6-serial/Cargo.toml \
+    --target riscv32imac-unknown-none-elf
 
 # Test Project
 cargo test \
