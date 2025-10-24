@@ -19,6 +19,10 @@ use usb_gadget::function::custom::{EndpointReceiver, EndpointSender};
 
 /// Default time in milliseconds to wait for the completion of sending
 pub const DEFAULT_TIMEOUT_MS_PER_FRAME: usize = 2;
+/// Default max packet size for USB Full Speed
+pub const USB_FS_MAX_PACKET_SIZE: usize = 64;
+/// Default max packet size for USB High Speed
+pub const USB_HS_MAX_PACKET_SIZE: usize = 512;
 
 /// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
@@ -65,10 +69,12 @@ pub mod dispatch_impl {
             &'static self,
             gadget: Gadget,
             tx_buf: &'static mut [u8],
+            max_usb_frame_size: usize,
         ) -> Result<(RegGadget, WireTxImpl, WireRxImpl), io::Error> {
             let udc = usb_gadget::default_udc()?;
 
-            let ((gadget, handle), wtx, wrx) = self.init_without_build(gadget, tx_buf);
+            let ((gadget, handle), wtx, wrx) =
+                self.init_without_build(gadget, tx_buf, max_usb_frame_size);
             let reg = gadget
                 .with_config(Config::new("config").with_function(handle))
                 .bind(&udc)?;
@@ -80,7 +86,10 @@ pub mod dispatch_impl {
             &'static self,
             gadget: Gadget,
             tx_buf: &'static mut [u8],
+            max_usb_frame_size: usize,
         ) -> ((Gadget, Handle), WireTxImpl, WireRxImpl) {
+            assert!(max_usb_frame_size.is_power_of_two());
+
             let (ep_tx, ep_tx_dir) = EndpointDirection::device_to_host();
             let (ep_rx, ep_rx_dir) = EndpointDirection::host_to_device();
 
@@ -89,12 +98,12 @@ pub mod dispatch_impl {
                     Interface::new(Class::vendor_specific(0, 0), "postcard-rpc")
                         .with_endpoint({
                             let mut ep = Endpoint::bulk(ep_tx_dir);
-                            ep.max_packet_size_hs = 64;
+                            ep.max_packet_size_hs = max_usb_frame_size as u16;
                             ep
                         })
                         .with_endpoint({
                             let mut ep = Endpoint::bulk(ep_rx_dir);
-                            ep.max_packet_size_hs = 64;
+                            ep.max_packet_size_hs = max_usb_frame_size as u16;
                             ep
                         }),
                 )

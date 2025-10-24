@@ -2,22 +2,22 @@ use postcard_rpc::{
     define_dispatch,
     header::VarHeader,
     server::{
-        impls::usb_gadget::dispatch_impl::{
-            WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl,
+        impls::usb_gadget::{
+            dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl},
+            USB_FS_MAX_PACKET_SIZE,
         },
         Dispatch, Server,
     },
 };
 use static_cell::StaticCell;
-use workbook_icd::{PingEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
 use usb_gadget::{Class, Gadget, Id, Strings};
+use workbook_icd::{PingEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
 
 pub struct Context;
 
 type AppTx = WireTxImpl;
 type AppRx = WireRxImpl;
 type AppServer = Server<AppTx, AppRx, WireRxBuf, Dispatcher>;
-
 
 static RX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
 static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
@@ -62,7 +62,9 @@ async fn main() {
     let rx_buf = RX_BUF.init([0u8; 1024]);
     let tx_buf = TX_BUF.init([0u8; 1024]);
 
-    let (_reg, tx_impl, rx_impl) = STORAGE.init(gadget, tx_buf.as_mut_slice()).expect("Failed to init");
+    let (_reg, tx_impl, rx_impl) = STORAGE
+        .init(gadget, tx_buf.as_mut_slice(), USB_FS_MAX_PACKET_SIZE)
+        .expect("Failed to init");
     let dispatcher = Dispatcher::new(context, tokio::runtime::Handle::current().into());
 
     let vkk = dispatcher.min_key_len();
