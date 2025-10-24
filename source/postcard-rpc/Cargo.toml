@@ -67,7 +67,6 @@ version = "2"
 default-features = false
 
 [dependencies.web-sys]
-
 version = "0.3.69"
 optional = true
 features = [
@@ -153,6 +152,16 @@ package = "embedded-io-async"
 version = "0.6"
 optional = true
 
+[target.'cfg(target_os = "linux")'.dependencies.usb-gadget]
+package = "usb-gadget"
+version = "0.7"
+optional = true
+
+[target.'cfg(target_os = "linux")'.dependencies.bytes]
+package = "bytes"
+version = "1.4"
+optional = true
+
 [dev-dependencies]
 postcard-rpc = { path = "../postcard-rpc", features = ["test-utils"] }
 
@@ -230,6 +239,11 @@ embedded-io-async-0_6-server = [
     "dep:embedded-io-async-0_6",
     "cobs",
 ]
+usb-gadget = [
+    "dep:usb-gadget",
+    "dep:bytes",
+]
+tokio = ["dep:tokio", "usb-gadget/tokio"]
 
 # NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal
 # which doesn't work on `std` builds without the `std` feature. This causes

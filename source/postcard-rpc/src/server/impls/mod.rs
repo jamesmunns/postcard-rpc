@@ -8,6 +8,9 @@ pub mod embassy_usb_v0_5;
 #[cfg(feature = "embedded-io-async-0_6-server")]
 pub mod embedded_io_async_v0_6;
 
+#[cfg(all(target_os = "linux", feature = "usb-gadget"))]
+pub mod usb_gadget;
+
 #[cfg(feature = "test-utils")]
 pub mod test_channels;
 
@@ -53,5 +56,52 @@ pub(crate) mod embassy_shared {
     {
         let info = sp.info();
         info.spawn(tok)
+    }
+}
+
+#[cfg(feature = "tokio")]
+pub(crate) mod tokio_shared {
+    use core::convert::Infallible;
+    use tokio::runtime;
+
+    use crate::server::WireSpawn;
+
+    //////////////////////////////////////////////////////////////////////////////
+    // SPAWN
+    //////////////////////////////////////////////////////////////////////////////
+
+    /// A [`WireSpawn`] impl using the embassy executor
+    #[derive(Clone)]
+    pub struct TokioWireSpawn {
+        /// handle to the current tokio runtime
+        pub rt: runtime::Handle,
+    }
+
+    impl From<runtime::Handle> for TokioWireSpawn {
+        fn from(value: runtime::Handle) -> Self {
+            Self { rt: value }
+        }
+    }
+
+    impl WireSpawn for TokioWireSpawn {
+        type Error = Infallible;
+
+        type Info = runtime::Handle;
+
+        fn info(&self) -> &Self::Info {
+            &self.rt
+        }
+    }
+
+    /// Attempt to spawn the given token
+    pub fn tokio_spawn<Sp, F>(sp: &Sp, fut: F) -> Result<(), Sp::Error>
+    where
+        Sp: WireSpawn<Error = Infallible, Info = runtime::Handle>,
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let info = sp.info();
+        info.spawn(fut); // TODO: store handle?
+
+        Ok(())
     }
 }
