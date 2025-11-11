@@ -268,7 +268,7 @@ where
             async move {
                 let mut got = vec![];
                 while let Ok(Ok(val)) =
-                    tokio::time::timeout(Duration::from_millis(100), sub.recv()).await
+                    tokio::time::timeout(Duration::from_millis(500), sub.recv()).await
                 {
                     got.push(val);
                 }
