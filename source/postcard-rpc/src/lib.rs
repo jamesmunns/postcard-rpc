@@ -448,7 +448,7 @@ pub trait Topic {
     const TOPIC_KEY4: Key4 = Key4::from_key8(Self::TOPIC_KEY);
     /// The unique [Key2] identifying the Message
     const TOPIC_KEY2: Key2 = Key2::from_key8(Self::TOPIC_KEY);
-    /// The unique [Key2] identifying the Message
+    /// The unique [Key1] identifying the Message
     const TOPIC_KEY1: Key1 = Key1::from_key8(Self::TOPIC_KEY);
 }
 
