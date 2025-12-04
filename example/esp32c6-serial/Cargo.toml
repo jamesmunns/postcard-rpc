@@ -14,9 +14,9 @@ esp-hal = { version = "1.0.0", features = [
     "esp32c6",
     "unstable",
 ] }
-esp-bootloader-esp-idf = { version = "0.3", features = ["esp32c6"] }
+esp-bootloader-esp-idf = { version = "0.4", features = ["esp32c6"] }
 esp-hal-smartled = { git = "https://github.com/esp-rs/esp-hal-community", rev = "8a8734c22b6ce572bc5ee39a101c805ff5a19625" }
-esp-rtos = { version = "0.1.0", features = ["esp32c6", "embassy"] }
+esp-rtos = { version = "0.2.0", features = ["esp32c6", "embassy"] }
 panic-rtt-target = { version = "0.2.0", features = ["defmt"] }
 rtt-target = { version = "0.6.1", features = ["defmt"] }
 static_cell = { version = "2.1.1" }
