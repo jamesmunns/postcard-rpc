@@ -5,7 +5,8 @@ rustup target add \
     thumbv6m-none-eabi \
     thumbv7em-none-eabihf \
     riscv32imac-unknown-none-elf \
-    wasm32-unknown-unknown
+    wasm32-unknown-unknown \
+    x86_64-unknown-linux-gnu
 
 # formatting
 cargo fmt --all --manifest-path source/postcard-rpc/Cargo.toml -- --check
@@ -60,6 +61,12 @@ cargo check \
     --features=embedded-io-async-0_6-server \
     --target thumbv7em-none-eabihf
 
+# USB gadget (OTG) server impl
+cargo check \
+    --manifest-path source/postcard-rpc/Cargo.toml \
+    --no-default-features \
+    --features=use-std,tokio,usb-gadget
+
 # Example projects
 cargo build \
     --manifest-path example/workbook-host/Cargo.toml
@@ -76,6 +83,11 @@ cargo build \
 cargo build \
     --manifest-path example/esp32c6-serial/Cargo.toml \
     --target riscv32imac-unknown-none-elf
+
+# USB gadget (OTG)
+cargo check \
+    --manifest-path example/server-usb-gadget/Cargo.toml \
+    --target x86_64-unknown-linux-gnu
 
 # Test Project
 cargo test \
