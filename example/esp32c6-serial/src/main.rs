@@ -3,15 +3,20 @@
 
 use embassy_executor::Spawner;
 use esp_hal::{
-    clock::CpuClock, efuse, interrupt::software::SoftwareInterruptControl, rmt::Rmt, time::Rate,
-    timer::systimer::SystemTimer, usb_serial_jtag::UsbSerialJtag,
+    clock::CpuClock,
+    efuse,
+    interrupt::software::SoftwareInterruptControl,
+    rmt::{PulseCode, Rmt},
+    time::Rate,
+    timer::systimer::SystemTimer,
+    usb_serial_jtag::UsbSerialJtag,
 };
 use esp_hal_smartled::SmartLedsAdapter;
 use panic_rtt_target as _;
 use postcard_rpc::server::{Dispatch, Server};
 use static_cell::ConstStaticCell;
 
-use crate::app::{AppServer, Context, MyApp, STORAGE};
+use crate::app::{AppServer, Context, LED_BUFFER_SIZE, MyApp, STORAGE};
 
 pub mod app;
 pub mod handlers;
@@ -32,12 +37,14 @@ async fn main(spawner: Spawner) {
     let (rx, tx) = UsbSerialJtag::new(p.USB_DEVICE).into_async().split();
     let (rx_impl, tx_impl) = STORAGE.init(rx, tx).unwrap();
 
+    static RMT_BUF: ConstStaticCell<[PulseCode; LED_BUFFER_SIZE]> =
+        ConstStaticCell::new([PulseCode::end_marker(); LED_BUFFER_SIZE]);
     let rmt = Rmt::new(p.RMT, Rate::from_mhz(80)).unwrap();
 
     let context = Context {
         unique_id: get_unique_id(),
-        led: SmartLedsAdapter::new(rmt.channel0, p.GPIO8, <_>::default()),
-        leds: <_>::default(),
+        led: SmartLedsAdapter::new(rmt.channel0, p.GPIO8, RMT_BUF.take()),
+        leds: Default::default(),
     };
 
     static PACKET_RX_BUF: ConstStaticCell<[u8; 1024]> = ConstStaticCell::new([0u8; 1024]);

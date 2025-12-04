@@ -9,15 +9,14 @@ defmt = "1"
 embassy-executor = { version = "0.9", features = ["defmt"] }
 embassy-sync = { version = "0.7", features = ["defmt"] }
 embassy-time = "0.5"
-esp-hal = { version = "1.0.0-rc.1", features = [
+esp-hal = { version = "1.0.0", features = [
     "defmt",
     "esp32c6",
     "unstable",
 ] }
-esp-bootloader-esp-idf = { version = "0.3", features = ["esp32c6"] }
-# esp-hal-smartled = { git = "https://github.com/esp-rs/esp-hal-community", rev = "5e0fed3213e2cdb363caa80f40b2fc255ee84d12" }
-esp-hal-smartled = { git = "https://github.com/badamson/esp-hal-community", rev = "5df693ca55848fa7a4cdae5563e3877e5d0a562e" }
-esp-rtos = { version = "0.1.0", features = ["esp32c6", "embassy"] }
+esp-bootloader-esp-idf = { version = "0.4", features = ["esp32c6"] }
+esp-hal-smartled = { git = "https://github.com/esp-rs/esp-hal-community", rev = "8a8734c22b6ce572bc5ee39a101c805ff5a19625" }
+esp-rtos = { version = "0.2.0", features = ["esp32c6", "embassy"] }
 panic-rtt-target = { version = "0.2.0", features = ["defmt"] }
 rtt-target = { version = "0.6.1", features = ["defmt"] }
 static_cell = { version = "2.1.1" }
