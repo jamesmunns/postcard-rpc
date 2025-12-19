@@ -2,9 +2,8 @@ use postcard_rpc::{
     define_dispatch,
     header::VarHeader,
     server::{
-        impls::usb_gadget::{
-            dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl},
-            USB_FS_MAX_PACKET_SIZE,
+        impls::usb_gadget::dispatch_impl::{
+            WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl,
         },
         Dispatch, Server,
     },
@@ -63,7 +62,7 @@ async fn main() {
     let tx_buf = TX_BUF.init([0u8; 1024]);
 
     let (_reg, tx_impl, rx_impl) = STORAGE
-        .init(gadget, tx_buf.as_mut_slice(), USB_FS_MAX_PACKET_SIZE)
+        .init(gadget, tx_buf.as_mut_slice())
         .expect("Failed to init");
     let dispatcher = Dispatcher::new(context, tokio::runtime::Handle::current().into());
 
