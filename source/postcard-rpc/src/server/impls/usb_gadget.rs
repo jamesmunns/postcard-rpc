@@ -1,9 +1,6 @@
 #![allow(missing_docs)]
 
-use core::{
-    sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
-};
+use core::time::Duration;
 use std::sync::Arc;
 
 use crate::{
@@ -14,7 +11,7 @@ use crate::{
 };
 
 use bytes::Bytes;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 use usb_gadget::function::custom::{EndpointReceiver, EndpointSender};
 
 /// Default time in milliseconds to wait for the completion of sending
@@ -26,12 +23,7 @@ pub const USB_HS_MAX_PACKET_SIZE: usize = 512;
 
 /// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
-    use core::sync::atomic::{AtomicBool, Ordering};
-
-    use std::{
-        io::{self, Error, ErrorKind},
-        sync::Arc,
-    };
+    use std::io::{self, Error, ErrorKind};
 
     use usb_gadget::{
         function::{
@@ -69,12 +61,10 @@ pub mod dispatch_impl {
             &'static self,
             gadget: Gadget,
             tx_buf: &'static mut [u8],
-            max_usb_frame_size: usize,
         ) -> Result<(RegGadget, WireTxImpl, WireRxImpl), io::Error> {
             let udc = usb_gadget::default_udc()?;
 
-            let ((gadget, handle), wtx, wrx) =
-                self.init_without_build(gadget, tx_buf, max_usb_frame_size);
+            let ((gadget, handle), wtx, wrx) = self.init_without_build(gadget, tx_buf);
             let reg = gadget
                 .with_config(Config::new("config").with_function(handle))
                 .bind(&udc)?;
@@ -86,26 +76,15 @@ pub mod dispatch_impl {
             &'static self,
             gadget: Gadget,
             tx_buf: &'static mut [u8],
-            max_usb_frame_size: usize,
         ) -> ((Gadget, Handle), WireTxImpl, WireRxImpl) {
-            assert!(max_usb_frame_size.is_power_of_two());
-
             let (ep_tx, ep_tx_dir) = EndpointDirection::device_to_host();
             let (ep_rx, ep_rx_dir) = EndpointDirection::host_to_device();
 
             let (mut custom, handle) = Custom::builder()
                 .with_interface(
                     Interface::new(Class::vendor_specific(0, 0), "postcard-rpc")
-                        .with_endpoint({
-                            let mut ep = Endpoint::bulk(ep_tx_dir);
-                            ep.max_packet_size_hs = max_usb_frame_size as u16;
-                            ep
-                        })
-                        .with_endpoint({
-                            let mut ep = Endpoint::bulk(ep_rx_dir);
-                            ep.max_packet_size_hs = max_usb_frame_size as u16;
-                            ep
-                        }),
+                        .with_endpoint(Endpoint::bulk(ep_tx_dir))
+                        .with_endpoint(Endpoint::bulk(ep_rx_dir)),
                 )
                 .build();
 
@@ -113,32 +92,30 @@ pub mod dispatch_impl {
                 .with_os_descriptor(OsDescriptor::microsoft())
                 .with_web_usb(WebUsb::new(0xf1, "http://webusb.org"));
 
-            let rx_enabled = Arc::new(AtomicBool::new(false));
-            let tx_enabled = Arc::new(AtomicBool::new(false));
+            let (enabled_tx, enabled_rx) = tokio::sync::watch::channel(false);
 
-            {
-                let rx_enabled = rx_enabled.clone();
-                let tx_enabled = tx_enabled.clone();
+            // Listen to events on the custom function
+            // The device will be unbound/removed when the `custom` interface is dropped
+            tokio::spawn(async move {
+                while let Ok(_) = custom.wait_event().await {
+                    let event = custom.event()?;
 
-                // Listen to events on the custom function
-                // The device will be unbound/removed when the `custom` interface is dropped
-                tokio::spawn(async move {
-                    while let Ok(_) = custom.wait_event().await {
-                        match custom.event()? {
-                            Event::Enable => {
-                                tx_enabled.store(true, Ordering::Release);
-                                rx_enabled.store(true, Ordering::Release);
-                            }
-                            _ => {}
+                    match event {
+                        Event::Enable => {
+                            let _ = enabled_tx.send(true);
                         }
+                        Event::Disable | Event::Suspend => {
+                            let _ = enabled_tx.send(false);
+                        }
+                        _ => {}
                     }
+                }
 
-                    Err::<(), io::Error>(Error::from(ErrorKind::BrokenPipe))
-                });
-            }
+                Err::<(), io::Error>(Error::from(ErrorKind::BrokenPipe))
+            });
 
-            let wtx = UsbGadgetWireTx::new(ep_tx, tx_enabled, tx_buf);
-            let wrx = UsbGadgetWireRx::new(ep_rx, rx_enabled);
+            let wtx = UsbGadgetWireTx::new(ep_tx, enabled_rx.clone(), tx_buf);
+            let wrx = UsbGadgetWireRx::new(ep_rx, enabled_rx.clone());
 
             ((gadget, handle), wtx, wrx)
         }
@@ -153,24 +130,24 @@ pub mod dispatch_impl {
 #[derive(Debug, Clone)]
 pub struct UsbGadgetWireTx {
     inner: Arc<Mutex<UsbGadgetWireTxInner>>,
+    ep_enabled: watch::Receiver<bool>,
 }
 
 impl UsbGadgetWireTx {
     pub fn new(
         ep_tx: EndpointSender,
-        ep_enabled: Arc<AtomicBool>,
+        ep_enabled: watch::Receiver<bool>,
         tx_buf: &'static mut [u8],
     ) -> Self {
         let inner = UsbGadgetWireTxInner {
             ep_tx,
-            ep_enabled,
             log_seq: 0,
             tx_buf,
-            pending_frame: false,
         };
 
         Self {
             inner: Arc::new(Mutex::new(inner)),
+            ep_enabled,
         }
     }
 }
@@ -178,21 +155,16 @@ impl UsbGadgetWireTx {
 #[derive(Debug)]
 struct UsbGadgetWireTxInner {
     ep_tx: EndpointSender,
-    ep_enabled: Arc<AtomicBool>,
     log_seq: u16,
     tx_buf: &'static mut [u8],
-    pending_frame: bool,
 }
 
 impl WireTx for UsbGadgetWireTx {
     type Error = WireTxErrorKind;
 
     async fn wait_connection(&self) {
-        let inner = self.inner.lock().await;
-
-        while !inner.ep_enabled.load(Ordering::Acquire) {
-            tokio::time::sleep(Duration::from_millis(2)).await;
-        }
+        let mut ep_enabled = self.ep_enabled.clone();
+        let _ = ep_enabled.wait_for(|&enabled| enabled).await;
     }
 
     async fn send<T: serde::Serialize + ?Sized>(
@@ -218,56 +190,19 @@ impl WireTx for UsbGadgetWireTx {
 
     async fn send_raw(&self, buf: &[u8]) -> Result<(), Self::Error> {
         let mut inner = self.inner.lock().await;
-        let UsbGadgetWireTxInner {
-            ep_tx,
-            pending_frame,
-            ..
-        } = &mut *inner;
+        let UsbGadgetWireTxInner { ep_tx, .. } = &mut *inner;
 
-        let chunk_size = ep_tx
+        let packet_size = ep_tx
             .max_packet_size()
             .or(Err(WireTxErrorKind::ConnectionClosed))?;
-
-        let timeout_ms_per_frame = DEFAULT_TIMEOUT_MS_PER_FRAME;
-
-        // Calculate an estimated timeout based on the number of frames we need to send
-        // For now, we use 2ms/frame by default, rounded UP
-        let frames = (buf.len() + (chunk_size - 1)) / chunk_size;
-        let timeout = Duration::from_millis((frames * timeout_ms_per_frame) as u64);
+        let num_packets = buf.len().div_ceil(packet_size);
+        let timeout = Duration::from_millis((num_packets * DEFAULT_TIMEOUT_MS_PER_FRAME) as u64);
 
         let send = async {
-            // If we left off a pending frame, send one now so we don't leave an unterminated message
-            if *pending_frame {
-                ep_tx
-                    .send_async(Bytes::new())
-                    .await
-                    .or(Err(WireTxErrorKind::ConnectionClosed))?
-            }
-
-            *pending_frame = true;
-
-            let mut bytes = Bytes::copy_from_slice(buf);
-
-            while !bytes.is_empty() {
-                let ch = bytes.split_to(chunk_size.min(bytes.len()));
-
-                ep_tx
-                    .send_async(ch)
-                    .await
-                    .or(Err(WireTxErrorKind::ConnectionClosed))?;
-            }
-
-            // If the total we sent was a multiple of packet size, send an
-            // empty message to "flush" the transaction. We already checked
-            // above that the len != 0.
-            if (buf.len() & (chunk_size - 1)) == 0 {
-                ep_tx
-                    .send_async(Bytes::new())
-                    .await
-                    .or(Err(WireTxErrorKind::ConnectionClosed))?
-            }
-
-            *pending_frame = false;
+            ep_tx
+                .send_async(Bytes::copy_from_slice(buf))
+                .await
+                .or(Err(WireTxErrorKind::ConnectionClosed))?;
 
             Ok::<(), WireTxErrorKind>(())
         };
@@ -486,11 +421,11 @@ fn actual_varint_max_len(largest: usize) -> usize {
 #[derive(Debug, Clone)]
 pub struct UsbGadgetWireRx {
     ep_rx: Arc<Mutex<EndpointReceiver>>,
-    ep_enabled: Arc<AtomicBool>,
+    ep_enabled: watch::Receiver<bool>,
 }
 
 impl UsbGadgetWireRx {
-    pub fn new(ep_rx: EndpointReceiver, ep_enabled: Arc<AtomicBool>) -> Self {
+    pub fn new(ep_rx: EndpointReceiver, ep_enabled: watch::Receiver<bool>) -> Self {
         Self {
             ep_rx: Arc::new(Mutex::new(ep_rx)),
             ep_enabled,
@@ -502,50 +437,27 @@ impl WireRx for UsbGadgetWireRx {
     type Error = WireRxErrorKind;
 
     async fn wait_connection(&mut self) {
-        let Self { ep_enabled, .. } = self;
-
-        while !ep_enabled.load(Ordering::Acquire) {
-            tokio::time::sleep(Duration::from_millis(2)).await;
-        }
+        let _ = self.ep_enabled.wait_for(|&enabled| enabled).await;
     }
 
     async fn receive<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a mut [u8], Self::Error> {
         let mut ep_rx = self.ep_rx.lock().await;
 
-        let packet_size = ep_rx
-            .max_packet_size()
+        let data = ep_rx
+            .recv_async(bytes::BytesMut::with_capacity(buf.len()))
+            .await
             .or(Err(WireRxErrorKind::ConnectionClosed))?;
 
-        let buflen = buf.len();
-        let mut window = &mut buf[..];
-
-        while !window.is_empty() {
-            let data = ep_rx
-                .recv_async(bytes::BytesMut::with_capacity(packet_size))
-                .await
-                .or(Err(WireRxErrorKind::ConnectionClosed))?;
-
-            match data {
-                Some(data) => {
-                    let n = data.len();
-                    window[0..n].copy_from_slice(&data);
-
-                    let (_now, later) = window.split_at_mut(n);
-                    window = later;
-                    if n != packet_size {
-                        // We now have a full frame! Great!
-                        let wlen = window.len();
-                        let len = buflen - wlen;
-                        let frame = &mut buf[..len];
-
-                        return Ok(frame);
-                    }
+        match data {
+            Some(data) => {
+                if data.len() > buf.len() {
+                    return Err(WireRxErrorKind::ReceivedMessageTooLarge);
                 }
-                None => return Ok(&mut buf[0..0]),
-            }
-        }
 
-        // Ran out of space...?
-        Err(WireRxErrorKind::Other)
+                buf[..data.len()].copy_from_slice(&data);
+                Ok(&mut buf[..data.len()])
+            }
+            None => Ok(&mut buf[0..0]),
+        }
     }
 }
