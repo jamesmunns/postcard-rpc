@@ -6,7 +6,7 @@ See [overview.md](./docs/overview.md) for documentation.
 
 See the [`postcard-rpc` book](https://onevariable.com/postcard-rpc-book/) for a walk-through example.
 
-You can also watch James' [RustNL talk](https://www.youtube.com/live/XLefuzE-ABU?t=24300) for a video explainer of what this crate does.
+You can also watch James' [RustNL talk](https://www.youtube.com/watch?v=HtBFvTH5ZKE) for a video explainer of what this crate does.
 
 ## License
 
