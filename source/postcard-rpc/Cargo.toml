@@ -17,7 +17,9 @@ features = [
     "test-utils",
     "use-std",
     "cobs-serial",
-    "raw-nusb",
+    "raw-nusb",  # Alias for raw-nusb-0_1
+    "raw-nusb-0_1",
+    "raw-nusb-0_2",
     "embassy-usb-0_5-server",
     "embedded-io-async-0_6-server",
     "_docs-fix",
@@ -36,8 +38,14 @@ postcard-schema = { version = "0.2.2", features = ["derive"] }
 # std-only features
 #
 
-[dependencies.nusb]
+[dependencies.nusb-0_1]
+package = "nusb"
 version = "0.1.9"
+optional = true
+
+[dependencies.nusb-0_2]
+package = "nusb"
+version = "0.2"
 optional = true
 
 [dependencies.tokio-serial]
@@ -198,7 +206,9 @@ cobs-serial = ["cobs/use_std", "dep:tokio-serial"]
 #
 # Works on: Win, Mac, Linux
 # Does NOT work on: WASM
-raw-nusb = ["dep:nusb", "use-std"]
+raw-nusb = ["raw-nusb-0_1"]
+raw-nusb-0_1 = ["dep:nusb-0_1", "use-std"]
+raw-nusb-0_2 = ["dep:nusb-0_2", "use-std"]
 
 # WebUSB support
 #

@@ -1,8 +1,9 @@
-//! Implementation of transport using nusb
+//! Implementation of transport using nusb v0.1
 
 use std::future::Future;
 
-use nusb::{
+use nusb_0_1::{
+    self as nusb,
     transfer::{Direction, EndpointType, Queue, RequestBuffer, TransferError},
     DeviceInfo,
 };
@@ -34,7 +35,19 @@ impl<WireErr> HostClient<WireErr>
 where
     WireErr: DeserializeOwned + Schema,
 {
-    /// Try to create a new link using [`nusb`] for connectivity
+    /// Alias for [`try_new_raw_nusb_0_1`] if `raw-nusb-0_2` feature is not enabled.
+    #[cfg(not(feature = "raw-nusb-0_2"))]
+    #[inline]
+    pub fn try_new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
+        func: F,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+        seq_no_kind: VarSeqKind,
+    ) -> Result<Self, String> {
+        Self::try_new_raw_nusb_0_1(func, err_uri_path, outgoing_depth, seq_no_kind)
+    }
+
+    /// Try to create a new link using [`nusb`] v0.1 for connectivity
     ///
     /// The provided function will be used to find a matching device. The first
     /// matching device will be connected to. `err_uri_path` is
@@ -43,7 +56,7 @@ where
     /// Returns an error if no device could be found, or if there was an error
     /// connecting to the device.
     ///
-    /// This constructor is available when the `raw-nusb` feature is enabled.
+    /// This constructor is available when the `raw-nusb` or `raw-nusb-0_1` feature is enabled.
     ///
     /// ## Platform specific support
     ///
@@ -67,7 +80,7 @@ where
     ///    SomethingBad
     /// }
     ///
-    /// let client = HostClient::<Error>::try_new_raw_nusb(
+    /// let client = HostClient::<Error>::try_new_raw_nusb_0_1(
     ///     // Find the first device with the serial 12345678
     ///     |d| d.serial_number() == Some("12345678"),
     ///     // the URI/path for `Error` messages
@@ -78,7 +91,7 @@ where
     ///     VarSeqKind::Seq1,
     /// ).unwrap();
     /// ```
-    pub fn try_new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
+    pub fn try_new_raw_nusb_0_1<F: FnMut(&DeviceInfo) -> bool>(
         func: F,
         err_uri_path: &str,
         outgoing_depth: usize,
@@ -100,9 +113,31 @@ where
         #[cfg(target_os = "windows")]
         let interface_id = 0;
 
-        Self::try_from_nusb_and_interface(
+        Self::try_from_nusb_and_interface_0_1(
             &x,
             interface_id,
+            err_uri_path,
+            outgoing_depth,
+            seq_no_kind,
+        )
+    }
+
+    /// Alias for [`try_new_raw_nusb_with_interface_0_1`] if `raw-nusb-0_2` feature is not enabled.
+    #[cfg(all(not(feature = "raw-nusb-0_2"), not(target_os = "windows")))]
+    #[inline]
+    pub fn try_new_raw_nusb_with_interface<
+        F1: FnMut(&DeviceInfo) -> bool,
+        F2: FnMut(&nusb::InterfaceInfo) -> bool,
+    >(
+        device_func: F1,
+        interface_func: F2,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+        seq_no_kind: VarSeqKind,
+    ) -> Result<Self, String> {
+        Self::try_new_raw_nusb_with_interface_0_1(
+            device_func,
+            interface_func,
             err_uri_path,
             outgoing_depth,
             seq_no_kind,
@@ -141,7 +176,7 @@ where
     ///    SomethingBad
     /// }
     ///
-    /// let client = HostClient::<Error>::try_new_raw_nusb_with_interface(
+    /// let client = HostClient::<Error>::try_new_raw_nusb_with_interface_0_1(
     ///     // Find the first device with the serial 12345678
     ///     |d| d.serial_number() == Some("12345678"),
     ///     // Find the "Vendor Specific" interface
@@ -155,7 +190,7 @@ where
     /// ).unwrap();
     /// ```
     #[cfg(not(target_os = "windows"))]
-    pub fn try_new_raw_nusb_with_interface<
+    pub fn try_new_raw_nusb_with_interface_0_1<
         F1: FnMut(&DeviceInfo) -> bool,
         F2: FnMut(&nusb::InterfaceInfo) -> bool,
     >(
@@ -174,8 +209,27 @@ where
             .position(interface_func)
             .ok_or_else(|| String::from("Failed to find matching interface!!"))?;
 
-        Self::try_from_nusb_and_interface(
+        Self::try_from_nusb_and_interface_0_1(
             &x,
+            interface_id,
+            err_uri_path,
+            outgoing_depth,
+            seq_no_kind,
+        )
+    }
+
+    /// Alias for [`try_from_nusb_and_interface_0_1`] if `raw-nusb-0_2` feature is not enabled.
+    #[cfg(not(feature = "raw-nusb-0_2"))]
+    #[inline]
+    pub fn try_from_nusb_and_interface(
+        dev: &DeviceInfo,
+        interface_id: usize,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+        seq_no_kind: VarSeqKind,
+    ) -> Result<Self, String> {
+        Self::try_from_nusb_and_interface_0_1(
+            dev,
             interface_id,
             err_uri_path,
             outgoing_depth,
@@ -209,7 +263,7 @@ where
     ///
     /// // Assume the first usb device is the one we're interested
     /// let dev = nusb::list_devices().unwrap().next().unwrap();
-    /// let client = HostClient::<Error>::try_from_nusb_and_interface(
+    /// let client = HostClient::<Error>::try_from_nusb_and_interface_0_1(
     ///     // Device to open
     ///     &dev,
     ///     // Use the first interface (0)
@@ -222,7 +276,7 @@ where
     ///     VarSeqKind::Seq1,
     /// ).unwrap();
     /// ```
-    pub fn try_from_nusb_and_interface(
+    pub fn try_from_nusb_and_interface_0_1(
         dev: &DeviceInfo,
         interface_id: usize,
         err_uri_path: &str,
@@ -288,9 +342,21 @@ where
         ))
     }
 
+    /// Alias for [`new_raw_nusb_0_1`] if `raw-nusb-0_2` feature is not enabled.
+    #[cfg(not(feature = "raw-nusb-0_2"))]
+    #[inline]
+    pub fn new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
+        func: F,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+        seq_no_kind: VarSeqKind,
+    ) -> Self {
+        Self::new_raw_nusb_0_1(func, err_uri_path, outgoing_depth, seq_no_kind)
+    }
+
     /// Create a new link using [`nusb`] for connectivity
     ///
-    /// Panics if connection fails. See [`Self::try_new_raw_nusb()`] for more details.
+    /// Panics if connection fails. See [`Self::try_new_raw_nusb_0_1()`] for more details.
     ///
     /// This constructor is available when the `raw-nusb` feature is enabled.
     ///
@@ -309,7 +375,7 @@ where
     ///    SomethingBad
     /// }
     ///
-    /// let client = HostClient::<Error>::new_raw_nusb(
+    /// let client = HostClient::<Error>::new_raw_nusb_0_1(
     ///     // Find the first device with the serial 12345678
     ///     |d| d.serial_number() == Some("12345678"),
     ///     // the URI/path for `Error` messages
@@ -320,13 +386,13 @@ where
     ///     VarSeqKind::Seq1,
     /// );
     /// ```
-    pub fn new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
+    pub fn new_raw_nusb_0_1<F: FnMut(&DeviceInfo) -> bool>(
         func: F,
         err_uri_path: &str,
         outgoing_depth: usize,
         seq_no_kind: VarSeqKind,
     ) -> Self {
-        Self::try_new_raw_nusb(func, err_uri_path, outgoing_depth, seq_no_kind)
+        Self::try_new_raw_nusb_0_1(func, err_uri_path, outgoing_depth, seq_no_kind)
             .expect("should have found nusb device")
     }
 }
