@@ -25,7 +25,7 @@ cargo test \
     --manifest-path source/postcard-rpc/Cargo.toml \
     --no-default-features
 
-# Host + all non-wasm host-client impls
+# Host + all non-wasm host-client impls with raw-nusb-0_1
 cargo check \
     --manifest-path source/postcard-rpc/Cargo.toml \
     --no-default-features \
@@ -34,6 +34,26 @@ cargo test \
     --manifest-path source/postcard-rpc/Cargo.toml \
     --no-default-features \
     --features=use-std,cobs-serial,raw-nusb
+
+# Host + all non-wasm host-client impls with raw-nusb-0_2
+cargo check \
+    --manifest-path source/postcard-rpc/Cargo.toml \
+    --no-default-features \
+    --features=use-std,cobs-serial,raw-nusb-0_2
+cargo test \
+    --manifest-path source/postcard-rpc/Cargo.toml \
+    --no-default-features \
+    --features=use-std,cobs-serial,raw-nusb-0_2
+
+# Host + all non-wasm host-client impls with raw-nusb-0_1 and raw-nusb-0_2
+cargo check \
+    --manifest-path source/postcard-rpc/Cargo.toml \
+    --no-default-features \
+    --features=use-std,cobs-serial,raw-nusb-0_1,raw-nusb-0_2
+cargo test \
+    --manifest-path source/postcard-rpc/Cargo.toml \
+    --no-default-features \
+    --features=use-std,cobs-serial,raw-nusb-0_1,raw-nusb-0_2
 
 # Host + wasm host-client impls
 RUSTFLAGS="--cfg=web_sys_unstable_apis" \

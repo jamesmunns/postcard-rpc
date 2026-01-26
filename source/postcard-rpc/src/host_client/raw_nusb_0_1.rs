@@ -249,6 +249,7 @@ where
     /// ## Example
     ///
     /// ```rust,no_run
+    /// # use nusb_0_1 as nusb;
     /// use postcard_rpc::host_client::HostClient;
     /// use postcard_rpc::header::VarSeqKind;
     /// use serde::{Serialize, Deserialize};

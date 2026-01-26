@@ -28,7 +28,7 @@ pub(crate) const MAX_STALL_RETRIES: usize = 10;
 
 /// # `nusb` Constructor Methods
 ///
-/// These methods are used to create a new [HostClient] instance for use with `nusb` 0.2 
+/// These methods are used to create a new [HostClient] instance for use with `nusb` 0.2
 /// and USB bulk transfer encoding.
 ///
 /// **Requires feature**: `raw-nusb-0_2`
@@ -252,6 +252,7 @@ where
     /// ## Example
     ///
     /// ```rust,no_run
+    /// # use nusb_0_2::{self as nusb, MaybeFuture};
     /// use postcard_rpc::host_client::HostClient;
     /// use postcard_rpc::header::VarSeqKind;
     /// use serde::{Serialize, Deserialize};
