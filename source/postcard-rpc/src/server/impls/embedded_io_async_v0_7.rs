@@ -9,7 +9,7 @@ use crate::{
 };
 use cobs::decode;
 use embassy_sync_0_7::{blocking_mutex::raw::RawMutex, mutex::Mutex};
-use embedded_io_async_0_6::{Read, Write};
+use embedded_io_async_0_7::{Read, Write};
 use postcard::{
     ser_flavors::{Flavor, Slice},
     Serializer,

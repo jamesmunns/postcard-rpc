@@ -8,6 +8,9 @@ pub mod embassy_usb_v0_5;
 #[cfg(feature = "embedded-io-async-0_6-server")]
 pub mod embedded_io_async_v0_6;
 
+#[cfg(feature = "embedded-io-async-0_7-server")]
+pub mod embedded_io_async_v0_7;
+
 #[cfg(all(target_os = "linux", feature = "usb-gadget"))]
 pub mod usb_gadget;
 
@@ -17,6 +20,7 @@ pub mod test_channels;
 #[cfg(any(
     feature = "embassy-usb-0_5-server",
     feature = "embedded-io-async-0_6-server",
+    feature = "embedded-io-async-0_7-server",
 ))]
 pub(crate) mod embassy_shared {
     use crate::server::WireSpawn;
