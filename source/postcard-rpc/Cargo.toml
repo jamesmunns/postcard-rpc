@@ -40,6 +40,11 @@ postcard-schema = { version = "0.2.2", features = ["derive"] }
 version = "0.1.9"
 optional = true
 
+[dependencies.nusb-0_2]
+package = "nusb"
+version = "0.2"
+optional = true
+
 [dependencies.tokio-serial]
 version = "5.4.4"
 optional = true
@@ -199,6 +204,7 @@ cobs-serial = ["cobs/use_std", "dep:tokio-serial"]
 # Works on: Win, Mac, Linux
 # Does NOT work on: WASM
 raw-nusb = ["dep:nusb", "use-std"]
+raw-nusb-0_2 = ["dep:nusb-0_2", "use-std", "tokio"] # TODO: Might not want to pin tokio feature here
 
 # WebUSB support
 #
@@ -243,7 +249,7 @@ usb-gadget = [
     "dep:usb-gadget",
     "dep:bytes",
 ]
-tokio = ["dep:tokio", "usb-gadget/tokio"]
+tokio = ["dep:tokio", "usb-gadget/tokio", "nusb-0_2/tokio"]
 
 # NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal
 # which doesn't work on `std` builds without the `std` feature. This causes

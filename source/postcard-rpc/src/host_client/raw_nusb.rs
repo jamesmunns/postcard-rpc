@@ -2,10 +2,10 @@
 
 use std::future::Future;
 
-use nusb::{
-    transfer::{Direction, EndpointType, Queue, RequestBuffer, TransferError},
-    DeviceInfo,
-};
+#[cfg(feature = "raw-nusb-0_2")]
+use nusb_0_2 as nusb;
+
+use nusb::{transfer::Direction, DeviceInfo};
 use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
 
@@ -84,7 +84,15 @@ where
         outgoing_depth: usize,
         seq_no_kind: VarSeqKind,
     ) -> Result<Self, String> {
-        let x = nusb::list_devices()
+        let devices = nusb::list_devices();
+
+        #[cfg(feature = "raw-nusb-0_2")]
+        let devices = {
+            use nusb_0_2::MaybeFuture;
+            devices.wait()
+        };
+
+        let x = devices
             .map_err(|e| format!("Error listing devices: {e:?}"))?
             .find(func)
             .ok_or_else(|| String::from("Failed to find matching nusb device!"))?;
@@ -165,7 +173,15 @@ where
         outgoing_depth: usize,
         seq_no_kind: VarSeqKind,
     ) -> Result<Self, String> {
-        let x = nusb::list_devices()
+        let devices = nusb::list_devices();
+
+        #[cfg(feature = "raw-nusb-0_2")]
+        let devices = {
+            use nusb_0_2::MaybeFuture;
+            devices.wait()
+        };
+
+        let x = devices
             .map_err(|e| format!("Error listing devices: {e:?}"))?
             .find(device_func)
             .ok_or_else(|| String::from("Failed to find matching nusb device!"))?;
@@ -229,21 +245,36 @@ where
         outgoing_depth: usize,
         seq_no_kind: VarSeqKind,
     ) -> Result<Self, String> {
-        let dev = dev
-            .open()
-            .map_err(|e| format!("Failed opening device: {e:?}"))?;
-        let interface = dev
-            .claim_interface(interface_id as u8)
-            .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
+        let dev = dev.open();
+
+        #[cfg(feature = "raw-nusb-0_2")]
+        let dev = {
+            use nusb_0_2::MaybeFuture;
+            dev.wait()
+        };
+
+        let dev = dev.map_err(|e| format!("Failed opening device: {e:?}"))?;
+        let interface = dev.claim_interface(interface_id as u8);
+
+        #[cfg(feature = "raw-nusb-0_2")]
+        let interface = {
+            use nusb_0_2::MaybeFuture;
+            interface.wait()
+        };
+
+        let interface = interface.map_err(|e| format!("Failed claiming interface: {e:?}"))?;
 
         let mut mps: Option<usize> = None;
         let mut ep_in: Option<u8> = None;
         let mut ep_out: Option<u8> = None;
         for ias in interface.descriptors() {
-            for ep in ias
-                .endpoints()
-                .filter(|e| e.transfer_type() == EndpointType::Bulk)
-            {
+            for ep in ias.endpoints().filter(|e| {
+                #[cfg(feature = "raw-nusb-0_2")]
+                return e.transfer_type() == nusb_0_2::descriptors::TransferType::Bulk;
+
+                #[cfg(feature = "raw-nusb")]
+                return e.transfer_type() == nusb::transfer::EndpointType::Bulk;
+            }) {
                 match ep.direction() {
                     Direction::Out => {
                         mps = Some(match mps.take() {
@@ -269,18 +300,45 @@ where
         let ep_in = ep_in.ok_or("Failed to find IN EP")?;
         tracing::debug!("IN EP: {ep_in}");
 
-        let boq = interface.bulk_out_queue(ep_out);
-        let biq = interface.bulk_in_queue(ep_in);
+        #[cfg(feature = "raw-nusb")]
+        let (tx, rx) = {
+            let boq = interface.bulk_out_queue(ep_out);
+            let biq = interface.bulk_in_queue(ep_in);
+
+            (
+                v0_1::NusbWireTx {
+                    boq,
+                    max_packet_size: mps,
+                },
+                v0_1::NusbWireRx {
+                    biq,
+                    consecutive_errs: 0,
+                },
+            )
+        };
+
+        #[cfg(feature = "raw-nusb-0_2")]
+        let (tx, rx) = {
+            use nusb_0_2::transfer::{Bulk, In, Out};
+
+            let writer = interface
+                .endpoint::<Bulk, Out>(ep_out)
+                .map_err(|e| format!("Failed to claim OUT endpoint: {e:?}"))?
+                .writer(MAX_TRANSFER_SIZE)
+                .with_num_transfers(IN_FLIGHT_REQS);
+
+            let reader = interface
+                .endpoint::<Bulk, In>(ep_in)
+                .map_err(|e| format!("Failed to claim IN endpoint: {e:?}"))?
+                .reader(MAX_TRANSFER_SIZE)
+                .with_num_transfers(IN_FLIGHT_REQS);
+
+            (v0_2::NusbWireTx { writer }, v0_2::NusbWireRx { reader })
+        };
 
         Ok(HostClient::new_with_wire(
-            NusbWireTx {
-                boq,
-                max_packet_size: mps,
-            },
-            NusbWireRx {
-                biq,
-                consecutive_errs: 0,
-            },
+            tx,
+            rx,
             NusbSpawn,
             seq_no_kind,
             err_uri_path,
@@ -348,165 +406,256 @@ impl WireSpawn for NusbSpawn {
     }
 }
 
-/// NUSB Wire Transmit Interface Implementor
-struct NusbWireTx {
-    boq: Queue<Vec<u8>>,
-    max_packet_size: Option<usize>,
-}
+#[cfg(feature = "raw-nusb")]
+mod v0_1 {
+    use super::*;
 
-#[derive(thiserror::Error, Debug)]
-enum NusbWireTxError {
-    #[error("Transfer Error on Send")]
-    Transfer(#[from] TransferError),
-}
+    use nusb::transfer::{Queue, RequestBuffer, TransferError};
 
-impl WireTx for NusbWireTx {
-    type Error = NusbWireTxError;
-
-    #[inline]
-    fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        self.send_inner(data)
+    /// NUSB Wire Transmit Interface Implementor
+    pub struct NusbWireTx {
+        pub boq: Queue<Vec<u8>>,
+        pub max_packet_size: Option<usize>,
     }
-}
 
-impl NusbWireTx {
-    async fn send_inner(&mut self, data: Vec<u8>) -> Result<(), NusbWireTxError> {
-        let needs_zlp = if let Some(mps) = self.max_packet_size {
-            (data.len() % mps) == 0
-        } else {
-            true
-        };
+    #[derive(thiserror::Error, Debug)]
+    pub enum NusbWireTxError {
+        #[error("Transfer Error on Send")]
+        Transfer(#[from] TransferError),
+    }
 
-        self.boq.submit(data);
+    impl WireTx for NusbWireTx {
+        type Error = NusbWireTxError;
 
-        // Append ZLP if we are a multiple of max packet
-        if needs_zlp {
-            self.boq.submit(vec![]);
+        #[inline]
+        fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
+            self.send_inner(data)
         }
+    }
 
-        let send_res = self.boq.next_complete().await;
-        if let Err(e) = send_res.status {
-            tracing::error!("Output Queue Error: {e:?}");
-            return Err(e.into());
-        }
+    impl NusbWireTx {
+        async fn send_inner(&mut self, data: Vec<u8>) -> Result<(), NusbWireTxError> {
+            let needs_zlp = if let Some(mps) = self.max_packet_size {
+                (data.len() % mps) == 0
+            } else {
+                true
+            };
 
-        if needs_zlp {
+            self.boq.submit(data);
+
+            // Append ZLP if we are a multiple of max packet
+            if needs_zlp {
+                self.boq.submit(vec![]);
+            }
+
             let send_res = self.boq.next_complete().await;
             if let Err(e) = send_res.status {
                 tracing::error!("Output Queue Error: {e:?}");
                 return Err(e.into());
             }
-        }
 
-        Ok(())
-    }
-}
-
-/// NUSB Wire Receive Interface Implementor
-struct NusbWireRx {
-    biq: Queue<RequestBuffer>,
-    consecutive_errs: usize,
-}
-
-#[derive(thiserror::Error, Debug)]
-enum NusbWireRxError {
-    #[error("Transfer Error on Recv")]
-    Transfer(#[from] TransferError),
-}
-
-impl WireRx for NusbWireRx {
-    type Error = NusbWireRxError;
-
-    #[inline]
-    fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send {
-        self.recv_inner()
-    }
-}
-
-impl NusbWireRx {
-    async fn recv_inner(&mut self) -> Result<Vec<u8>, NusbWireRxError> {
-        loop {
-            // Rehydrate the queue
-            let pending = self.biq.pending();
-            for _ in 0..(IN_FLIGHT_REQS.saturating_sub(pending)) {
-                self.biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
-            }
-
-            let res = self.biq.next_complete().await;
-
-            if let Err(e) = res.status {
-                self.consecutive_errs += 1;
-
-                tracing::error!(
-                    "In Worker error: {e:?}, consecutive: {}",
-                    self.consecutive_errs
-                );
-
-                // Docs only recommend this for Stall, but it seems to work with
-                // UNKNOWN on MacOS as well, todo: look into why!
-                //
-                // Update: This stall condition seems to have been due to an errata in the
-                // STM32F4 USB hardware. See https://github.com/embassy-rs/embassy/pull/2823
-                //
-                // It is now questionable whether we should be doing this stall recovery at all,
-                // as it likely indicates an issue with the connected USB device
-                let recoverable = match e {
-                    TransferError::Stall | TransferError::Unknown => {
-                        self.consecutive_errs <= MAX_STALL_RETRIES
-                    }
-                    TransferError::Cancelled => false,
-                    TransferError::Disconnected => false,
-                    TransferError::Fault => false,
-                };
-
-                let fatal = if recoverable {
-                    tracing::warn!("Attempting stall recovery!");
-
-                    // Stall recovery shouldn't be used with in-flight requests, so
-                    // cancel them all. They'll still pop out of next_complete.
-                    self.biq.cancel_all();
-                    tracing::info!("Cancelled all in-flight requests");
-
-                    // Now we need to join all in flight requests
-                    for _ in 0..(IN_FLIGHT_REQS - 1) {
-                        let res = self.biq.next_complete().await;
-                        tracing::info!("Drain state: {:?}", res.status);
-                    }
-
-                    // Now we can mark the stall as clear
-                    match self.biq.clear_halt() {
-                        Ok(()) => false,
-                        Err(e) => {
-                            tracing::error!("Failed to clear stall: {e:?}, Fatal.");
-                            true
-                        }
-                    }
-                } else {
-                    tracing::error!(
-                        "Giving up after {} errors in a row, final error: {e:?}",
-                        self.consecutive_errs
-                    );
-                    true
-                };
-
-                if fatal {
-                    tracing::error!("Fatal Error, exiting");
-                    // When we close the channel, all pending receivers and subscribers
-                    // will be notified
+            if needs_zlp {
+                let send_res = self.boq.next_complete().await;
+                if let Err(e) = send_res.status {
+                    tracing::error!("Output Queue Error: {e:?}");
                     return Err(e.into());
-                } else {
-                    tracing::info!("Potential recovery, resuming NusbWireRx::recv_inner");
-                    continue;
                 }
             }
 
-            // If we get a good decode, clear the error flag
-            if self.consecutive_errs != 0 {
-                tracing::info!("Clearing consecutive error counter after good header decode");
-                self.consecutive_errs = 0;
-            }
+            Ok(())
+        }
+    }
 
-            return Ok(res.data);
+    /// NUSB Wire Receive Interface Implementor
+    pub struct NusbWireRx {
+        pub biq: Queue<RequestBuffer>,
+        pub consecutive_errs: usize,
+    }
+
+    #[derive(thiserror::Error, Debug)]
+    pub enum NusbWireRxError {
+        #[error("Transfer Error on Recv")]
+        Transfer(#[from] TransferError),
+    }
+
+    impl WireRx for NusbWireRx {
+        type Error = NusbWireRxError;
+
+        #[inline]
+        fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send {
+            self.recv_inner()
+        }
+    }
+
+    impl NusbWireRx {
+        async fn recv_inner(&mut self) -> Result<Vec<u8>, NusbWireRxError> {
+            loop {
+                // Rehydrate the queue
+                let pending = self.biq.pending();
+                for _ in 0..(IN_FLIGHT_REQS.saturating_sub(pending)) {
+                    self.biq.submit(RequestBuffer::new(MAX_TRANSFER_SIZE));
+                }
+
+                let res = self.biq.next_complete().await;
+
+                if let Err(e) = res.status {
+                    self.consecutive_errs += 1;
+
+                    tracing::error!(
+                        "In Worker error: {e:?}, consecutive: {}",
+                        self.consecutive_errs
+                    );
+
+                    // Docs only recommend this for Stall, but it seems to work with
+                    // UNKNOWN on MacOS as well, todo: look into why!
+                    //
+                    // Update: This stall condition seems to have been due to an errata in the
+                    // STM32F4 USB hardware. See https://github.com/embassy-rs/embassy/pull/2823
+                    //
+                    // It is now questionable whether we should be doing this stall recovery at all,
+                    // as it likely indicates an issue with the connected USB device
+                    let recoverable = match e {
+                        TransferError::Stall | TransferError::Unknown => {
+                            self.consecutive_errs <= MAX_STALL_RETRIES
+                        }
+                        TransferError::Cancelled => false,
+                        TransferError::Disconnected => false,
+                        TransferError::Fault => false,
+                    };
+
+                    let fatal = if recoverable {
+                        tracing::warn!("Attempting stall recovery!");
+
+                        // Stall recovery shouldn't be used with in-flight requests, so
+                        // cancel them all. They'll still pop out of next_complete.
+                        self.biq.cancel_all();
+                        tracing::info!("Cancelled all in-flight requests");
+
+                        // Now we need to join all in flight requests
+                        for _ in 0..(IN_FLIGHT_REQS - 1) {
+                            let res = self.biq.next_complete().await;
+                            tracing::info!("Drain state: {:?}", res.status);
+                        }
+
+                        // Now we can mark the stall as clear
+                        match self.biq.clear_halt() {
+                            Ok(()) => false,
+                            Err(e) => {
+                                tracing::error!("Failed to clear stall: {e:?}, Fatal.");
+                                true
+                            }
+                        }
+                    } else {
+                        tracing::error!(
+                            "Giving up after {} errors in a row, final error: {e:?}",
+                            self.consecutive_errs
+                        );
+                        true
+                    };
+
+                    if fatal {
+                        tracing::error!("Fatal Error, exiting");
+                        // When we close the channel, all pending receivers and subscribers
+                        // will be notified
+                        return Err(e.into());
+                    } else {
+                        tracing::info!("Potential recovery, resuming NusbWireRx::recv_inner");
+                        continue;
+                    }
+                }
+
+                // If we get a good decode, clear the error flag
+                if self.consecutive_errs != 0 {
+                    tracing::info!("Clearing consecutive error counter after good header decode");
+                    self.consecutive_errs = 0;
+                }
+
+                return Ok(res.data);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "raw-nusb-0_2")]
+mod v0_2 {
+    use super::*;
+
+    use std::io;
+
+    use nusb_0_2::{
+        io::{EndpointRead, EndpointWrite},
+        transfer,
+    };
+
+    /// NUSB Wire Transmit Interface Implementor
+    pub struct NusbWireTx {
+        pub writer: EndpointWrite<transfer::Bulk>,
+    }
+
+    #[derive(thiserror::Error, Debug)]
+    pub enum NusbWireTxError {
+        #[error("Transfer Error on Send")]
+        Transfer(#[from] transfer::TransferError),
+        #[error("I/O Error on Send")]
+        Io(#[from] io::Error),
+    }
+
+    impl WireTx for NusbWireTx {
+        type Error = NusbWireTxError;
+
+        #[inline]
+        fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
+            self.send_inner(data)
+        }
+    }
+
+    impl NusbWireTx {
+        async fn send_inner(&mut self, data: Vec<u8>) -> Result<(), NusbWireTxError> {
+            // TODO: assumes tokio
+            use tokio::io::AsyncWriteExt;
+
+            self.writer.write_all(&data).await?;
+            self.writer.flush_end_async().await?;
+
+            Ok(())
+        }
+    }
+
+    /// NUSB Wire Receive Interface Implementor
+    pub struct NusbWireRx {
+        pub reader: EndpointRead<transfer::Bulk>,
+    }
+
+    #[derive(thiserror::Error, Debug)]
+    pub enum NusbWireRxError {
+        #[error("Transfer Error on Recv")]
+        Transfer(#[from] transfer::TransferError),
+        #[error("I/O Error on Recv")]
+        IO(#[from] io::Error),
+        #[error("Short Packet Error From nusb")]
+        ExpectedShortPacket(#[from] nusb_0_2::io::ExpectedShortPacket),
+    }
+
+    impl WireRx for NusbWireRx {
+        type Error = NusbWireRxError;
+
+        #[inline]
+        fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send {
+            self.recv_inner()
+        }
+    }
+
+    impl NusbWireRx {
+        async fn recv_inner(&mut self) -> Result<Vec<u8>, NusbWireRxError> {
+            use tokio::io::AsyncReadExt;
+
+            let mut reader = self.reader.until_short_packet();
+            let mut v = Vec::new();
+
+            reader.read_to_end(&mut v).await?;
+            reader.consume_end()?;
+
+            Ok(v)
         }
     }
 }
