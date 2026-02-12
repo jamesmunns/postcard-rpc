@@ -36,8 +36,6 @@ pub(crate) const MAX_TRANSFER_SIZE: usize = 1024;
 /// How many in-flight requests at once - allows nusb to keep pulling frames
 /// even if we haven't processed them host-side yet.
 pub(crate) const IN_FLIGHT_REQS: usize = 4;
-/// How many consecutive IN errors will we try to recover from before giving up?
-pub(crate) const MAX_STALL_RETRIES: usize = 10;
 
 /// # `nusb` Constructor Methods
 ///

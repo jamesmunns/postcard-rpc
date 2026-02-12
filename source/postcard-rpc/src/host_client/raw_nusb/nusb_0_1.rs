@@ -10,6 +10,10 @@ pub use nusb::*;
 
 use crate::host_client::{WireRx, WireTx};
 
+// TODO: This should be configurable, PRs welcome
+/// How many consecutive IN errors will we try to recover from before giving up?
+pub(crate) const MAX_STALL_RETRIES: usize = 10;
+
 //////////////////////////////////////////////////////////////////////////////
 // Wrappers for common functionality that is slightly different from nusb 0.1 <-> 0.2
 //////////////////////////////////////////////////////////////////////////////
@@ -129,7 +133,7 @@ impl WireRx for NusbWireRx {
 
 impl NusbWireRx {
     async fn recv_inner(&mut self) -> Result<Vec<u8>, NusbWireRxError> {
-        use super::{IN_FLIGHT_REQS, MAX_STALL_RETRIES, MAX_TRANSFER_SIZE};
+        use super::{IN_FLIGHT_REQS, MAX_TRANSFER_SIZE};
 
         loop {
             // Rehydrate the queue
