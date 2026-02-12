@@ -59,6 +59,16 @@ cargo test \
     --no-default-features \
     --features=use-std,cobs-serial,raw-nusb-0_2
 
+# Host + all non-wasm host-client impls (raw-nusb-0_1 + raw-nusb-0_2)
+cargo check \
+    --manifest-path source/postcard-rpc/Cargo.toml \
+    --no-default-features \
+    --features=use-std,cobs-serial,raw-nusb-0_2
+cargo test \
+    --manifest-path source/postcard-rpc/Cargo.toml \
+    --no-default-features \
+    --features=use-std,cobs-serial,raw-nusb-0_2
+
 # Embedded + embassy server impl
 cargo check \
     --manifest-path source/postcard-rpc/Cargo.toml \
