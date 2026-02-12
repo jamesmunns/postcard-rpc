@@ -36,15 +36,11 @@ use crate::{
 use self::util::Stopper;
 pub use crate::host_client::util::HostClientConfig;
 
-// Ensure exactly one version of nusb is specified
-#[cfg(all(feature = "raw-nusb", feature = "raw-nusb-0_2",))]
-compile_error!("Please enable either `raw-nusb` or `raw-nusb-0_2` - not both");
-
 #[cfg(all(
-    any(feature = "raw-nusb", feature = "raw-nusb-0_2"),
+    any(feature = "raw-nusb-0_1", feature = "raw-nusb-0_2"),
     not(target_family = "wasm")
 ))]
-mod raw_nusb;
+pub mod raw_nusb;
 
 #[cfg(all(feature = "cobs-serial", not(target_family = "wasm")))]
 mod serial;
