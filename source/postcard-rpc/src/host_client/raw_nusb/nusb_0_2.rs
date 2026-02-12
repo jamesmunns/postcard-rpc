@@ -16,7 +16,8 @@ use crate::host_client::{WireRx, WireTx};
 // Wrappers for common functionality that is slightly different from nusb 0.1 <-> 0.2
 //////////////////////////////////////////////////////////////////////////////
 
-pub(crate) fn list_devices() -> Result<impl Iterator<Item = DeviceInfo>, nusb::Error> {
+/// Blocking wrapper for `nusb_0_2::list_devices`
+pub fn list_devices() -> Result<impl Iterator<Item = DeviceInfo>, nusb::Error> {
     nusb::list_devices().wait()
 }
 

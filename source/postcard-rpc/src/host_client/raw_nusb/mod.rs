@@ -16,6 +16,8 @@ use nusb_0_2 as _impl;
 
 use _impl as nusb;
 
+pub use _impl::list_devices;
+
 use std::future::Future;
 
 use nusb::{transfer::Direction, DeviceInfo};
@@ -208,6 +210,8 @@ where
     /// ## Example
     ///
     /// ```rust,no_run
+    /// use postcard_rpc::host_client::raw_nusb::list_devices;
+    ///
     /// use postcard_rpc::host_client::HostClient;
     /// use postcard_rpc::header::VarSeqKind;
     /// use serde::{Serialize, Deserialize};
@@ -221,7 +225,7 @@ where
     /// }
     ///
     /// // Assume the first usb device is the one we're interested
-    /// let dev = nusb::list_devices().unwrap().next().unwrap();
+    /// let dev = list_devices().unwrap().next().unwrap();
     /// let client = HostClient::<Error>::try_from_nusb_and_interface(
     ///     // Device to open
     ///     &dev,
