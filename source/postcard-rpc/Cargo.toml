@@ -115,10 +115,10 @@ optional = true
 version = "0.1.2"
 optional = true
 
-[dependencies.futures-lite]
+[target.'cfg(not(target_family = "wasm"))'.dependencies.futures-lite]
 version = "2.6"
 optional = true
-default_features = false
+default-features = false
 
 
 #
