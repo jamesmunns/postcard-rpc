@@ -279,7 +279,7 @@ where
         tracing::debug!("IN EP: {ep_in}");
 
         let tx = _impl::make_tx_impl(&interface, ep_out, mps)?;
-        let rx = _impl::make_rx_impl(&interface, ep_out)?;
+        let rx = _impl::make_rx_impl(&interface, ep_in)?;
 
         Ok(HostClient::new_with_wire(
             tx,
