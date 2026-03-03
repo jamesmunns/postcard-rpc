@@ -17,7 +17,8 @@ features = [
     "test-utils",
     "use-std",
     "cobs-serial",
-    "raw-nusb",
+    "raw-nusb-0_1",
+    "raw-nusb-0_2",
     "embassy-usb-0_5-server",
     "embedded-io-async-0_6-server",
     "_docs-fix",
@@ -36,8 +37,15 @@ postcard-schema = { version = "0.2.2", features = ["derive"] }
 # std-only features
 #
 
-[dependencies.nusb]
+[dependencies.nusb-0_1]
+package = "nusb"
 version = "0.1.9"
+optional = true
+
+# TODO: upstream nusb 0.2 does not build on wasm - there's WIP towards this
+[target.'cfg(not(target_family = "wasm"))'.dependencies.nusb-0_2]
+package = "nusb"
+version = "0.2"
 optional = true
 
 [dependencies.tokio-serial]
@@ -67,7 +75,7 @@ version = "2"
 default-features = false
 
 [dependencies.web-sys]
-version = "0.3.69"
+version = "0.3.91"
 optional = true
 features = [
     "Element",
@@ -107,6 +115,11 @@ optional = true
 [dependencies.trait-variant]
 version = "0.1.2"
 optional = true
+
+[dependencies.futures-lite]
+version = "2.6"
+optional = true
+default-features = false
 
 
 #
@@ -186,6 +199,7 @@ use-std = [
     "dep:tracing",
     "dep:trait-variant",
     "dep:ssmarshal",
+    "futures-lite/std"
 ]
 
 # Cobs Serial support.
@@ -198,7 +212,9 @@ cobs-serial = ["cobs/use_std", "dep:tokio-serial"]
 #
 # Works on: Win, Mac, Linux
 # Does NOT work on: WASM
-raw-nusb = ["dep:nusb", "use-std"]
+raw-nusb = ["raw-nusb-0_1"]
+raw-nusb-0_1 = ["dep:nusb-0_1", "use-std"]
+raw-nusb-0_2 = ["dep:nusb-0_2", "use-std", "futures-lite"]
 
 # WebUSB support
 #
@@ -243,7 +259,8 @@ usb-gadget = [
     "dep:usb-gadget",
     "dep:bytes",
 ]
-tokio = ["dep:tokio", "usb-gadget/tokio"]
+tokio = ["dep:tokio", "usb-gadget/tokio", "nusb-0_2/tokio"]
+futures-lite = ["dep:futures-lite", "nusb-0_2/smol"]
 
 # NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal
 # which doesn't work on `std` builds without the `std` feature. This causes
@@ -251,3 +268,6 @@ tokio = ["dep:tokio", "usb-gadget/tokio"]
 # that feature when `--all-features` is set. This feature is considered unstable
 # and should not be relied upon.
 _docs-fix = ["dep:ssmarshal"]
+
+# [patch.crates-io]
+# nusb-0_2 = { git = "https://github.com/genkiinstruments/nusb", branch = "webusb", package = "nusb" }

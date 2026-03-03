@@ -160,7 +160,7 @@ impl WebUsbWire {
         });
         let filter = JsValue::from_serde(&filter).unwrap();
         // try to get device from already paired list
-        let devices: js_sys::Array = JsFuture::from(usb.get_devices()).await?.into();
+        let devices = JsFuture::from(usb.get_devices()).await?;
         let device = if devices.length() > 0 {
             info!("found {} existing devices", devices.length());
             // need to ensure we get the right one because others might've been paired in the past
@@ -175,10 +175,7 @@ impl WebUsbWire {
 
         let device = match device {
             Some(device) => device,
-            None => JsFuture::from(usb.request_device(&filter.into()))
-                .await?
-                .dyn_into()
-                .map_err(|e| Error::from(e))?,
+            None => JsFuture::from(usb.request_device(&filter.into())).await?,
         };
 
         Self::open_webusb_interface(device, interface, transfer_max_length, ep_in, ep_out).await
