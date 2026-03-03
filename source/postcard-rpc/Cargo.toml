@@ -75,7 +75,7 @@ version = "2"
 default-features = false
 
 [dependencies.web-sys]
-version = "0.3.69"
+version = "0.3.91"
 optional = true
 features = [
     "Element",
