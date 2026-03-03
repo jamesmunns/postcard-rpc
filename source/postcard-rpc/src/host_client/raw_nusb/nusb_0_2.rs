@@ -1,11 +1,10 @@
-use std::{future::Future, io};
+use std::future::Future;
 
 use nusb_0_2::{
     self as nusb,
     descriptors::{EndpointDescriptor, TransferType},
     io::{EndpointRead, EndpointWrite},
     transfer::{Bulk, In, Out, TransferError},
-    MaybeFuture,
 };
 
 pub use nusb::*;
@@ -17,15 +16,21 @@ use crate::host_client::{WireRx, WireTx};
 //////////////////////////////////////////////////////////////////////////////
 
 /// Blocking wrapper for `nusb_0_2::list_devices`
+#[cfg(not(target_family = "wasm"))]
 pub fn list_devices() -> Result<impl Iterator<Item = DeviceInfo>, nusb::Error> {
+    use nusb_0_2::MaybeFuture;
     nusb::list_devices().wait()
 }
 
+#[cfg(not(target_family = "wasm"))]
 pub(crate) fn open_device(dev: &DeviceInfo) -> Result<Device, nusb::Error> {
+    use nusb_0_2::MaybeFuture;
     dev.open().wait()
 }
 
+#[cfg(not(target_family = "wasm"))]
 pub(crate) fn claim_interface(dev: &Device, interface: u8) -> Result<Interface, nusb::Error> {
+    use nusb_0_2::MaybeFuture;
     dev.claim_interface(interface).wait()
 }
 
@@ -71,14 +76,21 @@ pub(crate) enum NusbWireTxError {
     #[error("Transfer Error on Send")]
     Transfer(#[from] TransferError),
     #[error("I/O Error on Send")]
-    Io(#[from] io::Error),
+    Io(#[from] std::io::Error),
 }
 
 impl WireTx for NusbWireTx {
     type Error = NusbWireTxError;
 
     #[inline]
+    #[cfg(not(target_family = "wasm"))]
     fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        self.send_inner(data)
+    }
+
+    #[inline]
+    #[cfg(target_family = "wasm")]
+    fn send(&mut self, data: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> {
         self.send_inner(data)
     }
 }
@@ -108,7 +120,7 @@ pub(crate) enum NusbWireRxError {
     #[error("Transfer Error on Recv")]
     Transfer(#[from] transfer::TransferError),
     #[error("I/O Error on Recv")]
-    IO(#[from] io::Error),
+    IO(#[from] std::io::Error),
     #[error("Short Packet Error From nusb")]
     ExpectedShortPacket(#[from] nusb_0_2::io::ExpectedShortPacket),
 }
@@ -117,7 +129,14 @@ impl WireRx for NusbWireRx {
     type Error = NusbWireRxError;
 
     #[inline]
+    #[cfg(not(target_family = "wasm"))]
     fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send {
+        self.recv_inner()
+    }
+
+    #[inline]
+    #[cfg(target_family = "wasm")]
+    fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> {
         self.recv_inner()
     }
 }

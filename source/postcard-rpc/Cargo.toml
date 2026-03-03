@@ -42,7 +42,8 @@ package = "nusb"
 version = "0.1.9"
 optional = true
 
-[dependencies.nusb-0_2]
+# TODO: upstream nusb 0.2 does not build on wasm - there's WIP towards this
+[target.'cfg(not(target_family = "wasm"))'.dependencies.nusb-0_2]
 package = "nusb"
 version = "0.2"
 optional = true
@@ -115,7 +116,7 @@ optional = true
 version = "0.1.2"
 optional = true
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies.futures-lite]
+[dependencies.futures-lite]
 version = "2.6"
 optional = true
 default-features = false
@@ -267,3 +268,6 @@ futures-lite = ["dep:futures-lite", "nusb-0_2/smol"]
 # that feature when `--all-features` is set. This feature is considered unstable
 # and should not be relied upon.
 _docs-fix = ["dep:ssmarshal"]
+
+# [patch.crates-io]
+# nusb-0_2 = { git = "https://github.com/genkiinstruments/nusb", branch = "webusb", package = "nusb" }

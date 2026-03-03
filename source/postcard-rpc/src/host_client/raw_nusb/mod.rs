@@ -20,14 +20,11 @@ pub use _impl::list_devices;
 
 use std::future::Future;
 
-use nusb::{transfer::Direction, DeviceInfo};
+use nusb::{transfer::Direction, Interface};
 use postcard_schema::Schema;
 use serde::de::DeserializeOwned;
 
-use crate::{
-    header::VarSeqKind,
-    host_client::{HostClient, WireSpawn},
-};
+use crate::{header::VarSeqKind, host_client::HostClient};
 
 // TODO: These should all be configurable, PRs welcome
 
@@ -91,7 +88,8 @@ where
     ///     VarSeqKind::Seq1,
     /// ).unwrap();
     /// ```
-    pub fn try_new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
+    #[cfg(not(target_family = "wasm"))]
+    pub fn try_new_raw_nusb<F: FnMut(&nusb::DeviceInfo) -> bool>(
         func: F,
         err_uri_path: &str,
         outgoing_depth: usize,
@@ -113,7 +111,7 @@ where
         #[cfg(target_os = "windows")]
         let interface_id = 0;
 
-        Self::try_from_nusb_and_interface(
+        Self::try_from_nusb_and_interface_id(
             &x,
             interface_id,
             err_uri_path,
@@ -167,9 +165,9 @@ where
     ///     VarSeqKind::Seq1,
     /// ).unwrap();
     /// ```
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(all(not(target_os = "windows"), not(target_family = "wasm")))]
     pub fn try_new_raw_nusb_with_interface<
-        F1: FnMut(&DeviceInfo) -> bool,
+        F1: FnMut(&nusb::DeviceInfo) -> bool,
         F2: FnMut(&nusb::InterfaceInfo) -> bool,
     >(
         device_func: F1,
@@ -187,7 +185,7 @@ where
             .position(interface_func)
             .ok_or_else(|| String::from("Failed to find matching interface!!"))?;
 
-        Self::try_from_nusb_and_interface(
+        Self::try_from_nusb_and_interface_id(
             &x,
             interface_id,
             err_uri_path,
@@ -224,7 +222,7 @@ where
     ///
     /// // Assume the first usb device is the one we're interested
     /// let dev = list_devices().unwrap().next().unwrap();
-    /// let client = HostClient::<Error>::try_from_nusb_and_interface(
+    /// let client = HostClient::<Error>::try_from_nusb_and_interface_id(
     ///     // Device to open
     ///     &dev,
     ///     // Use the first interface (0)
@@ -237,8 +235,9 @@ where
     ///     VarSeqKind::Seq1,
     /// ).unwrap();
     /// ```
-    pub fn try_from_nusb_and_interface(
-        dev: &DeviceInfo,
+    #[cfg(not(target_family = "wasm"))]
+    pub fn try_from_nusb_and_interface_id(
+        dev: &nusb::DeviceInfo,
         interface_id: usize,
         err_uri_path: &str,
         outgoing_depth: usize,
@@ -248,6 +247,16 @@ where
         let interface = _impl::claim_interface(&dev, interface_id as u8)
             .map_err(|e| format!("Failed claiming interface: {e:?}"))?;
 
+        Self::try_from_nusb_interface(interface, err_uri_path, outgoing_depth, seq_no_kind)
+    }
+
+    /// Try to create a new link using [`nusb`] for connectivity from an open nusb interface instance
+    pub fn try_from_nusb_interface(
+        interface: Interface,
+        err_uri_path: &str,
+        outgoing_depth: usize,
+        seq_no_kind: VarSeqKind,
+    ) -> Result<Self, String> {
         let mut mps: Option<usize> = None;
         let mut ep_in: Option<u8> = None;
         let mut ep_out: Option<u8> = None;
@@ -323,7 +332,8 @@ where
     ///     VarSeqKind::Seq1,
     /// );
     /// ```
-    pub fn new_raw_nusb<F: FnMut(&DeviceInfo) -> bool>(
+    #[cfg(not(target_family = "wasm"))]
+    pub fn new_raw_nusb<F: FnMut(&nusb::DeviceInfo) -> bool>(
         func: F,
         err_uri_path: &str,
         outgoing_depth: usize,
@@ -340,13 +350,22 @@ where
 
 /// NUSB Wire Interface Implementor
 ///
-/// Uses Tokio for spawning tasks
+/// Uses Tokio for spawning tasks on non-wasm targets
+/// Uses spawn_local on wasm
 struct NusbSpawn;
 
-impl WireSpawn for NusbSpawn {
+#[cfg(not(target_family = "wasm"))]
+impl crate::host_client::WireSpawn for NusbSpawn {
     fn spawn(&mut self, fut: impl Future<Output = ()> + Send + 'static) {
         // Explicitly drop the joinhandle as it impls Future and this makes
         // clippy mad if you just let it drop implicitly
         core::mem::drop(tokio::task::spawn(fut));
+    }
+}
+
+#[cfg(target_family = "wasm")]
+impl crate::host_client::WireSpawn for NusbSpawn {
+    fn spawn(&mut self, fut: impl Future<Output = ()> + 'static) {
+        wasm_bindgen_futures::spawn_local(fut);
     }
 }
