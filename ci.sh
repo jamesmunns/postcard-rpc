@@ -58,6 +58,11 @@ cargo check \
 cargo check \
     --manifest-path source/postcard-rpc/Cargo.toml \
     --no-default-features \
+    --features=embassy-usb-0_6-server \
+    --target thumbv7em-none-eabihf
+cargo check \
+    --manifest-path source/postcard-rpc/Cargo.toml \
+    --no-default-features \
     --features=embedded-io-async-0_6-server \
     --target thumbv7em-none-eabihf
 
