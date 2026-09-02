@@ -39,7 +39,7 @@ async fn main(spawner: Spawner) {
         Ws2812::new(&mut common, sm0, p.DMA_CH0, p.PIN_25);
 
     // Start the LED task
-    spawner.must_spawn(led_task(ws2812));
+    spawner.spawn(led_task(ws2812).unwrap());
 }
 
 // This is our LED task

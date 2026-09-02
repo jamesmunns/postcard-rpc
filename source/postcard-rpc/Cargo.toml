@@ -149,6 +149,12 @@ version = "2.1"
 optional = true
 
 [dependencies.embassy-executor]
+version = "0.10"
+optional = true
+
+[dependencies.embassy-executor-0_9]
+package = "embassy-executor"
+# esp-rtos 0.2 still exposes 0.9 Spawner types used by embedded-io servers.
 version = "0.9"
 optional = true
 
@@ -267,14 +273,14 @@ embassy-usb-0_6-server = [
 embedded-io-async-0_6-server = [
     "dep:embassy-sync-0_7",
     "dep:static_cell",
-    "dep:embassy-executor",
+    "dep:embassy-executor-0_9",
     "dep:embedded-io-async-0_6",
     "cobs",
 ]
 embedded-io-async-0_7-server = [
     "dep:embassy-sync-0_7",
     "dep:static_cell",
-    "dep:embassy-executor",
+    "dep:embassy-executor-0_9",
     "dep:embedded-io-async-0_7",
     "cobs",
 ]
