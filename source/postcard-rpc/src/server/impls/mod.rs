@@ -20,8 +20,13 @@ pub mod usb_gadget;
 #[cfg(feature = "test-utils")]
 pub mod test_channels;
 
-#[cfg(any(feature = "embassy-usb-0_5-server", feature = "embassy-usb-0_6-server"))]
-pub(crate) mod embassy_shared_0_10 {
+#[cfg(any(
+    feature = "embassy-usb-0_5-server",
+    feature = "embassy-usb-0_6-server",
+    feature = "embedded-io-async-0_6-server",
+    feature = "embedded-io-async-0_7-server",
+))]
+pub(crate) mod embassy_shared {
     use crate::server::WireSpawn;
     use embassy_executor::{SpawnError, SpawnToken, Spawner};
 
@@ -59,51 +64,6 @@ pub(crate) mod embassy_shared_0_10 {
         let info = sp.info();
         info.spawn(tok?);
         Ok(())
-    }
-}
-
-#[cfg(any(
-    feature = "embedded-io-async-0_6-server",
-    feature = "embedded-io-async-0_7-server",
-))]
-pub(crate) mod embassy_shared_0_9 {
-    use crate::server::WireSpawn;
-    use embassy_executor_0_9::{SpawnError, SpawnToken, Spawner};
-
-    //////////////////////////////////////////////////////////////////////////////
-    // SPAWN
-    //////////////////////////////////////////////////////////////////////////////
-
-    /// A [`WireSpawn`] impl using the embassy executor
-    #[derive(Clone)]
-    pub struct EmbassyWireSpawn {
-        /// The embassy-executor spawner
-        pub spawner: Spawner,
-    }
-
-    impl From<Spawner> for EmbassyWireSpawn {
-        fn from(value: Spawner) -> Self {
-            Self { spawner: value }
-        }
-    }
-
-    impl WireSpawn for EmbassyWireSpawn {
-        type Error = SpawnError;
-
-        type Info = Spawner;
-
-        fn info(&self) -> &Self::Info {
-            &self.spawner
-        }
-    }
-
-    /// Attempt to spawn the given token
-    pub fn embassy_spawn<Sp, S: Sized>(sp: &Sp, tok: SpawnToken<S>) -> Result<(), Sp::Error>
-    where
-        Sp: WireSpawn<Error = SpawnError, Info = Spawner>,
-    {
-        let info = sp.info();
-        info.spawn(tok)
     }
 }
 

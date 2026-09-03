@@ -52,7 +52,7 @@ pub mod dispatch_impl {
     use super::{
         EUsbWireRx, EUsbWireTx, EUsbWireTxInner, UsbDeviceBuffers, DEFAULT_TIMEOUT_MS_PER_FRAME,
     };
-    pub use crate::server::impls::embassy_shared_0_10::embassy_spawn as spawn_fn;
+    pub use crate::server::impls::embassy_shared::embassy_spawn as spawn_fn;
 
     /// Used for defining the USB interface
     pub const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
@@ -683,8 +683,8 @@ impl<D: Driver<'static>> WireRx for EUsbWireRx<D> {
 //////////////////////////////////////////////////////////////////////////////
 // SPAWN
 //////////////////////////////////////////////////////////////////////////////
-pub use super::embassy_shared_0_10::embassy_spawn;
-pub use super::embassy_shared_0_10::EmbassyWireSpawn as EUsbWireSpawn;
+pub use super::embassy_shared::embassy_spawn;
+pub use super::embassy_shared::EmbassyWireSpawn as EUsbWireSpawn;
 
 //////////////////////////////////////////////////////////////////////////////
 // OTHER

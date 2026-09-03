@@ -19,20 +19,20 @@ use static_cell::{ConstStaticCell, StaticCell};
 
 /// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
-    pub use crate::server::impls::embassy_shared_0_9::embassy_spawn as spawn_fn;
+    pub use crate::server::impls::embassy_shared::embassy_spawn as spawn_fn;
 
     /// Type alias for `WireTx` impl
     pub type WireTxImpl<M, D> = super::EioWireTx<M, D>;
     /// Type alias for `WireRx` impl
     pub type WireRxImpl<D> = super::EioWireRx<D>;
     /// Type alias for `WireSpawn` impl
-    pub type WireSpawnImpl = crate::server::impls::embassy_shared_0_9::EmbassyWireSpawn;
+    pub type WireSpawnImpl = crate::server::impls::embassy_shared::EmbassyWireSpawn;
     /// Type alias for the receive buffer
     pub type WireRxBuf = &'static mut [u8];
 }
 
-pub use super::embassy_shared_0_9::embassy_spawn;
-pub use super::embassy_shared_0_9::EmbassyWireSpawn as EioWireSpawn;
+pub use super::embassy_shared::embassy_spawn;
+pub use super::embassy_shared::EmbassyWireSpawn as EioWireSpawn;
 
 /// A handy type for storing buffers and the RX/TX impls
 pub struct WireStorage<
