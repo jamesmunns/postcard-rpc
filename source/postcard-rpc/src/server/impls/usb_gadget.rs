@@ -213,9 +213,19 @@ impl WireTx for UsbGadgetWireTx {
             Ok::<(), WireTxErrorKind>(())
         };
 
-        tokio::time::timeout(timeout, send)
-            .await
-            .or(Err(WireTxErrorKind::Timeout))?
+        let res = match tokio::time::timeout(timeout, send).await {
+            Ok(res) => res,
+            Err(_) => Err(WireTxErrorKind::Timeout),
+        };
+
+        // Timeout OR an underlying io::Error from send_async
+        // EndpointSender::send_async might return errors of previously enqueued send operations,
+        // so in any case it's better to try to clean up  to prevent future transfers from hanging
+        if res.is_err() {
+            let _ = ep_tx.cancel();
+        }
+
+        res
     }
 
     async fn send_log_str(
