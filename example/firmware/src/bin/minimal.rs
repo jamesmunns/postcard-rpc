@@ -105,8 +105,8 @@ async fn main(spawner: Spawner) {
         dispatcher,
         vkk,
     );
-    spawner.must_spawn(usb_task(device));
-    spawner.must_spawn(server_task(server));
+    spawner.spawn(usb_task(device).unwrap());
+    spawner.spawn(server_task(server).unwrap());
 }
 
 /// Run the postcard-rpc server forever.

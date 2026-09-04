@@ -60,16 +60,16 @@ async fn main(spawner: Spawner) {
     .await;
 
     // Start the LED task
-    spawner.must_spawn(led_task(ws2812));
+    spawner.spawn(led_task(ws2812).unwrap());
 
     // Start the Button task
-    spawner.must_spawn(button_task(buttons));
+    spawner.spawn(button_task(buttons).unwrap());
 
     // Start the Potentiometer task
-    spawner.must_spawn(pot_task(potentiometer));
+    spawner.spawn(pot_task(potentiometer).unwrap());
 
     // Start the accelerometer task
-    spawner.must_spawn(accel_task(accel));
+    spawner.spawn(accel_task(accel).unwrap());
 }
 
 // This is our Accelerometer task

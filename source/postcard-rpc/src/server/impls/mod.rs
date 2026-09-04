@@ -30,10 +30,6 @@ pub(crate) mod embassy_shared {
     use crate::server::WireSpawn;
     use embassy_executor::{SpawnError, SpawnToken, Spawner};
 
-    //////////////////////////////////////////////////////////////////////////////
-    // SPAWN
-    //////////////////////////////////////////////////////////////////////////////
-
     /// A [`WireSpawn`] impl using the embassy executor
     #[derive(Clone)]
     pub struct EmbassyWireSpawn {
@@ -58,12 +54,16 @@ pub(crate) mod embassy_shared {
     }
 
     /// Attempt to spawn the given token
-    pub fn embassy_spawn<Sp, S: Sized>(sp: &Sp, tok: SpawnToken<S>) -> Result<(), Sp::Error>
+    pub fn embassy_spawn<Sp, S: Sized>(
+        sp: &Sp,
+        tok: Result<SpawnToken<S>, SpawnError>,
+    ) -> Result<(), Sp::Error>
     where
         Sp: WireSpawn<Error = SpawnError, Info = Spawner>,
     {
         let info = sp.info();
-        info.spawn(tok)
+        info.spawn(tok?);
+        Ok(())
     }
 }
 
