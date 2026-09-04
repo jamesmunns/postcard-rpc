@@ -176,7 +176,7 @@ optional = true
 
 [target.'cfg(target_os = "linux")'.dependencies.usb-gadget]
 package = "usb-gadget"
-version = "1.1"
+version = "1"
 optional = true
 
 [target.'cfg(target_os = "linux")'.dependencies.bytes]
