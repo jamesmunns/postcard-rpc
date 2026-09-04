@@ -41,8 +41,7 @@ macro_rules! endpoint {
             type Request = $req;
             type Response = $resp;
             const PATH: &'static str = $path;
-            const REQ_KEY: $crate::Key = $crate::Key::for_path::<$req>($path);
-            const RESP_KEY: $crate::Key = $crate::Key::for_path::<$resp>($path);
+            const ENDPOINT_KEY: $crate::Key = $crate::Key::for_path::<($req, $resp)>($path);
         }
     };
 }
@@ -138,23 +137,22 @@ macro_rules! endpoints {
                 $(#[$meta])?
                 (
                     <$ep_name as $crate::Endpoint>::PATH,
-                    <$ep_name as $crate::Endpoint>::REQ_KEY,
-                    <$ep_name as $crate::Endpoint>::RESP_KEY,
+                    <$ep_name as $crate::Endpoint>::ENDPOINT_KEY,
                 ),
             )*
         ]
     };
     (@ep_eps omit_std=false; $([[$($meta:meta)?] $ep_name:ident])*) => {
         const {
-            const USER_EPS: &[(&str, $crate::Key, $crate::Key)] =
+            const USER_EPS: &[(&str, $crate::Key)] =
                 $crate::endpoints!(@ep_eps omit_std=true; $([[$($meta)?] $ep_name])*);
             const NULL_KEY: $crate::Key = unsafe { $crate::Key::from_bytes([0u8; 8]) };
-            const STD_EPS: &[(&str, $crate::Key, $crate::Key)] =
+            const STD_EPS: &[(&str, $crate::Key)] =
                 $crate::standard_icd::STANDARD_ICD_ENDPOINTS.endpoints;
 
             $crate::concat_arrays! {
-                init = ("", NULL_KEY, NULL_KEY);
-                ty = (&str, $crate::Key, $crate::Key);
+                init = ("", NULL_KEY);
+                ty = (&str, $crate::Key);
                 [STD_EPS, USER_EPS]
             }
         }
@@ -185,8 +183,7 @@ macro_rules! endpoints {
                 type Request = $req_ty $(< $($req_lt,)+ >)?;
                 type Response = $resp_ty $(< $($resp_lt,)+ >)?;
                 const PATH: &'static str = $path_str;
-                const REQ_KEY: $crate::Key = $crate::Key::for_path::<$req_ty>($path_str);
-                const RESP_KEY: $crate::Key = $crate::Key::for_path::<$resp_ty>($path_str);
+                const ENDPOINT_KEY: $crate::Key = $crate::Key::for_path::<($req_ty, $resp_ty)>($path_str);
             }
         )*
 

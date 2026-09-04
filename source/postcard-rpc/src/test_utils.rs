@@ -60,7 +60,7 @@ impl LocalFakeServer {
     {
         let frame = RpcFrame {
             header: VarHeader {
-                key: VarKey::Key8(E::RESP_KEY),
+                key: VarKey::Key8(E::ENDPOINT_KEY),
                 seq_no: VarSeq::Seq4(seq_no),
             },
             body: postcard::to_stdvec(data).unwrap(),
