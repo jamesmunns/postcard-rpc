@@ -49,9 +49,7 @@ impl embassy_usb_0_5::Handler for PoststationHandler {
 
 /// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
-    use super::{
-        EUsbWireRx, EUsbWireTx, EUsbWireTxInner, UsbDeviceBuffers, DEFAULT_TIMEOUT_MS_PER_FRAME,
-    };
+    use super::{EUsbWireRx, EUsbWireTx, EUsbWireTxInner, UsbDeviceBuffers};
     pub use crate::server::impls::embassy_shared::embassy_spawn as spawn_fn;
 
     /// Used for defining the USB interface
@@ -155,19 +153,17 @@ pub mod dispatch_impl {
             let ep_in = alt.endpoint_bulk_in(None, 64);
             drop(function);
 
-            let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
+            let wire_tx = EUsbWireTx::new(self.cell.init(Mutex::new(EUsbWireTxInner::new(
                 ep_in,
-                log_seq: 0,
                 tx_buf,
-                pending_frame: false,
-                timeout_ms_per_frame: DEFAULT_TIMEOUT_MS_PER_FRAME,
-                max_usb_frame_size: max_usb_frame_size,
-            }));
+                max_usb_frame_size,
+            ))));
+            let wire_rx = EUsbWireRx::new(ep_out);
 
             // Build the builder.
             let usb = builder.build();
 
-            (usb, EUsbWireTx { inner: wtx }, EUsbWireRx { ep_out })
+            (usb, wire_tx, wire_rx)
         }
 
         /// Initialize the static storage.
@@ -229,16 +225,14 @@ pub mod dispatch_impl {
             let ep_in = alt.endpoint_bulk_in(None, max_usb_frame_size as u16);
             drop(function);
 
-            let wtx = self.cell.init(Mutex::new(EUsbWireTxInner {
+            let wire_tx = EUsbWireTx::new(self.cell.init(Mutex::new(EUsbWireTxInner::new(
                 ep_in,
-                log_seq: 0,
                 tx_buf,
-                pending_frame: false,
-                timeout_ms_per_frame: DEFAULT_TIMEOUT_MS_PER_FRAME,
-                max_usb_frame_size: max_usb_frame_size,
-            }));
+                max_usb_frame_size,
+            ))));
+            let wire_rx = EUsbWireRx::new(ep_out);
 
-            (builder, EUsbWireTx { inner: wtx }, EUsbWireRx { ep_out })
+            (builder, wire_tx, wire_rx)
         }
     }
 }
@@ -257,6 +251,25 @@ pub struct EUsbWireTxInner<D: Driver<'static>> {
     max_usb_frame_size: usize,
 }
 
+impl<D: Driver<'static>> EUsbWireTxInner<D> {
+    /// Construct a new wire inner
+    ///
+    /// # Arguments
+    /// * `ep_in` - The USB endpoint to use
+    /// * `tx_buf` - Receive buffer to use
+    /// * `max_usb_frame_size` - Maximal size of a USB frame
+    pub fn new(ep_in: D::EndpointIn, tx_buf: &'static mut [u8], max_usb_frame_size: usize) -> Self {
+        Self {
+            ep_in,
+            log_seq: 0,
+            tx_buf,
+            pending_frame: false,
+            timeout_ms_per_frame: DEFAULT_TIMEOUT_MS_PER_FRAME,
+            max_usb_frame_size,
+        }
+    }
+}
+
 /// A [`WireTx`] implementation for embassy-usb 0.4.
 #[derive(Copy)]
 pub struct EUsbWireTx<M: RawMutex + 'static, D: Driver<'static> + 'static> {
@@ -264,6 +277,11 @@ pub struct EUsbWireTx<M: RawMutex + 'static, D: Driver<'static> + 'static> {
 }
 
 impl<M: RawMutex + 'static, D: Driver<'static> + 'static> EUsbWireTx<M, D> {
+    /// Construct a new EUsbWireTx
+    pub fn new(inner: &'static Mutex<M, EUsbWireTxInner<D>>) -> Self {
+        Self { inner }
+    }
+
     /// Set the timeout in milliseconds per USB frame
     ///
     /// The sender will wait `(frames * timeout)` in milliseconds before reporting
@@ -632,6 +650,13 @@ fn actual_varint_max_len(largest: usize) -> usize {
 /// A [`WireRx`] implementation for embassy-usb 0.4.
 pub struct EUsbWireRx<D: Driver<'static>> {
     ep_out: D::EndpointOut,
+}
+
+impl<D: Driver<'static>> EUsbWireRx<D> {
+    /// Construct a new wire from a USB endpoint
+    pub fn new(ep_out: D::EndpointOut) -> Self {
+        Self { ep_out }
+    }
 }
 
 impl<D: Driver<'static>> WireRx for EUsbWireRx<D> {
