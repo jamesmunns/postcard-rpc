@@ -9,7 +9,7 @@ use std::{
     future::Future,
     marker::PhantomData,
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicI32, Ordering},
         Arc, RwLock,
     },
 };
@@ -201,7 +201,7 @@ where
         let ctx = Arc::new(HostContext {
             kkind: RwLock::new(VarKeyKind::Key8),
             map: WaitMap::new(),
-            seq: AtomicU32::new(0),
+            seq: AtomicI32::new(1),
             subscription_timeout: config.subscriber_timeout_if_full,
         });
 
@@ -343,7 +343,11 @@ where
         E::Request: Serialize + Schema,
         E::Response: DeserializeOwned + Schema,
     {
-        let seq_no = self.ctx.seq.fetch_add(1, Ordering::Relaxed);
+        let seq_no = self.ctx.seq.update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            VarSeq::wrapping_add_positive,
+        );
 
         let msg = postcard::to_stdvec(&t).expect("Allocations should not ever fail");
         let frame = RpcFrame {
@@ -934,7 +938,7 @@ impl RpcFrame {
 pub struct HostContext {
     kkind: RwLock<VarKeyKind>,
     map: WaitMap<VarHeader, (VarHeader, Vec<u8>)>,
-    seq: AtomicU32,
+    seq: AtomicI32,
     subscription_timeout: Duration,
 }
 

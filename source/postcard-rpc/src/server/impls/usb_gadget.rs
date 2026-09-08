@@ -147,7 +147,7 @@ impl UsbGadgetWireTx {
     ) -> Self {
         let inner = UsbGadgetWireTxInner {
             ep_tx,
-            log_seq: 0,
+            log_seq: -1,
             tx_buf,
         };
 
@@ -161,7 +161,7 @@ impl UsbGadgetWireTx {
 #[derive(Debug)]
 struct UsbGadgetWireTxInner {
     ep_tx: EndpointSender,
-    log_seq: u16,
+    log_seq: i16,
     tx_buf: &'static mut [u8],
 }
 
@@ -246,7 +246,7 @@ impl WireTx for UsbGadgetWireTx {
                 VarKeyKind::Key8 => VarKey::Key8(LoggingTopic::TOPIC_KEY),
             };
             let ctr = *log_seq;
-            *log_seq = log_seq.wrapping_add(1);
+            *log_seq = if ctr == i16::MIN { -1 } else { ctr - 1 };
             let wh = VarHeader {
                 key,
                 seq_no: VarSeq::Seq2(ctr),
@@ -286,7 +286,7 @@ impl WireTx for UsbGadgetWireTx {
                 VarKeyKind::Key8 => VarKey::Key8(LoggingTopic::TOPIC_KEY),
             };
             let ctr = *log_seq;
-            *log_seq = log_seq.wrapping_add(1);
+            *log_seq = if ctr == i16::MIN { -1 } else { ctr - 1 };
             let wh = VarHeader {
                 key,
                 seq_no: VarSeq::Seq2(ctr),

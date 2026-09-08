@@ -69,7 +69,7 @@ pub struct EioWireRx<R: Read> {
 struct EioWireTxInner<Tx: Write> {
     t: Tx,
     tx_buf: &'static mut [u8],
-    log_seq: u16,
+    log_seq: i16,
 }
 
 // ----- IMPLS -----
@@ -94,7 +94,7 @@ impl<Rx: Read, Tx: Write, M: RawMutex + 'static, const RXB: usize, const TXB: us
         let txi = self.tx.try_init(Mutex::new(EioWireTxInner {
             t,
             tx_buf: txb,
-            log_seq: 0,
+            log_seq: -1,
         }))?;
         let rx = EioWireRx {
             remain: rxb,
@@ -201,7 +201,7 @@ where
             VarKeyKind::Key8 => VarKey::Key8(LoggingTopic::TOPIC_KEY),
         };
         let ctr = *log_seq;
-        *log_seq = log_seq.wrapping_add(1);
+        *log_seq = if ctr == i16::MIN { -1 } else { ctr - 1 };
         let wh = VarHeader {
             key,
             seq_no: VarSeq::Seq2(ctr),

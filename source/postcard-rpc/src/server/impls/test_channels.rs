@@ -3,7 +3,7 @@
 use core::{
     convert::Infallible,
     future::{pending, Future},
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicI32, Ordering},
 };
 use std::sync::Arc;
 
@@ -110,7 +110,7 @@ pub mod dispatch_impl {
 #[derive(Clone)]
 pub struct ChannelWireTx {
     tx: mpsc::Sender<Vec<u8>>,
-    log_ctr: Arc<AtomicU32>,
+    log_ctr: Arc<AtomicI32>,
     stopper: Option<Stopper>,
 }
 
@@ -119,7 +119,7 @@ impl ChannelWireTx {
     pub fn new(tx: mpsc::Sender<Vec<u8>>) -> Self {
         Self {
             tx,
-            log_ctr: Arc::new(AtomicU32::new(0)),
+            log_ctr: Arc::new(AtomicI32::new(-1)),
             stopper: None,
         }
     }
@@ -171,7 +171,11 @@ impl WireTx for ChannelWireTx {
     }
 
     async fn send_log_str(&self, kkind: VarKeyKind, s: &str) -> Result<(), Self::Error> {
-        let ctr = self.log_ctr.fetch_add(1, Ordering::Relaxed);
+        let ctr = self.log_ctr.update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            VarSeq::wrapping_add_negative,
+        );
         let key = match kkind {
             VarKeyKind::Key1 => VarKey::Key1(LoggingTopic::TOPIC_KEY1),
             VarKeyKind::Key2 => VarKey::Key2(LoggingTopic::TOPIC_KEY2),
@@ -193,7 +197,11 @@ impl WireTx for ChannelWireTx {
         kkind: VarKeyKind,
         a: Arguments<'a>,
     ) -> Result<(), Self::Error> {
-        let ctr = self.log_ctr.fetch_add(1, Ordering::Relaxed);
+        let ctr = self.log_ctr.update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            VarSeq::wrapping_add_negative,
+        );
         let key = match kkind {
             VarKeyKind::Key1 => VarKey::Key1(LoggingTopic::TOPIC_KEY1),
             VarKeyKind::Key2 => VarKey::Key2(LoggingTopic::TOPIC_KEY2),

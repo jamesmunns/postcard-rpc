@@ -123,7 +123,7 @@ How does `postcard-rpc` help us determine which is which?
 At the front of every message, we add a header with two fields:
 
 1. a Key, explained below
-2. a Sequence Number (a `u32`)
+2. a Sequence Number (a signed integer)
 
 ### Keys
 
@@ -155,9 +155,18 @@ This is important for two reasons:
 
 ### Sequence Numbers
 
-Since we might have multiple requests "In Flight" at one time, we use an incrementing sequence
-number to each request. This lets us tell which response goes with each request, even if they
-arrive out of order.
+Since we might have multiple requests "In Flight" at one time, we attach a sequence number to
+each request. This lets us tell which response goes with each request, even if they arrive out
+of order.
+
+Sequence numbers are signed, and the sign shows who _chose_ the number:
+
+* The client chooses a **positive** sequence number for the requests (and topics) it sends
+* The server chooses a **negative** sequence number for the topics (and logs) it sends
+* An endpoint **reply** reuses the sequence number from the matching request, so the host can
+  pair them up even when replies come back out of order
+
+On the wire, that sequence number is 1, 2, or 4 bytes of little-endian two's-complement.
 
 For example:
 
