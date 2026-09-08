@@ -19,7 +19,10 @@ use maitake_sync::{
     wait_map::{WaitError, WakeOutcome},
     WaitMap,
 };
-use postcard_schema::{schema::owned::OwnedNamedType, Schema};
+use postcard_schema::{
+    schema::owned::{OwnedDataModelType, OwnedNamedType},
+    Schema,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
     select,
@@ -299,12 +302,8 @@ where
         for e in e_and_t {
             match e {
                 OwnedSchemaData::Type(_) => unreachable!(),
-                OwnedSchemaData::Endpoint {
-                    path,
-                    request_key,
-                    response_key,
-                } => {
-                    rpt.add_endpoint(path, request_key, response_key)?;
+                OwnedSchemaData::Endpoint { path, key } => {
+                    rpt.add_endpoint(path, key)?;
                 }
                 OwnedSchemaData::Topic {
                     path,
@@ -350,12 +349,12 @@ where
             // NOTE: send_resp_raw automatically shrinks down key and sequence
             // kinds to the appropriate amount
             header: VarHeader {
-                key: VarKey::Key8(E::REQ_KEY),
+                key: VarKey::Key8(E::ENDPOINT_KEY),
                 seq_no: VarSeq::Seq4(seq_no),
             },
             body: msg,
         };
-        let frame = self.send_resp_raw(frame, E::RESP_KEY).await?;
+        let frame = self.send_resp_raw(frame, E::ENDPOINT_KEY).await?;
         let r = postcard::from_bytes::<E::Response>(&frame.body)?;
         Ok(r)
     }
@@ -1078,12 +1077,10 @@ pub struct TopicReport {
 pub struct EndpointReport {
     /// The human readable path of the endpoint
     pub path: String,
-    /// The Key of the request (which hashes the path and type)
-    pub req_key: Key,
+    /// The Key of the endpoint (which hashes the path and both types)
+    pub key: Key,
     /// The schema of the request type
     pub req_ty: OwnedNamedType,
-    /// The Key of the response (which hashes the path and type)
-    pub resp_key: Key,
     /// The schema of the response type
     pub resp_ty: OwnedNamedType,
 }
@@ -1139,44 +1136,27 @@ impl SchemaReport {
     /// Insert a new endpoint
     ///
     /// Returns an error if we are unable to find the type used for the request/response
-    pub fn add_endpoint(
-        &mut self,
-        path: String,
-        req_key: Key,
-        resp_key: Key,
-    ) -> Result<(), UnableToFindType> {
+    pub fn add_endpoint(&mut self, path: String, key: Key) -> Result<(), UnableToFindType> {
         // We need to figure out which types go with this endpoint
-        let mut req_ty = None;
-        for ty in self.types.iter() {
-            let calc_key = Key::for_owned_schema_path(&path, ty);
-            if calc_key == req_key {
-                req_ty = Some(ty.clone());
-                break;
+        for req_ty in self.types.iter() {
+            for resp_ty in self.types.iter() {
+                let pair = OwnedNamedType {
+                    name: String::new(),
+                    ty: OwnedDataModelType::Tuple(vec![req_ty.clone(), resp_ty.clone()]),
+                };
+                let calc_key = Key::for_owned_schema_path(&path, &pair);
+
+                if calc_key == key {
+                    self.endpoints.push(EndpointReport {
+                        path,
+                        key,
+                        req_ty: req_ty.clone(),
+                        resp_ty: resp_ty.clone(),
+                    });
+                    return Ok(());
+                }
             }
         }
-        let Some(req_ty) = req_ty else {
-            return Err(UnableToFindType);
-        };
-
-        let mut resp_ty = None;
-        for ty in self.types.iter() {
-            let calc_key = Key::for_owned_schema_path(&path, ty);
-            if calc_key == resp_key {
-                resp_ty = Some(ty.clone());
-                break;
-            }
-        }
-        let Some(resp_ty) = resp_ty else {
-            return Err(UnableToFindType);
-        };
-
-        self.endpoints.push(EndpointReport {
-            path,
-            req_key,
-            req_ty,
-            resp_key,
-            resp_ty,
-        });
-        Ok(())
+        Err(UnableToFindType)
     }
 }

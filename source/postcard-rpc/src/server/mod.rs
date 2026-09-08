@@ -214,7 +214,7 @@ impl<Tx: WireTx> Sender<Tx> {
         E: crate::Endpoint,
         E::Response: Serialize + Schema,
     {
-        let mut key = VarKey::Key8(E::RESP_KEY);
+        let mut key = VarKey::Key8(E::ENDPOINT_KEY);
         key.shrink_to(self.kkind);
         let wh = VarHeader { key, seq_no };
         self.tx.send::<E::Response>(wh, resp).await
@@ -308,8 +308,7 @@ impl<Tx: WireTx> Sender<Tx> {
                     VarSeq::Seq2(msg_ctr),
                     &SchemaData::Endpoint {
                         path: ep.0.into(),
-                        request_key: ep.1,
-                        response_key: ep.2,
+                        key: ep.1,
                     },
                 )
                 .await;
