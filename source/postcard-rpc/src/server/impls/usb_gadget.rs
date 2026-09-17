@@ -20,6 +20,9 @@ pub const DEFAULT_TIMEOUT_MS_PER_FRAME: usize = 2;
 pub const USB_FS_MAX_PACKET_SIZE: usize = 64;
 /// Default max packet size for USB High Speed
 pub const USB_HS_MAX_PACKET_SIZE: usize = 512;
+/// Device interface GUID WinUSB registers for the interface.
+pub const WINUSB_DEVICE_INTERFACE_GUID: uuid::Uuid =
+    uuid::uuid!("9c6ea63d-bc8d-4a33-b6b8-a00da4ee2e3c");
 
 /// A collection of types and aliases useful for importing the correct types
 pub mod dispatch_impl {
@@ -44,7 +47,7 @@ pub mod dispatch_impl {
 
     pub use crate::server::impls::tokio_shared::tokio_spawn as spawn_fn;
 
-    use usb_gadget::function::custom::{Association, Custom, OsExtCompat};
+    use usb_gadget::function::custom::{Association, Custom, OsExtCompat, OsExtProp};
     use usb_gadget::{Gadget, RegGadget};
 
     use crate::server::impls::usb_gadget::{UsbGadgetWireRx, UsbGadgetWireTx};
@@ -86,6 +89,9 @@ pub mod dispatch_impl {
                 .with_interface(
                     Interface::new(class, iname)
                         .with_os_ext_compat(OsExtCompat::winusb())
+                        .with_os_ext_prop(OsExtProp::device_interface_guid(
+                            super::WINUSB_DEVICE_INTERFACE_GUID,
+                        ))
                         // NOTE: IADs are currently broken on upstream usb-gadget - but we want this
                         //       https://github.com/surban/usb-gadget/issues/25
                         .with_association(&Association::new(class, iname))
