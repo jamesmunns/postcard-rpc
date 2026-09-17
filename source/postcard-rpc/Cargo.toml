@@ -184,6 +184,11 @@ package = "bytes"
 version = "1.4"
 optional = true
 
+[target.'cfg(target_os = "linux")'.dependencies.uuid]
+package = "uuid"
+version = "1.26"
+optional = true
+
 [dev-dependencies]
 postcard-rpc = { path = "../postcard-rpc", features = ["test-utils"] }
 
@@ -281,6 +286,7 @@ embedded-io-async-0_7-server = [
 usb-gadget = [
     "dep:usb-gadget",
     "dep:bytes",
+    "dep:uuid",
 ]
 tokio = ["dep:tokio", "usb-gadget/tokio", "nusb/tokio"]
 futures-lite = ["dep:futures-lite", "nusb/smol"]
