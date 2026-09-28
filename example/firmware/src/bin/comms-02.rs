@@ -181,7 +181,7 @@ async fn main(spawner: Spawner) {
         dispatcher,
         vkk,
     );
-    spawner.must_spawn(usb_task(device));
+    spawner.spawn(usb_task(device).unwrap());
 
     loop {
         // If the host disconnects, we'll return an error here.

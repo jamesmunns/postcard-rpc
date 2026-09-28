@@ -103,9 +103,9 @@ async fn main(spawner: Spawner) {
         vkk,
     );
     let sender = server.sender();
-    spawner.must_spawn(usb_task(device));
-    spawner.must_spawn(server_task(server));
-    spawner.must_spawn(logging_task(sender));
+    spawner.spawn(usb_task(device).unwrap());
+    spawner.spawn(server_task(server).unwrap());
+    spawner.spawn(logging_task(sender).unwrap());
 }
 
 #[embassy_executor::task]

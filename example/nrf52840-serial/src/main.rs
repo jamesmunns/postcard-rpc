@@ -71,7 +71,7 @@ async fn main(spawner: Spawner) {
     let vkk = dispatcher.min_key_len();
     let server: app::AppServer =
         Server::new(tx_impl, rx_impl, PACKET_RX_BUF.take(), dispatcher, vkk);
-    spawner.must_spawn(run_server(server));
+    spawner.spawn(run_server(server).unwrap());
 }
 
 #[embassy_executor::task]
