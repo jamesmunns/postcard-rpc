@@ -123,7 +123,7 @@ macro_rules! define_dispatch {
     //////////////////////////////////////////////////////////////////////////////
     (@matcher
         $n:literal $app_name:ident $tx_impl:ty; $spawn_fn:ident $key_ty:ty; $key_kind:expr;
-        $req_key_name:ident / $topic_key_name:ident = $bytes_ty:ty;
+        $endpoint_key_name:ident / $topic_key_name:ident = $bytes_ty:ty;
         ($($endpoint:ty | $ep_flavor:tt | $ep_handler:ident)*)
         ($($topic_in:ty | $tp_flavor:tt | $tp_handler:ident)*)
     ) => {
@@ -134,10 +134,10 @@ macro_rules! define_dispatch {
             pub const fn has_dupe() -> bool {
                 const DUPE: bool = const {
                     const ALL_KEYS: &[$key_ty] = &[
-                        <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$req_key_name,
-                        <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::$req_key_name,
+                        <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$endpoint_key_name,
+                        <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::$endpoint_key_name,
                         $(
-                            <$endpoint as $crate::Endpoint>::$req_key_name,
+                            <$endpoint as $crate::Endpoint>::$endpoint_key_name,
                         )*
                         $(
                             <$topic_in as $crate::Topic>::$topic_key_name,
@@ -184,7 +184,7 @@ macro_rules! define_dispatch {
                     //
                     // WARNING! If you add any more standard icd endpoints, make sure you ALSO add them
                     // to has_dupe above!
-                    <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$req_key_name => {
+                    <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$endpoint_key_name => {
                         // Can we deserialize the request?
                         let Ok(req) = $crate::postcard::from_bytes::<<$crate::standard_icd::PingEndpoint as $crate::Endpoint>::Request>(body) else {
                             let err = $crate::standard_icd::WireError::DeserFailed;
@@ -193,7 +193,7 @@ macro_rules! define_dispatch {
 
                         tx.reply::<$crate::standard_icd::PingEndpoint>(hdr.seq_no, &req).await
                     },
-                    <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::$req_key_name => {
+                    <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::$endpoint_key_name => {
                         tx.send_all_schemas(hdr, self.device_map).await
                     }
                     // WARNING! If you add any more standard icd endpoints, make sure you ALSO add them
@@ -201,7 +201,7 @@ macro_rules! define_dispatch {
                     //
                     // end standard_icd endpoints
                     $(
-                        <$endpoint as $crate::Endpoint>::$req_key_name => {
+                        <$endpoint as $crate::Endpoint>::$endpoint_key_name => {
                             // Can we deserialize the request?
                             let Ok(req) = $crate::postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
                                 let err = $crate::standard_icd::WireError::DeserFailed;
@@ -283,36 +283,21 @@ macro_rules! define_dispatch {
     ) => {
 
         // Here, we calculate how many bytes (1, 2, 4, or 8) are required to uniquely
-        // match on the given messages we receive and send†.
+        // match on the given messages we receive and send.
         //
         // This serves as a sort of "perfect hash function", allowing us to use fewer
         // bytes on the wire.
-        //
-        // †: We don't calculate sending keys yet, oops. This probably requires hashing
-        // TX/RX differently so endpoints with the same TX and RX don't collide, or
-        // calculating them separately and taking the max
         mod sizer {
             use super::*;
             use $crate::Key;
 
-            // Create a list of JUST the REQUEST keys from the endpoint report
-            const EP_IN_KEYS_SZ: usize = $endpoint_list.endpoints.len();
-            const EP_IN_KEYS: [Key; EP_IN_KEYS_SZ] = const {
-                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; EP_IN_KEYS_SZ];
+            // Create a list of JUST the ENDPOINT keys from the endpoint report
+            const EP_KEYS_SZ: usize = $endpoint_list.endpoints.len();
+            const EP_KEYS: [Key; EP_KEYS_SZ] = const {
+                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; EP_KEYS_SZ];
                 let mut i = 0;
-                while i < EP_IN_KEYS_SZ {
+                while i < EP_KEYS_SZ {
                     keys[i] = $endpoint_list.endpoints[i].1;
-                    i += 1;
-                }
-                keys
-            };
-            // Create a list of JUST the RESPONSE keys from the endpoint report
-            const EP_OUT_KEYS_SZ: usize = $endpoint_list.endpoints.len();
-            const EP_OUT_KEYS: [Key; EP_OUT_KEYS_SZ] = const {
-                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; EP_OUT_KEYS_SZ];
-                let mut i = 0;
-                while i < EP_OUT_KEYS_SZ {
-                    keys[i] = $endpoint_list.endpoints[i].2;
                     i += 1;
                 }
                 keys
@@ -340,17 +325,11 @@ macro_rules! define_dispatch {
                 keys
             };
 
-            // This is a list of all REQUEST KEYS in the actual handlers
+            // This is a list of all ENDPOINT KEYS in the actual handlers
             //
-            // This should be a SUBSET of the REQUEST KEYS in the Endpoint report
-            const EP_HANDLER_IN_KEYS: &[Key] = &[
-                $(<$endpoint as $crate::Endpoint>::REQ_KEY,)*
-            ];
-            // This is a list of all RESPONSE KEYS in the actual handlers
-            //
-            // This should be a SUBSET of the RESPONSE KEYS in the Endpoint report
-            const EP_HANDLER_OUT_KEYS: &[Key] = &[
-                $(<$endpoint as $crate::Endpoint>::RESP_KEY,)*
+            // This should be a SUBSET of the ENDPOINT KEYS in the Endpoint report
+            const EP_HANDLER_KEYS: &[Key] = &[
+                $(<$endpoint as $crate::Endpoint>::ENDPOINT_KEY,)*
             ];
             // This is a list of all TOPIC KEYS in the actual handlers
             //
@@ -385,21 +364,17 @@ macro_rules! define_dispatch {
 
             // TODO: Warn/error if the list doesn't match the defined handlers?
             pub const NEEDED_SZ_IN: usize = $crate::server::min_key_needed(&[
-                &EP_IN_KEYS,
+                &EP_KEYS,
                 &TP_IN_KEYS,
             ]);
             pub const NEEDED_SZ_OUT: usize = $crate::server::min_key_needed(&[
-                &EP_OUT_KEYS,
+                &EP_KEYS,
                 &TP_OUT_KEYS,
             ]);
             pub const NEEDED_SZ: usize = const {
                 assert!(
-                    a_is_subset_of_b(EP_HANDLER_IN_KEYS, &EP_IN_KEYS),
-                    "All listed endpoint handlers must be listed in endpoints->list! Missing Requst Type found!",
-                );
-                assert!(
-                    a_is_subset_of_b(EP_HANDLER_OUT_KEYS, &EP_OUT_KEYS),
-                    "All listed endpoint handlers must be listed in endpoints->list! Missing Response Type found!",
+                    a_is_subset_of_b(EP_HANDLER_KEYS, &EP_KEYS),
+                    "All listed endpoint handlers must be listed in endpoints->list! Missing Endpoint Type found!",
                 );
                 assert!(
                     a_is_subset_of_b(TP_HANDLER_IN_KEYS, &TP_IN_KEYS),
@@ -484,25 +459,25 @@ macro_rules! define_dispatch {
 
             $crate::define_dispatch! {
                 @matcher 1 $app_name $tx_impl; $spawn_fn $crate::Key1; $crate::header::VarKeyKind::Key1;
-                REQ_KEY1 / TOPIC_KEY1 = u8;
+                ENDPOINT_KEY1 / TOPIC_KEY1 = u8;
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
             $crate::define_dispatch! {
                 @matcher 2 $app_name $tx_impl; $spawn_fn $crate::Key2; $crate::header::VarKeyKind::Key2;
-                REQ_KEY2 / TOPIC_KEY2 = [u8; 2];
+                ENDPOINT_KEY2 / TOPIC_KEY2 = [u8; 2];
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
             $crate::define_dispatch! {
                 @matcher 4 $app_name $tx_impl; $spawn_fn $crate::Key4; $crate::header::VarKeyKind::Key4;
-                REQ_KEY4 / TOPIC_KEY4 = [u8; 4];
+                ENDPOINT_KEY4 / TOPIC_KEY4 = [u8; 4];
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }
             $crate::define_dispatch! {
                 @matcher 8 $app_name $tx_impl; $spawn_fn $crate::Key; $crate::header::VarKeyKind::Key8;
-                REQ_KEY / TOPIC_KEY = [u8; 8];
+                ENDPOINT_KEY / TOPIC_KEY = [u8; 8];
                 ($($endpoint | $ep_flavor | $ep_handler)*)
                 ($($topic_in | $tp_flavor | $tp_handler)*)
             }

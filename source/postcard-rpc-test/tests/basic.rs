@@ -260,7 +260,7 @@ async fn smoke() {
 
     // manually build request - Alpha
     let mut msg = VarHeader {
-        key: VarKey::Key8(AlphaEndpoint::REQ_KEY),
+        key: VarKey::Key8(AlphaEndpoint::ENDPOINT_KEY),
         seq_no: VarSeq::Seq4(123),
     }
     .write_to_vec();
@@ -273,12 +273,12 @@ async fn smoke() {
     let (hdr, body) = VarHeader::take_from_slice(&resp).unwrap();
     let resp = postcard::from_bytes::<<AlphaEndpoint as Endpoint>::Response>(body).unwrap();
     assert_eq!(resp.0, 42);
-    assert_eq!(hdr.key, VarKey::Key8(AlphaEndpoint::RESP_KEY));
+    assert_eq!(hdr.key, VarKey::Key8(AlphaEndpoint::ENDPOINT_KEY));
     assert_eq!(hdr.seq_no, VarSeq::Seq4(123));
 
     // manually build request - Beta
     let mut msg = VarHeader {
-        key: VarKey::Key8(BetaEndpoint::REQ_KEY),
+        key: VarKey::Key8(BetaEndpoint::ENDPOINT_KEY),
         seq_no: VarSeq::Seq4(234),
     }
     .write_to_vec();
@@ -291,7 +291,7 @@ async fn smoke() {
     let (hdr, body) = VarHeader::take_from_slice(&resp).unwrap();
     let resp = postcard::from_bytes::<<BetaEndpoint as Endpoint>::Response>(body).unwrap();
     assert_eq!(resp.0, 1000);
-    assert_eq!(hdr.key, VarKey::Key8(BetaEndpoint::RESP_KEY));
+    assert_eq!(hdr.key, VarKey::Key8(BetaEndpoint::ENDPOINT_KEY));
     assert_eq!(hdr.seq_no, VarSeq::Seq4(234));
 
     // blocking topic handler
@@ -528,12 +528,7 @@ fn device_map() {
     println!("## Endpoints");
     println!();
     for ep in app.device_map.endpoints {
-        println!(
-            "* {} ({:016X} -> {:016X})",
-            ep.0,
-            u64::from_le_bytes(ep.1.to_bytes()),
-            u64::from_le_bytes(ep.2.to_bytes()),
-        );
+        println!("* {} ({:016X})", ep.0, u64::from_le_bytes(ep.1.to_bytes()));
     }
 
     println!();
