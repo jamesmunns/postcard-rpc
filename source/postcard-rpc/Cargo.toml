@@ -110,12 +110,6 @@ optional = true
 version = "0.1.2"
 optional = true
 
-[dependencies.futures-lite]
-version = "2.6"
-optional = true
-default-features = false
-
-
 #
 # no_std-only features
 #
@@ -213,7 +207,6 @@ use-std = [
     "dep:tracing",
     "dep:trait-variant",
     "dep:ssmarshal",
-    "futures-lite/std"
 ]
 
 # Cobs Serial support.
@@ -225,7 +218,7 @@ cobs-serial = ["cobs/use_std", "dep:tokio-serial"]
 # Raw (bulk) USB support
 #
 # Works on: Win, Mac, Linux, WASM
-raw-nusb = ["dep:nusb", "use-std", "futures-lite", "dep:wasm-bindgen-futures"]
+raw-nusb = ["dep:nusb", "use-std", "nusb/tokio", "dep:wasm-bindgen-futures"]
 
 # WebUSB support
 #
@@ -289,7 +282,6 @@ usb-gadget = [
     "dep:uuid",
 ]
 tokio = ["dep:tokio", "usb-gadget/tokio", "nusb/tokio"]
-futures-lite = ["dep:futures-lite", "nusb/smol"]
 
 # NOTE: This exists because `embassy-usb` indirectly relies on ssmarshal
 # which doesn't work on `std` builds without the `std` feature. This causes
