@@ -284,7 +284,15 @@ impl<Tx: WireTx> Sender<Tx> {
         use crate::standard_icd::SchemaData;
         use crate::standard_icd::{GetAllSchemaDataTopic, GetAllSchemasEndpoint, SchemaTotals};
 
-        let mut msg_ctr = 0;
+        fn next_msg(ctr: i16) -> i16 {
+            if ctr == i16::MIN {
+                -1
+            } else {
+                ctr - 1
+            }
+        }
+
+        let mut msg_ctr = -1;
         let mut err_ctr = 0;
 
         // First, send all types
@@ -298,7 +306,7 @@ impl<Tx: WireTx> Sender<Tx> {
             if res.is_err() {
                 err_ctr += 1;
             };
-            msg_ctr += 1;
+            msg_ctr = next_msg(msg_ctr);
         }
 
         // Then all endpoints
@@ -316,8 +324,7 @@ impl<Tx: WireTx> Sender<Tx> {
             if res.is_err() {
                 err_ctr += 1;
             }
-
-            msg_ctr += 1;
+            msg_ctr = next_msg(msg_ctr);
         }
 
         // Then output topics
@@ -335,7 +342,7 @@ impl<Tx: WireTx> Sender<Tx> {
             if res.is_err() {
                 err_ctr += 1;
             }
-            msg_ctr += 1;
+            msg_ctr = next_msg(msg_ctr);
         }
 
         // Then input topics
@@ -353,7 +360,7 @@ impl<Tx: WireTx> Sender<Tx> {
             if res.is_err() {
                 err_ctr += 1;
             }
-            msg_ctr += 1;
+            msg_ctr = next_msg(msg_ctr);
         }
 
         // Finally, reply with the totals

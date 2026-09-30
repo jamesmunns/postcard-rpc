@@ -45,11 +45,17 @@
 //!
 //! ## Sequence Number
 //!
-//! The Sequence Number is an unsigned integer used to match request-response pairs,
-//! and disambiguate between multiple in-flight messages.
+//! The Sequence Number is a signed integer used to match request-response pairs,
+//! disambiguate between multiple in-flight messages, and encode who originated
+//! a message:
+//!
+//! * Positive sequence numbers are chosen by the client
+//! * Negative sequence numbers are chosen by the server
+//!
+//! Endpoint replies reuse the sequence number from the matching request.
 //!
 //! Sequence Numbers may be encoded with variable fidelity on the wire, always in
-//! little-endian order, of 1, 2, or 4 bytes.
+//! little-endian two's-complement order, of 1, 2, or 4 bytes.
 //!
 //! The length of the Sequence Number is determined by the two `MM` bits in the
 //! discriminant.
@@ -234,57 +240,79 @@ pub enum VarKeyKind {
 ///
 /// We DO NOT impl Serialize/Deserialize for this type because we use
 /// non-postcard-compatible format (externally tagged)
+///
+/// Sequence numbers are signed: positive values are chosen by the client,
+/// and negative values are chosen by the server. Endpoint replies reuse
+/// the request's sequence number.
 #[derive(Debug, Clone, Copy)]
 pub enum VarSeq {
     /// A one byte sequence number
-    Seq1(u8),
+    Seq1(i8),
     /// A two byte sequence number
-    Seq2(u16),
+    Seq2(i16),
     /// A four byte sequence number
-    Seq4(u32),
+    Seq4(i32),
+}
+
+impl From<i8> for VarSeq {
+    fn from(value: i8) -> Self {
+        Self::Seq1(value)
+    }
+}
+
+impl From<i16> for VarSeq {
+    fn from(value: i16) -> Self {
+        Self::Seq2(value)
+    }
+}
+
+impl From<i32> for VarSeq {
+    fn from(value: i32) -> Self {
+        Self::Seq4(value)
+    }
 }
 
 impl From<u8> for VarSeq {
     fn from(value: u8) -> Self {
-        Self::Seq1(value)
+        Self::Seq1(value as i8)
     }
 }
 
 impl From<u16> for VarSeq {
     fn from(value: u16) -> Self {
-        Self::Seq2(value)
+        Self::Seq2(value as i16)
     }
 }
 
 impl From<u32> for VarSeq {
     fn from(value: u32) -> Self {
-        Self::Seq4(value)
+        Self::Seq4(value as i32)
     }
 }
 
-impl Into<u8> for VarSeq {
-    fn into(self) -> u8 {
-        match self {
+impl From<VarSeq> for i8 {
+    fn from(value: VarSeq) -> Self {
+        match value {
             VarSeq::Seq1(v) => v,
-            VarSeq::Seq2(v) => v as u8,
-            VarSeq::Seq4(v) => v as u8,
+            VarSeq::Seq2(v) => v as i8,
+            VarSeq::Seq4(v) => v as i8,
         }
     }
 }
 
-impl Into<u16> for VarSeq {
-    fn into(self) -> u16 {
-        match self {
+impl From<VarSeq> for i16 {
+    fn from(value: VarSeq) -> Self {
+        match value {
             VarSeq::Seq1(v) => v.into(),
             VarSeq::Seq2(v) => v,
-            VarSeq::Seq4(v) => v as u16,
+            VarSeq::Seq4(v) => v as i16,
         }
     }
 }
 
-impl Into<u32> for VarSeq {
-    fn into(self) -> u32 {
-        match self {
+impl From<VarSeq> for i32 {
+    fn from(value: VarSeq) -> Self {
+        match value {
             VarSeq::Seq1(v) => v.into(),
             VarSeq::Seq2(v) => v.into(),
             VarSeq::Seq4(v) => v,
@@ -294,18 +322,40 @@ impl Into<u32> for VarSeq {
 
 impl PartialEq for VarSeq {
     fn eq(&self, other: &Self) -> bool {
-        Into::<u32>::into(*self) == Into::<u32>::into(*other)
+        i32::from(*self) == i32::from(*other)
     }
 }
 
 impl VarSeq {
+    /// The next positive client sequence number after `n`.
+    ///
+    /// Wraps [`i32::MAX`] to `1` so the result stays positive.
+    pub const fn wrapping_add_positive(n: i32) -> i32 {
+        if n >= i32::MAX {
+            1
+        } else {
+            n + 1
+        }
+    }
+
+    /// The next negative server sequence number after `n`.
+    ///
+    /// Wraps [`i32::MIN`] to `-1` so the result stays negative.
+    pub const fn wrapping_add_negative(n: i32) -> i32 {
+        if n <= i32::MIN {
+            -1
+        } else {
+            n - 1
+        }
+    }
+
     /// Resize (up or down) to the requested kind.
     ///
-    /// When increasing size, the number is left-extended, e.g. `0x42u8` becomes
-    /// `0x0000_0042u32` when resizing 1 -> 4.
+    /// When increasing size, the number is sign-extended, e.g. `-1i8` becomes
+    /// `-1i32` when resizing 1 -> 4.
     ///
-    /// When decreasing size, the number is truncated, e.g. `0xABCD_EF12u32`
-    /// becomes `0x12u8` when resizing 4 -> 1.
+    /// When decreasing size, the number is truncated, e.g. `0x1234_5678i32`
+    /// becomes `0x78i8` when resizing 4 -> 1.
     pub fn resize(&mut self, kind: VarSeqKind) {
         match (&self, kind) {
             (VarSeq::Seq1(_), VarSeqKind::Seq1) => {}
@@ -318,16 +368,16 @@ impl VarSeq {
                 *self = VarSeq::Seq4((*s).into());
             }
             (VarSeq::Seq2(s), VarSeqKind::Seq1) => {
-                *self = VarSeq::Seq1((*s) as u8);
+                *self = VarSeq::Seq1(*s as i8);
             }
             (VarSeq::Seq2(s), VarSeqKind::Seq4) => {
                 *self = VarSeq::Seq4((*s).into());
             }
             (VarSeq::Seq4(s), VarSeqKind::Seq1) => {
-                *self = VarSeq::Seq1((*s) as u8);
+                *self = VarSeq::Seq1(*s as i8);
             }
             (VarSeq::Seq4(s), VarSeqKind::Seq2) => {
-                *self = VarSeq::Seq2((*s) as u16);
+                *self = VarSeq::Seq2(*s as i16);
             }
         }
     }
@@ -423,7 +473,7 @@ impl VarHeader {
         match &self.seq_no {
             VarSeq::Seq1(s) => {
                 disc_out |= Self::SEQ_ONE_BITS;
-                out.push(*s);
+                out.push(*s as u8);
             }
             VarSeq::Seq2(s) => {
                 disc_out |= Self::SEQ_TWO_BITS;
@@ -486,7 +536,7 @@ impl VarHeader {
             VarSeq::Seq1(s) => {
                 *disc_out |= Self::SEQ_ONE_BITS;
                 let (seqbs, _) = remain.split_first_mut()?;
-                *seqbs = *s;
+                *seqbs = *s as u8;
                 used += 1;
             }
             VarSeq::Seq2(s) => {
@@ -553,21 +603,21 @@ impl VarHeader {
             Self::SEQ_ONE_BITS => {
                 let (seqbs, remain3) = remain.split_first()?;
                 remain = remain3;
-                VarSeq::Seq1(*seqbs)
+                VarSeq::Seq1(*seqbs as i8)
             }
             Self::SEQ_TWO_BITS => {
                 let (seqbs, remain3) = remain.split_at_checked(2)?;
                 remain = remain3;
                 let mut buf = [0u8; 2];
                 buf.copy_from_slice(seqbs);
-                VarSeq::Seq2(u16::from_le_bytes(buf))
+                VarSeq::Seq2(i16::from_le_bytes(buf))
             }
             Self::SEQ_FOUR_BITS => {
                 let (seqbs, remain3) = remain.split_at_checked(4)?;
                 remain = remain3;
                 let mut buf = [0u8; 4];
                 buf.copy_from_slice(seqbs);
-                VarSeq::Seq4(u32::from_le_bytes(buf))
+                VarSeq::Seq4(i32::from_le_bytes(buf))
             }
             // Possible (could be 0b11), is invalid
             _ => return None,
@@ -671,17 +721,29 @@ mod test {
     #[test]
     fn var_seq_equality() {
         let val32 = 0x12345678;
-        let val16 = 0x9abc;
-        let val8 = 0xde;
+        let val16 = 0x1abc;
+        let val8 = 0x5e;
 
         assert_eq!(VarSeq::Seq1(val8), VarSeq::Seq1(val8));
         assert_eq!(VarSeq::Seq1(val8), VarSeq::Seq2(val8.into()));
         assert_eq!(VarSeq::Seq1(val8), VarSeq::Seq4(val8.into()));
-        assert_ne!(VarSeq::Seq2(val16), VarSeq::Seq1(val16 as u8));
+        assert_ne!(VarSeq::Seq2(val16), VarSeq::Seq1(val16 as i8));
         assert_eq!(VarSeq::Seq2(val16), VarSeq::Seq2(val16));
         assert_eq!(VarSeq::Seq2(val16), VarSeq::Seq4(val16.into()));
-        assert_ne!(VarSeq::Seq4(val32), VarSeq::Seq1(val32 as u8));
-        assert_ne!(VarSeq::Seq4(val32), VarSeq::Seq2(val32 as u16));
+        assert_ne!(VarSeq::Seq4(val32), VarSeq::Seq1(val32 as i8));
+        assert_ne!(VarSeq::Seq4(val32), VarSeq::Seq2(val32 as i16));
         assert_eq!(VarSeq::Seq4(val32), VarSeq::Seq4(val32));
+
+        assert_eq!(VarSeq::Seq1(-1), VarSeq::Seq2(-1));
+        assert_eq!(VarSeq::Seq1(-1), VarSeq::Seq4(-1));
+    }
+
+    #[test]
+    fn var_seq_wrapping_keeps_sign() {
+        assert_eq!(VarSeq::wrapping_add_positive(42), 43);
+        assert_eq!(VarSeq::wrapping_add_positive(i32::MAX), 1);
+
+        assert_eq!(VarSeq::wrapping_add_negative(-42), -43);
+        assert_eq!(VarSeq::wrapping_add_negative(i32::MIN), -1);
     }
 }
