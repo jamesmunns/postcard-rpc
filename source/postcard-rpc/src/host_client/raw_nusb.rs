@@ -474,11 +474,7 @@ impl WireTx for NusbWireTx {
 
 impl NusbWireTx {
     async fn send_inner(&mut self, data: Vec<u8>) -> Result<(), NusbWireTxError> {
-        #[cfg(feature = "tokio")]
         use tokio::io::AsyncWriteExt;
-
-        #[cfg(all(feature = "futures-lite", not(feature = "tokio")))]
-        use futures_lite::io::AsyncWriteExt;
 
         self.writer.write_all(&data).await?;
         self.writer.flush_end_async().await?;
@@ -520,11 +516,7 @@ impl WireRx for NusbWireRx {
 
 impl NusbWireRx {
     async fn recv_inner(&mut self) -> Result<Vec<u8>, NusbWireRxError> {
-        #[cfg(feature = "tokio")]
         use tokio::io::AsyncReadExt;
-
-        #[cfg(all(feature = "futures-lite", not(feature = "tokio")))]
-        use futures_lite::io::AsyncReadExt;
 
         let mut reader = self.reader.until_short_packet();
         let mut v = Vec::new();
