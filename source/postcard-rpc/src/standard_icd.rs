@@ -86,10 +86,8 @@ pub enum SchemaData<'a> {
     Endpoint {
         /// The path of the endpoint
         path: &'a str,
-        /// The key of the Request type + path
-        request_key: Key,
-        /// The key of the Response type + path
-        response_key: Key,
+        /// The key of the endpoint (path + Request type + Response type)
+        key: Key,
     },
     /// A single Topic
     Topic {
@@ -112,10 +110,8 @@ pub enum OwnedSchemaData {
     Endpoint {
         /// The path of the endpoint
         path: String,
-        /// The key of the Request type + path
-        request_key: Key,
-        /// The key of the Response type + path
-        response_key: Key,
+        /// The key of the endpoint (path + Request type + Response type)
+        key: Key,
     },
     /// A single Topic
     Topic {
