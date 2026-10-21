@@ -1,7 +1,7 @@
 //! A basic postcard-rpc compatible application
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use esp_hal::usb_serial_jtag::{UsbSerialJtagRx, UsbSerialJtagTx};
+use esp_hal::usb::usb_serial_jtag::{UsbSerialJtagRx, UsbSerialJtagTx};
 use esp_hal::{Async, Blocking};
 use panic_rtt_target as _;
 
