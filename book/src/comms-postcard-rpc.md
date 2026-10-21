@@ -138,20 +138,22 @@ deterministically generates IDs using two pieces of information:
 So from our examples before:
 
 ```
-SleepEndpoint::Request::Key  = hash("sleep") + hash(schema(Sleep));
-SleepEndpoint::Response::Key = hash("sleep") + hash(schema(SleepDone));
-AccelTopic::Message::Key     = hash("acceleration") + hash(schema(AccelReading));
+SleepEndpoint::ENDPOINT_KEY = hash("sleep") + hash(schema((Sleep, SleepDone)));
+AccelTopic::TOPIC_KEY       = hash("acceleration") + hash(schema(AccelReading));
 ```
 
-As of now, keys boil down to an 8-byte value, calculated at compile time as a constant.
+Request and Response messages for the same endpoint therefore share one key. As of now, keys
+boil down to an 8-byte value, calculated at compile time as a constant.
 
 This is important for two reasons:
 
-1. It gives us a "unique" ID for every kind of request and response
-2. If the contents of the request or response changes, so does the key! This means that we never
-   have to worry about the issue of one of the devices changing a message's type, and
+1. It gives us a "unique" ID for every endpoint and topic
+2. If the contents of either type on an endpoint changes, so does the key! This means that we
+   never have to worry about the issue of one of the devices changing a message's type, and
    misinterpreting the data (though it means we can't 'partially understand' messages that have
-   changed in a small way).
+   changed in a small way). If only the response type changed, a request with the old key
+   would not be recognized, instead of hanging forever waiting for a response key that never
+   arrives.
 
 ### Sequence Numbers
 

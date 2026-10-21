@@ -118,73 +118,41 @@ macro_rules! define_dispatch {
 
 
     //////////////////////////////////////////////////////////////////////////////
-    // Implementation of the dispatch trait for the app, where the Key length
-    // is N, where N is 1, 2, 4, or 8
+    // One Key-width matcher. We generate this for 1, 2, 4, and 8 byte keys; only
+    // the width selected by `sizer::NEEDED_SZ` is called from `Dispatch::handle`.
     //////////////////////////////////////////////////////////////////////////////
     (@matcher
-        $n:literal $app_name:ident $tx_impl:ty; $spawn_fn:ident $key_ty:ty; $key_kind:expr;
-        $req_key_name:ident / $topic_key_name:ident = $bytes_ty:ty;
+        $handle_fn:ident $app_name:ident $tx_impl:ty; $spawn_fn:ident $key_ty:ty;
+        $endpoint_key_name:ident / $topic_key_name:ident
         ($($endpoint:ty | $ep_flavor:tt | $ep_handler:ident)*)
         ($($topic_in:ty | $tp_flavor:tt | $tp_handler:ident)*)
     ) => {
-        impl $app_name<$n> {
-            /// Check if there are any unexpected duplicates, typically this occurs because
-            /// the user has set `omit_std`
-            #[doc(hidden)]
-            pub const fn has_dupe() -> bool {
-                const DUPE: bool = const {
-                    const ALL_KEYS: &[$key_ty] = &[
-                        <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$req_key_name,
-                        <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::$req_key_name,
-                        $(
-                            <$endpoint as $crate::Endpoint>::$req_key_name,
-                        )*
-                        $(
-                            <$topic_in as $crate::Topic>::$topic_key_name,
-                        )*
-                    ];
-                    const LEN: usize = ALL_KEYS.len();
-                    let mut i = 0;
-                    let mut dupe = false;
-                    while i < LEN {
-                        let mut j = i + 1;
-                        while j < LEN {
-                            dupe |= ALL_KEYS[i].const_cmp(&ALL_KEYS[j]);
-                            j += 1;
-                        }
-                        i += 1;
-                    }
-                    dupe
-                };
-                DUPE
-            }
-        }
-
-        impl $crate::server::Dispatch for $app_name<$n> {
-            type Tx = $tx_impl;
-
-            fn min_key_len(&self) -> $crate::header::VarKeyKind {
-                $key_kind
-            }
-
-            /// Handle dispatching of a single frame
-            async fn handle(
+        impl $app_name {
+            async fn $handle_fn(
                 &mut self,
-                tx: &$crate::server::Sender<Self::Tx>,
+                tx: &$crate::server::Sender<$tx_impl>,
                 hdr: &$crate::header::VarHeader,
                 body: &[u8],
-            ) -> Result<(), <Self::Tx as $crate::server::WireTx>::Error> {
+            ) -> Result<(), <$tx_impl as $crate::server::WireTx>::Error> {
                 let key = hdr.key;
                 let Ok(keyb) = <$key_ty>::try_from(&key) else {
                     let err = $crate::standard_icd::WireError::KeyTooSmall;
                     return tx.error(hdr.seq_no, err).await;
                 };
+
+                // Store some items as named bindings, so we can use `ident` in the
+                // recursive macro expansion. Load bearing order: we borrow `context`
+                // from `dispatch` because we need `dispatch` AFTER `context`, so NLL
+                // allows this to still borrowck
+                let context = &mut self.context;
+                let spawninfo = &self.spawn;
+
                 match keyb {
                     // Standard ICD endpoints
                     //
                     // WARNING! If you add any more standard icd endpoints, make sure you ALSO add them
-                    // to has_dupe above!
-                    <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$req_key_name => {
+                    // to ALL_DISPATCH_KEYS in sizer!
+                    <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::$endpoint_key_name => {
                         // Can we deserialize the request?
                         let Ok(req) = $crate::postcard::from_bytes::<<$crate::standard_icd::PingEndpoint as $crate::Endpoint>::Request>(body) else {
                             let err = $crate::standard_icd::WireError::DeserFailed;
@@ -193,29 +161,20 @@ macro_rules! define_dispatch {
 
                         tx.reply::<$crate::standard_icd::PingEndpoint>(hdr.seq_no, &req).await
                     },
-                    <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::$req_key_name => {
+                    <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::$endpoint_key_name => {
                         tx.send_all_schemas(hdr, self.device_map).await
                     }
                     // WARNING! If you add any more standard icd endpoints, make sure you ALSO add them
-                    // to has_dupe above!
+                    // to ALL_DISPATCH_KEYS in sizer!
                     //
                     // end standard_icd endpoints
                     $(
-                        <$endpoint as $crate::Endpoint>::$req_key_name => {
+                        <$endpoint as $crate::Endpoint>::$endpoint_key_name => {
                             // Can we deserialize the request?
                             let Ok(req) = $crate::postcard::from_bytes::<<$endpoint as $crate::Endpoint>::Request>(body) else {
                                 let err = $crate::standard_icd::WireError::DeserFailed;
                                 return tx.error(hdr.seq_no, err).await;
                             };
-
-                            // Store some items as named bindings, so we can use `ident` in the
-                            // recursive macro expansion. Load bearing order: we borrow `context`
-                            // from `dispatch` because we need `dispatch` AFTER `context`, so NLL
-                            // allows this to still borrowck
-                            let dispatch = self;
-                            let context = &mut dispatch.context;
-                            #[allow(unused)]
-                            let spawninfo = &dispatch.spawn;
 
                             // This will expand to the right "flavor" of handler
                             $crate::define_dispatch!(@ep_arm $ep_flavor ($endpoint) $ep_handler context hdr req tx ($spawn_fn) spawninfo)
@@ -228,15 +187,6 @@ macro_rules! define_dispatch {
                                 // This is a topic, not much to be done
                                 return Ok(());
                             };
-
-                            // Store some items as named bindings, so we can use `ident` in the
-                            // recursive macro expansion. Load bearing order: we borrow `context`
-                            // from `dispatch` because we need `dispatch` AFTER `context`, so NLL
-                            // allows this to still borrowck
-                            let dispatch = self;
-                            let context = &mut dispatch.context;
-                            #[allow(unused)]
-                            let spawninfo = &dispatch.spawn;
 
                             $crate::define_dispatch!(@tp_arm $tp_flavor $tp_handler context hdr msg tx ($spawn_fn) spawninfo);
                             Ok(())
@@ -283,74 +233,39 @@ macro_rules! define_dispatch {
     ) => {
 
         // Here, we calculate how many bytes (1, 2, 4, or 8) are required to uniquely
-        // match on the given messages we receive and send†.
+        // match on the given messages we receive and send.
         //
         // This serves as a sort of "perfect hash function", allowing us to use fewer
         // bytes on the wire.
-        //
-        // †: We don't calculate sending keys yet, oops. This probably requires hashing
-        // TX/RX differently so endpoints with the same TX and RX don't collide, or
-        // calculating them separately and taking the max
         mod sizer {
             use super::*;
             use $crate::Key;
 
-            // Create a list of JUST the REQUEST keys from the endpoint report
-            const EP_IN_KEYS_SZ: usize = $endpoint_list.endpoints.len();
-            const EP_IN_KEYS: [Key; EP_IN_KEYS_SZ] = const {
-                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; EP_IN_KEYS_SZ];
+            const fn path_keys<const N: usize>(items: &[(&'static str, Key)]) -> [Key; N] {
+                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; N];
                 let mut i = 0;
-                while i < EP_IN_KEYS_SZ {
-                    keys[i] = $endpoint_list.endpoints[i].1;
+                while i < N {
+                    keys[i] = items[i].1;
                     i += 1;
                 }
                 keys
-            };
-            // Create a list of JUST the RESPONSE keys from the endpoint report
-            const EP_OUT_KEYS_SZ: usize = $endpoint_list.endpoints.len();
-            const EP_OUT_KEYS: [Key; EP_OUT_KEYS_SZ] = const {
-                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; EP_OUT_KEYS_SZ];
-                let mut i = 0;
-                while i < EP_OUT_KEYS_SZ {
-                    keys[i] = $endpoint_list.endpoints[i].2;
-                    i += 1;
-                }
-                keys
-            };
-            // Create a list of JUST the MESSAGE keys from the TOPICS IN report
-            const TP_IN_KEYS_SZ: usize = $topic_in_list.topics.len();
-            const TP_IN_KEYS: [Key; TP_IN_KEYS_SZ] = const {
-                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; TP_IN_KEYS_SZ];
-                let mut i = 0;
-                while i < TP_IN_KEYS_SZ {
-                    keys[i] = $topic_in_list.topics[i].1;
-                    i += 1;
-                }
-                keys
-            };
-            // Create a list of JUST the MESSAGE keys from the TOPICS OUT report
-            const TP_OUT_KEYS_SZ: usize = $topic_out_list.topics.len();
-            const TP_OUT_KEYS: [Key; TP_OUT_KEYS_SZ] = const {
-                let mut keys = [unsafe { Key::from_bytes([0; 8]) }; TP_OUT_KEYS_SZ];
-                let mut i = 0;
-                while i < TP_OUT_KEYS_SZ {
-                    keys[i] = $topic_out_list.topics[i].1;
-                    i += 1;
-                }
-                keys
-            };
+            }
 
-            // This is a list of all REQUEST KEYS in the actual handlers
+            // Create a list of JUST the ENDPOINT keys from the endpoint report
+            const EP_KEYS: [Key; $endpoint_list.endpoints.len()] =
+                path_keys($endpoint_list.endpoints);
+            // Create a list of JUST the MESSAGE keys from the TOPICS IN report
+            const TP_IN_KEYS: [Key; $topic_in_list.topics.len()] =
+                path_keys($topic_in_list.topics);
+            // Create a list of JUST the MESSAGE keys from the TOPICS OUT report
+            const TP_OUT_KEYS: [Key; $topic_out_list.topics.len()] =
+                path_keys($topic_out_list.topics);
+
+            // This is a list of all ENDPOINT KEYS in the actual handlers
             //
-            // This should be a SUBSET of the REQUEST KEYS in the Endpoint report
-            const EP_HANDLER_IN_KEYS: &[Key] = &[
-                $(<$endpoint as $crate::Endpoint>::REQ_KEY,)*
-            ];
-            // This is a list of all RESPONSE KEYS in the actual handlers
-            //
-            // This should be a SUBSET of the RESPONSE KEYS in the Endpoint report
-            const EP_HANDLER_OUT_KEYS: &[Key] = &[
-                $(<$endpoint as $crate::Endpoint>::RESP_KEY,)*
+            // This should be a SUBSET of the ENDPOINT KEYS in the Endpoint report
+            const EP_HANDLER_KEYS: &[Key] = &[
+                $(<$endpoint as $crate::Endpoint>::ENDPOINT_KEY,)*
             ];
             // This is a list of all TOPIC KEYS in the actual handlers
             //
@@ -383,27 +298,57 @@ macro_rules! define_dispatch {
                 true
             }
 
-            // TODO: Warn/error if the list doesn't match the defined handlers?
+            // Same keys the matcher will see, plus the standard ICD endpoints that
+            // are always injected. Compared at NEEDED_SZ so we catch omit_std
+            // collisions at the live wire width, not only identical Key8s.
+            const ALL_DISPATCH_KEYS: &[Key] = &[
+                <$crate::standard_icd::PingEndpoint as $crate::Endpoint>::ENDPOINT_KEY,
+                <$crate::standard_icd::GetAllSchemasEndpoint as $crate::Endpoint>::ENDPOINT_KEY,
+                $(<$endpoint as $crate::Endpoint>::ENDPOINT_KEY,)*
+                $(<$topic_in as $crate::Topic>::TOPIC_KEY,)*
+            ];
+
+            const fn keys_match_at_width(a: Key, b: Key, n: usize) -> bool {
+                match n {
+                    1 => $crate::Key1::from_key8(a).const_cmp(&$crate::Key1::from_key8(b)),
+                    2 => $crate::Key2::from_key8(a).const_cmp(&$crate::Key2::from_key8(b)),
+                    4 => $crate::Key4::from_key8(a).const_cmp(&$crate::Key4::from_key8(b)),
+                    8 => a.const_cmp(&b),
+                    _ => unreachable!(),
+                }
+            }
+
+            const fn has_dupe_at_width(keys: &[Key], n: usize) -> bool {
+                let mut i = 0;
+                while i < keys.len() {
+                    let mut j = i + 1;
+                    while j < keys.len() {
+                        if keys_match_at_width(keys[i], keys[j], n) {
+                            return true;
+                        }
+                        j += 1;
+                    }
+                    i += 1;
+                }
+                false
+            }
+
             pub const NEEDED_SZ_IN: usize = $crate::server::min_key_needed(&[
-                &EP_IN_KEYS,
+                &EP_KEYS,
                 &TP_IN_KEYS,
             ]);
             pub const NEEDED_SZ_OUT: usize = $crate::server::min_key_needed(&[
-                &EP_OUT_KEYS,
+                &EP_KEYS,
                 &TP_OUT_KEYS,
             ]);
             pub const NEEDED_SZ: usize = const {
                 assert!(
-                    a_is_subset_of_b(EP_HANDLER_IN_KEYS, &EP_IN_KEYS),
-                    "All listed endpoint handlers must be listed in endpoints->list! Missing Requst Type found!",
-                );
-                assert!(
-                    a_is_subset_of_b(EP_HANDLER_OUT_KEYS, &EP_OUT_KEYS),
-                    "All listed endpoint handlers must be listed in endpoints->list! Missing Response Type found!",
+                    a_is_subset_of_b(EP_HANDLER_KEYS, &EP_KEYS),
+                    "All listed endpoint handlers must be listed in endpoints->list! Missing Endpoint Type found!",
                 );
                 assert!(
                     a_is_subset_of_b(TP_HANDLER_IN_KEYS, &TP_IN_KEYS),
-                    "All listed endpoint handlers must be listed in endpoints->list! Missing Response Type found!",
+                    "All listed topic-in handlers must be listed in topics_in->list! Missing Topic Type found!",
                 );
                 if NEEDED_SZ_IN > NEEDED_SZ_OUT {
                     NEEDED_SZ_IN
@@ -411,6 +356,10 @@ macro_rules! define_dispatch {
                     NEEDED_SZ_OUT
                 }
             };
+
+            // Check if there are any unexpected duplicates, typically this occurs
+            // because the user has set `omit_std`
+            pub const HAS_DUPE: bool = has_dupe_at_width(ALL_DISPATCH_KEYS, NEEDED_SZ);
         }
 
         // This is the fun part.
@@ -419,92 +368,105 @@ macro_rules! define_dispatch {
         // different async handlers without degrading to dyn Future, because no alloc on
         // embedded systems.
         //
-        // The easiest way I've found to achieve this is actually to implement this
-        // handler for ALL of 1, 2, 4, 8, BUT to hide that from the user, and instead
-        // use THIS alias to give them the one that they need.
-        //
-        // This is overly complicated because I'm mixing const-time capabilities with
-        // macro-time capabilities. I'm very open to other suggestions that achieve the
-        // same outcome.
+        // Macros run before we know `NEEDED_SZ`, so we emit a matcher for each of
+        // 1, 2, 4, and 8 byte keys. `Dispatch::handle` then calls only the one that
+        // matches the const-computed width.
         #[doc=concat!("This defines the postcard-rpc app implementation for ", stringify!($app_name))]
-        pub type $app_name = impls::$app_name<{ sizer::NEEDED_SZ }>;
-        const HAS_DUPE: bool = $app_name::has_dupe();
+        pub struct $app_name {
+            pub context: $context_ty,
+            pub spawn: $spawn_impl,
+            pub device_map: &'static $crate::DeviceMap,
+        }
+
         const _DUPE_CHECK: () = const {
-            assert!(!HAS_DUPE, "Caught duplicate items. Is `omit_std` set? This is likely a bug in your code. See https://github.com/jamesmunns/postcard-rpc/issues/135.");
+            assert!(!sizer::HAS_DUPE, "Caught duplicate items. Is `omit_std` set? This is likely a bug in your code. See https://github.com/jamesmunns/postcard-rpc/issues/135.");
         };
 
-        mod impls {
-            use super::*;
+        impl $app_name {
+            /// Create a new instance of the dispatcher
+            pub fn new(
+                context: $context_ty,
+                spawn: $spawn_impl,
+            ) -> Self {
+                const MAP: &$crate::DeviceMap = &$crate::DeviceMap {
+                    types: const {
+                        const LISTS: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
+                            $endpoint_list.types,
+                            $topic_in_list.types,
+                            $topic_out_list.types,
+                        ];
+                        const TTL_COUNT: usize = $endpoint_list.types.len() + $topic_in_list.types.len() + $topic_out_list.types.len();
 
-            pub struct $app_name<const N: usize> {
-                pub context: $context_ty,
-                pub spawn: $spawn_impl,
-                pub device_map: &'static $crate::DeviceMap,
-            }
-
-            impl<const N: usize> $app_name<N> {
-                /// Create a new instance of the dispatcher
-                pub fn new(
-                    context: $context_ty,
-                    spawn: $spawn_impl,
-                ) -> Self {
-                    const MAP: &$crate::DeviceMap = &$crate::DeviceMap {
-                        types: const {
-                            const LISTS: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
-                                $endpoint_list.types,
-                                $topic_in_list.types,
-                                $topic_out_list.types,
-                            ];
-                            const TTL_COUNT: usize = $endpoint_list.types.len() + $topic_in_list.types.len() + $topic_out_list.types.len();
-
-                            const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
-                            const SMALL_RPT: [&'static $crate::postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
-                            SMALL_RPT.as_slice()
-                        },
-                        endpoints: &$endpoint_list.endpoints,
-                        topics_in: &$topic_in_list.topics,
-                        topics_out: &$topic_out_list.topics,
-                        min_key_len: const {
-                            match sizer::NEEDED_SZ {
-                                1 => $crate::header::VarKeyKind::Key1,
-                                2 => $crate::header::VarKeyKind::Key2,
-                                4 => $crate::header::VarKeyKind::Key4,
-                                8 => $crate::header::VarKeyKind::Key8,
-                                _ => unreachable!(),
-                            }
+                        const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(LISTS);
+                        const SMALL_RPT: [&'static $crate::postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
+                        SMALL_RPT.as_slice()
+                    },
+                    endpoints: &$endpoint_list.endpoints,
+                    topics_in: &$topic_in_list.topics,
+                    topics_out: &$topic_out_list.topics,
+                    min_key_len: const {
+                        match sizer::NEEDED_SZ {
+                            1 => $crate::header::VarKeyKind::Key1,
+                            2 => $crate::header::VarKeyKind::Key2,
+                            4 => $crate::header::VarKeyKind::Key4,
+                            8 => $crate::header::VarKeyKind::Key8,
+                            _ => unreachable!(),
                         }
-                    };
-                    $app_name {
-                        context,
-                        spawn,
-                        device_map: MAP,
                     }
+                };
+                $app_name {
+                    context,
+                    spawn,
+                    device_map: MAP,
                 }
             }
+        }
 
-            $crate::define_dispatch! {
-                @matcher 1 $app_name $tx_impl; $spawn_fn $crate::Key1; $crate::header::VarKeyKind::Key1;
-                REQ_KEY1 / TOPIC_KEY1 = u8;
-                ($($endpoint | $ep_flavor | $ep_handler)*)
-                ($($topic_in | $tp_flavor | $tp_handler)*)
+        $crate::define_dispatch! {
+            @matcher handle_key1 $app_name $tx_impl; $spawn_fn $crate::Key1;
+            ENDPOINT_KEY1 / TOPIC_KEY1
+            ($($endpoint | $ep_flavor | $ep_handler)*)
+            ($($topic_in | $tp_flavor | $tp_handler)*)
+        }
+        $crate::define_dispatch! {
+            @matcher handle_key2 $app_name $tx_impl; $spawn_fn $crate::Key2;
+            ENDPOINT_KEY2 / TOPIC_KEY2
+            ($($endpoint | $ep_flavor | $ep_handler)*)
+            ($($topic_in | $tp_flavor | $tp_handler)*)
+        }
+        $crate::define_dispatch! {
+            @matcher handle_key4 $app_name $tx_impl; $spawn_fn $crate::Key4;
+            ENDPOINT_KEY4 / TOPIC_KEY4
+            ($($endpoint | $ep_flavor | $ep_handler)*)
+            ($($topic_in | $tp_flavor | $tp_handler)*)
+        }
+        $crate::define_dispatch! {
+            @matcher handle_key8 $app_name $tx_impl; $spawn_fn $crate::Key;
+            ENDPOINT_KEY / TOPIC_KEY
+            ($($endpoint | $ep_flavor | $ep_handler)*)
+            ($($topic_in | $tp_flavor | $tp_handler)*)
+        }
+
+        impl $crate::server::Dispatch for $app_name {
+            type Tx = $tx_impl;
+
+            fn min_key_len(&self) -> $crate::header::VarKeyKind {
+                self.device_map.min_key_len
             }
-            $crate::define_dispatch! {
-                @matcher 2 $app_name $tx_impl; $spawn_fn $crate::Key2; $crate::header::VarKeyKind::Key2;
-                REQ_KEY2 / TOPIC_KEY2 = [u8; 2];
-                ($($endpoint | $ep_flavor | $ep_handler)*)
-                ($($topic_in | $tp_flavor | $tp_handler)*)
-            }
-            $crate::define_dispatch! {
-                @matcher 4 $app_name $tx_impl; $spawn_fn $crate::Key4; $crate::header::VarKeyKind::Key4;
-                REQ_KEY4 / TOPIC_KEY4 = [u8; 4];
-                ($($endpoint | $ep_flavor | $ep_handler)*)
-                ($($topic_in | $tp_flavor | $tp_handler)*)
-            }
-            $crate::define_dispatch! {
-                @matcher 8 $app_name $tx_impl; $spawn_fn $crate::Key; $crate::header::VarKeyKind::Key8;
-                REQ_KEY / TOPIC_KEY = [u8; 8];
-                ($($endpoint | $ep_flavor | $ep_handler)*)
-                ($($topic_in | $tp_flavor | $tp_handler)*)
+
+            async fn handle(
+                &mut self,
+                tx: &$crate::server::Sender<Self::Tx>,
+                hdr: &$crate::header::VarHeader,
+                body: &[u8],
+            ) -> Result<(), <Self::Tx as $crate::server::WireTx>::Error> {
+                match sizer::NEEDED_SZ {
+                    1 => self.handle_key1(tx, hdr, body).await,
+                    2 => self.handle_key2(tx, hdr, body).await,
+                    4 => self.handle_key4(tx, hdr, body).await,
+                    8 => self.handle_key8(tx, hdr, body).await,
+                    _ => unreachable!(),
+                }
             }
         }
 
