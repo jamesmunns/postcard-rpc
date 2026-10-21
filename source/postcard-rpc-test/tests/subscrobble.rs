@@ -266,15 +266,15 @@ async fn exclusive_subs_work() {
     #[allow(deprecated)]
     let mut sub = cli.subscribe::<ZetaTopic10>(16).await.unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(10))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-1), &ZMsg(10))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(20))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-2), &ZMsg(20))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(30))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-3), &ZMsg(30))
         .await
         .unwrap();
     let get_fut = async move {
@@ -288,15 +288,15 @@ async fn exclusive_subs_work() {
     #[allow(deprecated)]
     let mut sub2 = cli.subscribe::<ZetaTopic10>(16).await.unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(11))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-1), &ZMsg(11))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(21))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-2), &ZMsg(21))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(31))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-3), &ZMsg(31))
         .await
         .unwrap();
     // Ensure the sender has a chance to send the messages
@@ -312,15 +312,15 @@ async fn exclusive_subs_work() {
     };
     let _: () = timeout(Duration::from_millis(100), get_fut).await.unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(12))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-1), &ZMsg(12))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(22))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-2), &ZMsg(22))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(32))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-3), &ZMsg(32))
         .await
         .unwrap();
     let get_fut = async move {
@@ -336,15 +336,15 @@ async fn exclusive_subs_work() {
     let mut sub5 = cli.subscribe_multi::<ZetaTopic10>(16).await.unwrap();
     sleep(Duration::from_millis(10)).await;
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(15))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-1), &ZMsg(15))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(25))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-2), &ZMsg(25))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(35))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-3), &ZMsg(35))
         .await
         .unwrap();
     // Ensure the sender has a chance to send the messages
@@ -406,15 +406,15 @@ async fn broadcast_subs_work() {
     let mut sub1 = cli.subscribe_multi::<ZetaTopic10>(16).await.unwrap();
     let mut sub2 = cli.subscribe_multi::<ZetaTopic10>(16).await.unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(10))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-1), &ZMsg(10))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(20))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-2), &ZMsg(20))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(30))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-3), &ZMsg(30))
         .await
         .unwrap();
     let get_fut1 = async move {
@@ -436,15 +436,15 @@ async fn broadcast_subs_work() {
     #[allow(deprecated)]
     let mut sub5 = cli.subscribe::<ZetaTopic10>(16).await.unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(1), &ZMsg(10))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-1), &ZMsg(10))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(2), &ZMsg(20))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-2), &ZMsg(20))
         .await
         .unwrap();
     server_sender
-        .publish::<ZetaTopic10>(VarSeq::Seq4(3), &ZMsg(30))
+        .publish::<ZetaTopic10>(VarSeq::Seq4(-3), &ZMsg(30))
         .await
         .unwrap();
     let get_fut1 = async move {

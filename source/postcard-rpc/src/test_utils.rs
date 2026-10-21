@@ -61,7 +61,7 @@ impl LocalFakeServer {
         let frame = RpcFrame {
             header: VarHeader {
                 key: VarKey::Key8(E::RESP_KEY),
-                seq_no: VarSeq::Seq4(seq_no),
+                seq_no: VarSeq::Seq4(seq_no as i32),
             },
             body: postcard::to_stdvec(data).unwrap(),
         };
@@ -74,7 +74,7 @@ impl LocalFakeServer {
     /// Publish
     pub async fn publish<T: Topic>(
         &mut self,
-        seq_no: u32,
+        seq_no: i32,
         data: &T::Message,
     ) -> Result<(), LocalError>
     where
