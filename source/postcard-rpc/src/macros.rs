@@ -54,6 +54,8 @@ macro_rules! endpoint {
 ///
 /// NOTE: Do NOT set the `omit_std` flag in your code! This is for internal use only.
 ///
+/// ## Basic usage
+///
 /// ```rust
 /// # use postcard_schema::Schema;
 /// # use serde::{Serialize, Deserialize};
@@ -91,10 +93,24 @@ macro_rules! endpoint {
 ///     | Endpoint2      | Req2          | Resp2         | "endpoints/two"   |
 /// }
 /// ```
+///
+/// ## Importing endpoint lists
+///
+/// You can import endpoints from other endpoint lists to implement shared functionality.
+///
+/// ```rust,ignore
+/// endpoints!{
+///     list = MERGED_ENDPOINT_LIST;
+///     import = [shared_crate::COMMON_ENDPOINTS_LIST, other_crate::SYSTEM_ENDPOINTS_LIST];
+///     | EndpointTy     | RequestTy     | ResponseTy    | Path              |
+///     | ----------     | ---------     | ----------    | ----              |
+///     | Endpoint1      | Req1          | Resp1         | "endpoints/one"   |
+/// }
+/// ```
 #[macro_export]
 macro_rules! endpoints {
-    (@ep_tys $([[$($meta:meta)?] $ep_name:ident])*) => {
-        $crate::endpoints!(@ep_tys omit_std=false; $([[$($meta)?] $ep_name])*)
+    (@ep_tys $(import=[$($import:path),*];)? $([[$($meta:meta)?] $ep_name:ident])*) => {
+        $crate::endpoints!(@ep_tys omit_std=false; $(import=[$($import),*];)? $([[$($meta)?] $ep_name])*)
     };
     (@ep_tys omit_std=true; $([[$($meta:meta)?] $ep_name:ident])*) => {
         const {
@@ -113,24 +129,35 @@ macro_rules! endpoints {
             SMALL_RPT.as_slice()
         }
     };
-    (@ep_tys omit_std=false; $([[$($meta:meta)?] $ep_name:ident])*) => {
+    (@ep_tys omit_std=$omit:tt; $(import=[$($import:path),*];)? $([[$($meta:meta)?] $ep_name:ident])*) => {
         const {
             const USER_TYS: &[&'static $crate::postcard_schema::schema::NamedType] =
                 $crate::endpoints!(@ep_tys omit_std=true; $([[$($meta)?] $ep_name])*);
-            const STD_TYS: &[&'static $crate::postcard_schema::schema::NamedType]
-                = $crate::standard_icd::STANDARD_ICD_ENDPOINTS.types;
 
-            const BOTH: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
-                USER_TYS, STD_TYS,
+            const STD_TYS: &[&'static $crate::postcard_schema::schema::NamedType] = const {
+                if $omit {
+                    &[]
+                } else {
+                    $crate::standard_icd::STANDARD_ICD_ENDPOINTS.types
+                }
+            };
+
+            const ALL_LISTS: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
+                USER_TYS,
+                STD_TYS,
+                $($(
+                    $import.types,
+                )*)?
             ];
-            const TTL_COUNT: usize = $crate::uniques::total_len(BOTH);
-            const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(BOTH);
+
+            const TTL_COUNT: usize = $crate::uniques::total_len(ALL_LISTS);
+            const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(ALL_LISTS);
             const SMALL_RPT: [&'static $crate::postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
     };
-    (@ep_eps $([[$($meta:meta)?] $ep_name:ident])*) => {
-        $crate::endpoints!(@ep_eps omit_std=false; $([[$($meta)?] $ep_name])*)
+    (@ep_eps $(import=[$($import:path),*];)? $([[$($meta:meta)?] $ep_name:ident])*) => {
+        $crate::endpoints!(@ep_eps omit_std=false; $(import=[$($import),*];)? $([[$($meta)?] $ep_name])*)
     };
     (@ep_eps omit_std=true; $([[$($meta:meta)?] $ep_name:ident])*) => {
         &[
@@ -144,24 +171,42 @@ macro_rules! endpoints {
             )*
         ]
     };
-    (@ep_eps omit_std=false; $([[$($meta:meta)?] $ep_name:ident])*) => {
+    (@ep_eps omit_std=$omit:tt; $(import=[$($import:path),*];)? $([[$($meta:meta)?] $ep_name:ident])*) => {
         const {
             const USER_EPS: &[(&str, $crate::Key, $crate::Key)] =
                 $crate::endpoints!(@ep_eps omit_std=true; $([[$($meta)?] $ep_name])*);
             const NULL_KEY: $crate::Key = unsafe { $crate::Key::from_bytes([0u8; 8]) };
-            const STD_EPS: &[(&str, $crate::Key, $crate::Key)] =
-                $crate::standard_icd::STANDARD_ICD_ENDPOINTS.endpoints;
+
+            const STD_EPS: &[(&str, $crate::Key, $crate::Key)] = const {
+                if $omit {
+                    &[]
+                } else {
+                    $crate::standard_icd::STANDARD_ICD_ENDPOINTS.endpoints
+                }
+            };
+
+            const IMPORT_LISTS: &[&[(&str, $crate::Key, $crate::Key)]] = &[
+                $($(
+                    $import.endpoints,
+                )*)?
+            ];
+
+            const IMPORT_COUNT: usize = $crate::uniques::total_len(IMPORT_LISTS);
+            const IMPORT_ARR: [(&str, $crate::Key, $crate::Key); IMPORT_COUNT] =
+                $crate::uniques::combine_with_copy(IMPORT_LISTS, ("", NULL_KEY, NULL_KEY));
+            const IMPORT_EPS: &[(&str, $crate::Key, $crate::Key)] = IMPORT_ARR.as_slice();
 
             $crate::concat_arrays! {
                 init = ("", NULL_KEY, NULL_KEY);
                 ty = (&str, $crate::Key, $crate::Key);
-                [STD_EPS, USER_EPS]
+                [STD_EPS, IMPORT_EPS, USER_EPS]
             }
         }
     };
     (
            list = $list_name:ident;
            $(omit_std = $omit:tt;)?
+           $(import = [$($import:path),*];)?
            | EndpointTy     | RequestTy                                | ResponseTy                                  | Path              | $( Cfg           |)?
            | $(-)*          | $(-)*                                    | $(-)*                                       | $(-)*             | $($(-)*          |)?
         $( | $ep_name:ident | $req_ty:tt $(< $($req_lt:lifetime),+ >)? | $resp_ty:tt $(< $($resp_lt:lifetime),+ >)?  | $path_str:literal | $($meta:meta)? $(|)? )*
@@ -192,8 +237,8 @@ macro_rules! endpoints {
 
         /// Macro Generated Endpoint Map
         pub const $list_name: $crate::EndpointMap = $crate::EndpointMap {
-            types: $crate::endpoints!(@ep_tys $(omit_std = $omit;)? $([[$($meta)?] $ep_name])*),
-            endpoints: $crate::endpoints!(@ep_eps $(omit_std = $omit;)? $([[$($meta)?] $ep_name])*),
+            types: $crate::endpoints!(@ep_tys $(omit_std = $omit;)? $(import=[$($import),*];)? $([[$($meta)?] $ep_name])*),
+            endpoints: $crate::endpoints!(@ep_eps $(omit_std = $omit;)? $(import=[$($import),*];)? $([[$($meta)?] $ep_name])*),
         };
     };
 }
@@ -249,6 +294,8 @@ macro_rules! topic {
 ///
 /// NOTE: Do NOT set the `omit_std` flag in your code! This is for internal use only.
 ///
+/// ## Basic usage
+///
 /// ```rust
 /// # use postcard_schema::Schema;
 /// # use serde::{Serialize, Deserialize};
@@ -275,10 +322,25 @@ macro_rules! topic {
 ///    | Topic2         | Message2      | "topics/two"      |
 /// }
 /// ```
+///
+/// ## Importing topic lists
+///
+/// You can also import topics from other topic lists.
+///
+/// ```rust,ignore
+/// topics!{
+///     list = MERGED_TOPIC_LIST;
+///     direction = TopicDirection::ToClient;
+///     import = [shared_crate::COMMON_TOPIC_LIST, other_crate::SYSTEM_TOPIC_LIST];
+///     | TopicTy        | MessageTy     | Path              |
+///     | -------        | ---------     | ----              |
+///     | Topic1         | Message1      | "topics/one"      |
+/// }
+/// ```
 #[macro_export]
 macro_rules! topics {
-    (@tp_tys ( $dir:expr ) $([[$($meta:meta)?] $tp_name:ident])*) => {
-        $crate::topics!(@tp_tys ( $dir ) omit_std=false; $([[$($meta)?] $tp_name])*)
+    (@tp_tys ( $dir:expr ) $(import=[$($import:path),*];)? $([[$($meta:meta)?] $tp_name:ident])*) => {
+        $crate::topics!(@tp_tys ( $dir ) omit_std=false; $(import=[$($import),*];)? $([[$($meta)?] $tp_name])*)
     };
     (@tp_tys ( $dir:expr ) omit_std=true; $([[$($meta:meta)?] $tp_name:ident])*) => {
         const {
@@ -295,28 +357,38 @@ macro_rules! topics {
             SMALL_RPT.as_slice()
         }
     };
-    (@tp_tys ( $dir:expr ) omit_std=false; $([[$($meta:meta)?] $tp_name:ident])*) => {
+    (@tp_tys ( $dir:expr ) omit_std=$omit:tt; $(import=[$($import:path),*];)? $([[$($meta:meta)?] $tp_name:ident])*) => {
         const {
             const USER_TYS: &[&'static $crate::postcard_schema::schema::NamedType] =
                 $crate::topics!(@tp_tys ( $dir ) omit_std=true; $([[$($meta)?] $tp_name])*);
+
             const STD_TYS: &[&'static $crate::postcard_schema::schema::NamedType] = const {
-                match $dir {
-                    $crate::TopicDirection::ToServer => $crate::standard_icd::STANDARD_ICD_TOPICS_IN.types,
-                    $crate::TopicDirection::ToClient => $crate::standard_icd::STANDARD_ICD_TOPICS_OUT.types,
+                if $omit {
+                    &[]
+                } else {
+                    match $dir {
+                        $crate::TopicDirection::ToServer => $crate::standard_icd::STANDARD_ICD_TOPICS_IN.types,
+                        $crate::TopicDirection::ToClient => $crate::standard_icd::STANDARD_ICD_TOPICS_OUT.types,
+                    }
                 }
             };
 
-            const BOTH: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
-                STD_TYS, USER_TYS,
+            const ALL_LISTS: &[&[&'static $crate::postcard_schema::schema::NamedType]] = &[
+                USER_TYS,
+                STD_TYS,
+                $($(
+                    $import.types,
+                )*)?
             ];
-            const TTL_COUNT: usize = $crate::uniques::total_len(BOTH);
-            const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(BOTH);
+
+            const TTL_COUNT: usize = $crate::uniques::total_len(ALL_LISTS);
+            const BIG_RPT: ([Option<&'static $crate::postcard_schema::schema::NamedType>; TTL_COUNT], usize) = $crate::uniques::merge_nty_lists(ALL_LISTS);
             const SMALL_RPT: [&'static $crate::postcard_schema::schema::NamedType; BIG_RPT.1] = $crate::uniques::cruncher(BIG_RPT.0.as_slice());
             SMALL_RPT.as_slice()
         }
     };
-    (@tp_tps ( $dir:expr ) $([[$($meta:meta)?] $tp_name:ident])*) => {
-        $crate::topics!(@tp_tps ( $dir ) omit_std=false; $([[$($meta)?] $tp_name])*)
+    (@tp_tps ( $dir:expr ) $(import=[$($import:path),*];)? $([[$($meta:meta)?] $tp_name:ident])*) => {
+        $crate::topics!(@tp_tps ( $dir ) omit_std=false; $(import=[$($import),*];)? $([[$($meta)?] $tp_name])*)
     };
     (@tp_tps ( $dir:expr ) omit_std=true; $([[$($meta:meta)?] $tp_name:ident])*) => {
         &[
@@ -329,22 +401,38 @@ macro_rules! topics {
             )*
         ]
     };
-    (@tp_tps ( $dir:expr ) omit_std=false; $([[$($meta:meta)?] $tp_name:ident])*) => {
+    (@tp_tps ( $dir:expr ) omit_std=$omit:tt; $(import=[$($import:path),*];)? $([[$($meta:meta)?] $tp_name:ident])*) => {
         const {
             const USER_TPS: &[(&str, $crate::Key)] =
                 $crate::topics!(@tp_tps ( $dir ) omit_std=true; $([[$($meta)?] $tp_name])*);
             const NULL_KEY: $crate::Key = unsafe { $crate::Key::from_bytes([0u8; 8]) };
+
             const STD_TPS: &[(&str, $crate::Key)] = const {
-                match $dir {
-                    $crate::TopicDirection::ToServer => $crate::standard_icd::STANDARD_ICD_TOPICS_IN.topics,
-                    $crate::TopicDirection::ToClient => $crate::standard_icd::STANDARD_ICD_TOPICS_OUT.topics,
+                if $omit {
+                    &[]
+                } else {
+                    match $dir {
+                        $crate::TopicDirection::ToServer => $crate::standard_icd::STANDARD_ICD_TOPICS_IN.topics,
+                        $crate::TopicDirection::ToClient => $crate::standard_icd::STANDARD_ICD_TOPICS_OUT.topics,
+                    }
                 }
             };
+
+            const IMPORT_LISTS: &[&[(&str, $crate::Key)]] = &[
+                $($(
+                    $import.topics,
+                )*)?
+            ];
+
+            const IMPORT_COUNT: usize = $crate::uniques::total_len(IMPORT_LISTS);
+            const IMPORT_ARR: [(&str, $crate::Key); IMPORT_COUNT] =
+                $crate::uniques::combine_with_copy(IMPORT_LISTS, ("", NULL_KEY));
+            const IMPORT_TPS: &[(&str, $crate::Key)] = IMPORT_ARR.as_slice();
 
             $crate::concat_arrays! {
                 init = ("", NULL_KEY);
                 ty = (&str, $crate::Key);
-                [STD_TPS, USER_TPS]
+                [STD_TPS, IMPORT_TPS, USER_TPS]
             }
         }
     };
@@ -352,6 +440,7 @@ macro_rules! topics {
         list = $list_name:ident;
         direction = $direction:expr;
         $(omit_std = $omit:tt;)?
+        $(import = [$($import:path),*];)?
         | TopicTy        | MessageTy                                | Path              | $( Cfg           |)?
         | $(-)*          | $(-)*                                    | $(-)*             | $($(-)*          |)?
       $(| $tp_name:ident | $msg_ty:tt $(< $($msg_lt:lifetime),+ >)? | $path_str:literal | $($meta:meta)? $(|)?)*
@@ -380,8 +469,8 @@ macro_rules! topics {
         /// Macro Generated Topic Map
         pub const $list_name: $crate::TopicMap = $crate::TopicMap {
             direction: $direction,
-            types: $crate::topics!(@tp_tys ( $direction ) $(omit_std = $omit;)? $([[$($meta)?] $tp_name])*),
-            topics: $crate::topics!(@tp_tps ( $direction ) $(omit_std = $omit;)? $([[$($meta)?] $tp_name])*),
+            types: $crate::topics!(@tp_tys ( $direction ) $(omit_std = $omit;)? $(import=[$($import),*];)? $([[$($meta)?] $tp_name])*),
+            topics: $crate::topics!(@tp_tps ( $direction ) $(omit_std = $omit;)? $(import=[$($import),*];)? $([[$($meta)?] $tp_name])*),
         };
     };
 }
@@ -501,5 +590,146 @@ mod endpoints_test {
         assert_eq!(TOPICS_IN_LIST.topics.len(), 3);
         assert_eq!(TOPICS_OUT_LIST.types.len(), 5);
         assert_eq!(TOPICS_OUT_LIST.topics.len(), 3);
+    }
+
+    #[derive(Serialize, Deserialize, Schema)]
+    pub struct CReq(pub u32);
+    #[derive(Serialize, Deserialize, Schema)]
+    pub struct CResp(pub u64);
+
+    endpoints! {
+        list = BASE_ENDPOINTS;
+        omit_std = true;
+        | EndpointTy     | RequestTy     | ResponseTy    | Path              |
+        | ----------     | ---------     | ----------    | ----              |
+        | BaseEndpoint1  | CReq          | CResp         | "base/one"        |
+        | BaseEndpoint2  | CReq          | CResp         | "base/two"        |
+    }
+
+    endpoints! {
+        list = IMPORTED_ENDPOINTS;
+        omit_std = true;
+        import = [BASE_ENDPOINTS];
+        | EndpointTy     | RequestTy     | ResponseTy    | Path              |
+        | ----------     | ---------     | ----------    | ----              |
+        | ExtendEndpoint | AReq          | AResp         | "extend/one"      |
+    }
+
+    #[test]
+    fn endpoint_import() {
+        assert_eq!(BASE_ENDPOINTS.types.len(), 2);
+        assert_eq!(BASE_ENDPOINTS.endpoints.len(), 2);
+
+        assert_eq!(IMPORTED_ENDPOINTS.types.len(), 4);
+        assert_eq!(IMPORTED_ENDPOINTS.endpoints.len(), 3);
+
+        let paths: Vec<&str> = IMPORTED_ENDPOINTS.endpoints.iter().map(|e| e.0).collect();
+        assert!(paths.contains(&"base/one"));
+        assert!(paths.contains(&"base/two"));
+        assert!(paths.contains(&"extend/one"));
+    }
+
+    // compile only check
+    #[allow(unused)]
+    endpoints! {
+        list = EMPTY_IMPORT_ENDPOINTS;
+        import = [];
+
+        | EndpointTy     | RequestTy     | ResponseTy    | Path              |
+        | ----------     | ---------     | ----------    | ----              |
+    }
+
+    // compile only check
+    #[allow(unused)]
+    endpoints! {
+        list = EMPTY_IMPORT_WITH_OMIT_STD_TRUE_ENDPOINTS;
+        omit_std = true;
+        import = [];
+
+        | EndpointTy     | RequestTy     | ResponseTy    | Path              |
+        | ----------     | ---------     | ----------    | ----              |
+    }
+
+    // compile only check
+    #[allow(unused)]
+    endpoints! {
+        list = EMPTY_IMPORT_WITH_OMIT_STD_FALSE_ENDPOINTS;
+        omit_std = false;
+        import = [];
+
+        | EndpointTy     | RequestTy     | ResponseTy    | Path              |
+        | ----------     | ---------     | ----------    | ----              |
+    }
+
+    #[derive(Serialize, Deserialize, Schema)]
+    pub struct DTopic(pub u64);
+
+    topics! {
+        list = BASE_TOPICS;
+        direction = crate::TopicDirection::ToClient;
+        omit_std = true;
+        | TopicTy        | MessageTy     | Path              |
+        | ----------     | ---------     | ----              |
+        | BaseTopic1     | DTopic        | "base/topic1"     |
+        | BaseTopic2     | DTopic        | "base/topic2"     |
+    }
+
+    topics! {
+        list = IMPORTED_TOPICS;
+        direction = crate::TopicDirection::ToClient;
+        omit_std = true;
+        import = [BASE_TOPICS];
+        | TopicTy        | MessageTy     | Path              |
+        | ----------     | ---------     | ----              |
+        | ExtendTopic    | BTopic        | "extend/topic"    |
+    }
+
+    #[test]
+    fn topic_import() {
+        assert_eq!(BASE_TOPICS.types.len(), 1);
+        assert_eq!(BASE_TOPICS.topics.len(), 2);
+
+        assert_eq!(IMPORTED_TOPICS.types.len(), 2);
+        assert_eq!(IMPORTED_TOPICS.topics.len(), 3);
+
+        let paths: Vec<&str> = IMPORTED_TOPICS.topics.iter().map(|t| t.0).collect();
+        assert!(paths.contains(&"base/topic1"));
+        assert!(paths.contains(&"base/topic2"));
+        assert!(paths.contains(&"extend/topic"));
+    }
+
+    // compile only check
+    #[allow(unused)]
+    topics! {
+        list = EMPTY_IMPORT_TOPICS;
+        direction = crate::TopicDirection::ToClient;
+        import = [];
+
+        | TopicTy        | MessageTy     | Path              |
+        | ----------     | ---------     | ----              |
+    }
+
+    // compile only check
+    #[allow(unused)]
+    topics! {
+        list = EMPTY_IMPORT_WITH_OMIT_STD_TRUE_TOPICS;
+        direction = crate::TopicDirection::ToClient;
+        omit_std = true;
+        import = [];
+
+        | TopicTy        | MessageTy     | Path              |
+        | ----------     | ---------     | ----              |
+    }
+
+    // compile only check
+    #[allow(unused)]
+    topics! {
+        list = EMPTY_IMPORT_WITH_OMIT_STD_FALSE_TOPICS;
+        direction = crate::TopicDirection::ToClient;
+        omit_std = false;
+        import = [];
+
+        | TopicTy        | MessageTy     | Path              |
+        | ----------     | ---------     | ----              |
     }
 }
