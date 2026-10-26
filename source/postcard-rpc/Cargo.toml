@@ -125,7 +125,7 @@ optional = true
 
 [dependencies.embassy-usb-driver-0_2]
 package = "embassy-usb-driver"
-version = "=0.2.0"
+version = "0.2"
 optional = true
 
 [dependencies.embassy-sync-0_7]
