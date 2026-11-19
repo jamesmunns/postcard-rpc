@@ -21,6 +21,8 @@ pub struct WebUsbWire {
     transfer_max_length: u32,
     ep_in: u8,
     ep_out: u8,
+    /// Max packet size of the OUT endpoint, if it could be detected
+    max_packet_size: Option<usize>,
 }
 
 /// WebUsb Error type
@@ -265,13 +267,38 @@ impl WebUsbWire {
         JsFuture::from(device.claim_interface(interface)).await?;
         info!("done");
 
+        let max_packet_size = out_max_packet_size(&device, interface, ep_out);
+        if let Some(max_packet_size) = &max_packet_size {
+            tracing::debug!(max_packet_size, "Detected max packet size");
+        } else {
+            tracing::warn!("Unable to detect Max Packet Size!");
+        };
+
         Ok(Self {
             device,
             transfer_max_length,
             ep_in,
             ep_out,
+            max_packet_size,
         })
     }
+}
+
+/// Look up the max packet size of the given OUT endpoint in the active configuration
+fn out_max_packet_size(device: &UsbDevice, interface: u8, ep_out: u8) -> Option<usize> {
+    let interface = device
+        .configuration()?
+        .interfaces()
+        .iter()
+        .filter_map(|i| i.dyn_into::<UsbInterface>().ok())
+        .find(|i| i.interface_number() == interface)?;
+    let endpoint = interface
+        .alternate()
+        .endpoints()
+        .iter()
+        .filter_map(|e| e.dyn_into::<UsbEndpoint>().ok())
+        .find(|e| e.direction() == UsbDirection::Out && e.endpoint_number() == ep_out)?;
+    Some(endpoint.packet_size() as usize)
 }
 
 impl WireTx for WebUsbWire {
@@ -282,7 +309,19 @@ impl WireTx for WebUsbWire {
         let data: js_sys::Uint8Array = data.as_slice().into();
         // TODO for reasons unknown, web-sys wants mutable access to the send buffer.
         // tracking issue: https://github.com/rustwasm/wasm-bindgen/issues/3963
+        let len = data.length() as usize;
         JsFuture::from(self.device.transfer_out_with_u8_array(self.ep_out, &data)?).await?;
+
+        // The device takes a short packet as the end of a frame. If the frame is an exact
+        // multiple of the max packet size, there is none, so we need to send a ZLP.
+        let needs_zlp = self
+            .max_packet_size
+            .is_some_and(|mps| mps != 0 && len != 0 && len % mps == 0);
+        if needs_zlp {
+            let zlp = js_sys::Uint8Array::new_with_length(0);
+            JsFuture::from(self.device.transfer_out_with_u8_array(self.ep_out, &zlp)?).await?;
+        }
+
         Ok(())
     }
 }
