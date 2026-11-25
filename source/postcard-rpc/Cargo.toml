@@ -30,7 +30,7 @@ features = [
 cobs = { version = "0.4", optional = true, default-features = false }
 defmt = { version = "1.0", optional = true }
 heapless = "0.9"
-postcard = { version = "1.0.10" }
+postcard = { version = "1.0.10", default-features = false }
 serde = { version = "1.0.192", default-features = false, features = ["derive"] }
 postcard-schema = { version = "0.2.2", features = ["derive"] }
 
